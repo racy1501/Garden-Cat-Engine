@@ -1,0 +1,15 @@
+[project]
+name = "garden-cat-engine"
+version = "4.8.1"
+description = "A persistent multi-garden REST API game designed for AI players"
+requires-python = ">=3.11"
+dependencies = [
+    "flask>=3.1,<4",
+    "gunicorn>=23,<24",
+    "psycopg2-binary>=2.9,<3",
+]
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8,<9",
+]
