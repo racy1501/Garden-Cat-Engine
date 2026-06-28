@@ -27,6 +27,7 @@ let catalog = null;
 let currentState = null;
 let isBusy = false;
 let petCooldownTimer = null;
+let latestGardenNotice = "";
 
 const $ = (selector) => document.querySelector(selector);
 const welcomeScreen = $("#welcomeScreen");
@@ -164,8 +165,14 @@ async function refreshGarden({ quiet = false } = {}) {
   }
 }
 
-async function runCommand(command) {
+async function runCommand(command, sourceButton = null) {
   if (!credentials || isBusy) return;
+  const originalLabel = sourceButton?.textContent || "";
+  if (sourceButton) {
+    sourceButton.disabled = true;
+    sourceButton.textContent = command.startsWith("harvest") ? "收获中…" : "处理中…";
+  }
+  if (command.startsWith("harvest")) showToast("正在收获，请稍等一下…");
   setBusy(true);
   try {
     const data = await requestJson("/web/cmd", {
@@ -177,16 +184,26 @@ async function runCommand(command) {
       }),
     });
     updateFromResponse(data);
-    if (!data.ok) showToast("这个操作没有成功");
+    if (!data.ok) {
+      const firstLine = String(data.message || "这个操作没有成功")
+        .split("\n")
+        .find((line) => line.trim());
+      showToast(firstLine || "这个操作没有成功");
+    }
   } catch (error) {
     showToast(error.message);
   } finally {
     setBusy(false);
+    if (sourceButton?.isConnected) {
+      sourceButton.disabled = false;
+      sourceButton.textContent = originalLabel;
+    }
   }
 }
 
 function updateFromResponse(data, quiet = false) {
   currentState = data.state;
+  if (!quiet && data.message) latestGardenNotice = data.message;
   renderAll();
   if (!quiet && data.message) {
     $("#messageBox").textContent = data.message;
@@ -203,10 +220,18 @@ function renderAll() {
   $("#encyclopediaValue").textContent = `${currentState.encyclopedia_count} / ${Object.keys(catalog.flowers).length}`;
   $("#earnedValue").textContent = `${currentState.total_earned} 块`;
   $("#potCountMeta").textContent = `已解锁 ${currentState.max_pots} / ${currentState.pot_capacity || catalog.max_pots || 6}`;
+  const readyCount = (currentState.pots || []).filter(
+    (pot) => pot.status === "ready" && !pot.has_pest
+  ).length;
+  const harvestAllButton = $("#harvestAllBtn");
+  harvestAllButton.disabled = readyCount === 0;
+  harvestAllButton.textContent = readyCount > 0 ? `一键收获 · ${readyCount}朵` : "暂无成熟花";
+  renderGardenNotice();
   renderPots();
   renderVase();
   renderCat();
-  renderShop();
+  renderSeedShop();
+  renderCatShop();
   renderInventory();
   renderCollection();
   renderEvents();
@@ -219,7 +244,7 @@ function makeButton(label, command, className = "mini-btn", disabled = false) {
   button.className = className;
   button.textContent = label;
   button.disabled = disabled;
-  if (!disabled && command) button.addEventListener("click", () => runCommand(command));
+  if (!disabled && command) button.addEventListener("click", () => runCommand(command, button));
   return button;
 }
 
@@ -244,6 +269,34 @@ function seedOptions(select) {
   }
   return true;
 }
+
+
+function extractGardenNotice(message) {
+  const lines = String(message || "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !line.startsWith("📊"));
+
+  const important = lines.filter((line) =>
+    /^(🌈|🦋|🎁|✉️|🐛|💀|🌤️|🌧️|🎉|🌸|🧺|🧹|💐)/.test(line)
+  );
+  if (important.length) return important.slice(0, 4).join("\n");
+  return lines[0] || "";
+}
+
+function renderGardenNotice() {
+  const root = $("#gardenNoticeText");
+  let notice = extractGardenNotice(latestGardenNotice);
+  if (!notice) {
+    const events = currentState.recent_events || [];
+    notice = events.length
+      ? events[events.length - 1]
+      : "花园很安静，风从花叶间穿过去。";
+  }
+  root.textContent = notice;
+}
+
 
 function renderPots() {
   const grid = $("#potsGrid");
@@ -385,7 +438,7 @@ function renderVase() {
   for (let position = 1; position <= capacity; position += 1) {
     const entry = entries.find((item) => item.position === position);
     const slot = document.createElement("div");
-    slot.className = "vase-slot";
+    slot.className = "vase-slot real-vase-slot";
     if (entry) {
       const icon = document.createElement("div");
       icon.className = "vase-flower";
@@ -473,19 +526,19 @@ function renderCat() {
   portrait.className = "cat-portrait";
   const catImage = document.createElement("img");
   catImage.src = "/static/orange_cat.png";
-  catImage.alt = "橘猫头像";
+  catImage.alt = "躺在猫窝里的橘猫";
   catImage.className = "cat-image";
   const catName = document.createElement("h3");
   catName.textContent = cat.name || "小猫";
   portrait.append(catImage, catName);
-  const badges = document.createElement("div");
-  badges.className = "cat-badges";
+  const utilities = document.createElement("div");
+  utilities.className = "cat-utilities";
   const owned = new Set(currentState.permanent_items || []);
-  badges.innerHTML = `
-    <span class="badge ${owned.has("water_bowl") ? "" : "locked-badge"}">💧 水碗</span>
-    <span class="badge ${owned.has("cat_bed") ? "" : "locked-badge"}">🛏️ 猫窝</span>
+  utilities.innerHTML = `
+    <div class="utility-card ${owned.has("water_bowl") ? "" : "locked"}">💧<strong>水碗</strong></div>
+    <div class="utility-card ${owned.has("cat_bed") ? "" : "locked"}">🛏️<strong>猫窝</strong></div>
   `;
-  portrait.append(badges);
+  portrait.append(utilities);
 
   const details = document.createElement("div");
   details.append(
@@ -547,58 +600,95 @@ function startPetCooldownTimer() {
   }, 1000);
 }
 
-function renderShop() {
-  const root = $("#shopTab");
+function createShopCard({ iconText, iconId, title, metaLines, buttonLabel, command, disabled, locked = false }) {
+  const item = document.createElement("div");
+  item.className = `shop-square-card ${locked ? "locked" : ""}`;
+
+  const icon = document.createElement("div");
+  icon.className = "shop-square-icon";
+  if (iconId) setFlowerIcon(icon, iconId);
+  else icon.textContent = iconText || "🎁";
+
+  const name = document.createElement("strong");
+  name.className = "shop-square-name";
+  name.textContent = title;
+
+  const note = document.createElement("small");
+  note.className = "shop-square-note";
+  note.innerHTML = metaLines.map((line) => escapeText(line)).join("<br>");
+
+  const button = makeButton(
+    buttonLabel,
+    command,
+    "mini-btn shop-buy-btn",
+    disabled
+  );
+
+  item.append(icon, name, note, button);
+  return item;
+}
+
+function renderSeedShop() {
+  const root = $("#seedShopGrid");
   root.innerHTML = "";
   const unlocked = new Set(currentState.unlocked_flowers || []);
-  const heading = document.createElement("h3");
-  heading.className = "subheading";
-  heading.textContent = "花种";
-  root.append(heading);
-  const flowerList = document.createElement("div");
-  flowerList.className = "shop-list";
+
   for (const [id, flower] of Object.entries(catalog.flowers)) {
     const isUnlocked = unlocked.has(id);
-    const item = document.createElement("div");
-    item.className = `shop-item ${isUnlocked ? "" : "locked"}`;
-    const icon = document.createElement("div");
-    icon.className = "item-icon";
-    if (isUnlocked) setFlowerIcon(icon, id);
-    else icon.textContent = "🔒";
-    const meta = document.createElement("div");
-    meta.className = "item-meta";
-    const note = isUnlocked
-      ? `${flower.rarity_name} · ${Math.round(flower.grow_time / 60)}分钟 · 售${flower.sell_price}块`
-      : `图鉴达到${flower.unlock_requirement}种后解锁`;
-    meta.innerHTML = `<strong>${escapeText(flower.name)}</strong><small>${note}</small>`;
-    const button = makeButton(`${flower.seed_price}块`, `buy ${id} 1`, "mini-btn", !isUnlocked || currentState.money < flower.seed_price);
-    item.append(icon, meta, button);
-    flowerList.append(item);
-  }
-  root.append(flowerList);
+    const metaLines = isUnlocked
+      ? [`${flower.seed_price}块`, `约${Math.round(flower.grow_time / 60)}分钟成熟`]
+      : [`图鉴${flower.unlock_requirement}种后解锁`];
 
-  const itemHeading = document.createElement("h3");
-  itemHeading.className = "subheading";
-  itemHeading.textContent = "猫咪用品";
-  root.append(itemHeading);
-  const itemList = document.createElement("div");
-  itemList.className = "shop-list";
-  for (const [id, itemData] of Object.entries(catalog.items)) {
-    const ownedPermanent = itemData.type === "permanent" && (currentState.permanent_items || []).includes(id);
-    const item = document.createElement("div");
-    item.className = "shop-item";
-    const icon = document.createElement("div");
-    icon.className = "item-icon";
-    icon.textContent = ITEM_EMOJI[id] || "🎁";
-    const meta = document.createElement("div");
-    meta.className = "item-meta";
-    const typeText = itemData.type === "permanent" ? "永久用品" : itemData.type === "toy" ? "一次性玩具" : "消耗品";
-    meta.innerHTML = `<strong>${escapeText(itemData.name)}</strong><small>${typeText}</small>`;
-    const button = makeButton(ownedPermanent ? "已拥有" : `${itemData.price}块`, `buy ${id} 1`, "mini-btn", ownedPermanent || currentState.money < itemData.price);
-    item.append(icon, meta, button);
-    itemList.append(item);
+    root.append(
+      createShopCard({
+        iconText: isUnlocked ? "" : "🔒",
+        iconId: isUnlocked ? id : "",
+        title: flower.name,
+        metaLines,
+        buttonLabel: isUnlocked ? "购买" : "未解锁",
+        command: `buy ${id} 1`,
+        disabled: !isUnlocked || currentState.money < flower.seed_price,
+        locked: !isUnlocked,
+      })
+    );
   }
-  root.append(itemList);
+}
+
+const ITEM_EFFECT_TEXT = {
+  basic_food: ["消耗品", "饱食 +30"],
+  premium_food: ["消耗品", "饱食 +60 · 心情 +10"],
+  water_bowl: ["永久用品", "口渴下降速度减半"],
+  cat_bed: ["永久用品", "心情自然下降降低40%"],
+  ball: ["一次性玩具", "心情 +15 · 亲密 +5"],
+  feather_wand: ["一次性玩具", "心情 +20 · 亲密 +8"],
+};
+
+function renderCatShop() {
+  const root = $("#catShopGrid");
+  root.innerHTML = "";
+  const owned = new Set(currentState.permanent_items || []);
+
+  for (const [id, itemData] of Object.entries(catalog.items)) {
+    const ownedPermanent = itemData.type === "permanent" && owned.has(id);
+    const effectLines = ITEM_EFFECT_TEXT[id] || [
+      itemData.type === "permanent"
+        ? "永久用品"
+        : itemData.type === "toy"
+          ? "一次性玩具"
+          : "消耗品",
+    ];
+
+    root.append(
+      createShopCard({
+        iconText: ITEM_EMOJI[id] || "🎁",
+        title: itemData.name,
+        metaLines: [`${itemData.price}块`, ...effectLines],
+        buttonLabel: ownedPermanent ? "已拥有" : "购买",
+        command: `buy ${id} 1`,
+        disabled: ownedPermanent || currentState.money < itemData.price,
+      })
+    );
+  }
 }
 
 function renderInventory() {
@@ -800,7 +890,7 @@ async function initialize() {
   }
   showApp();
   try {
-    await refreshGarden();
+    await refreshGarden({ quiet: true });
   } catch {
     // refreshGarden 已处理无效钥匙与提示。
   }
@@ -834,6 +924,8 @@ $("#keyBtn").addEventListener("click", showKeyModal);
 $("#modalClose").addEventListener("click", closeModal);
 $("#modal").addEventListener("click", (event) => { if (event.target.id === "modal") closeModal(); });
 
+$("#harvestAllBtn").addEventListener("click", (event) => runCommand("harvest all", event.currentTarget));
+
 $("#commandForm").addEventListener("submit", (event) => {
   event.preventDefault();
   const command = $("#commandInput").value.trim();
@@ -858,6 +950,18 @@ for (const button of document.querySelectorAll(".tab-btn")) {
     document.querySelectorAll(".tab-content").forEach((item) => item.classList.remove("active"));
     button.classList.add("active");
     $(`#${button.dataset.tab}Tab`).classList.add("active");
+  });
+}
+
+for (const button of document.querySelectorAll(".store-tab-btn")) {
+  button.addEventListener("click", () => {
+    document.querySelectorAll(".store-tab-btn").forEach((item) => item.classList.remove("active"));
+    document.querySelectorAll(".store-pane").forEach((item) => item.classList.remove("active"));
+    button.classList.add("active");
+    const paneId = button.dataset.storeTab === "cat-items"
+      ? "#catItemsStorePane"
+      : "#seedsStorePane";
+    $(paneId).classList.add("active");
   });
 }
 

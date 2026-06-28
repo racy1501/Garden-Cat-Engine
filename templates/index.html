@@ -73,17 +73,38 @@
           <article class="panel garden-panel">
             <div class="panel-heading">
               <div><p class="section-kicker">THE GARDEN</p><h2>花园</h2></div>
-              <span id="potCountMeta" class="muted">已解锁 3 / 6</span>
+              <div class="garden-heading-actions">
+                <span id="potCountMeta" class="muted">已解锁 3 / 6</span>
+                <button id="harvestAllBtn" class="mini-btn gold" type="button">暂无成熟花</button>
+              </div>
+            </div>
+            <div id="gardenNotice" class="garden-notice" aria-live="polite">
+              <span class="notice-bell">🔔</span>
+              <span id="gardenNoticeText">花园很安静，风从花叶间穿过去。</span>
             </div>
             <div id="potsGrid" class="pots-grid"></div>
           </article>
 
-          <article class="panel vase-panel">
-            <div class="panel-heading">
-              <div><p class="section-kicker">FLOWER VASE</p><h2>今日插花</h2></div>
-              <span class="muted">鲜花保鲜约12小时</span>
+          <article class="panel store-panel">
+            <div class="panel-heading compact">
+              <div><p class="section-kicker">GARDEN SHOP</p><h2>商店</h2></div>
+              <span class="muted">购买后会进入背包</span>
             </div>
-            <div id="vaseGrid" class="vase-grid"></div>
+
+            <div class="store-tabs" role="tablist" aria-label="商店分类">
+              <button class="store-tab-btn active" data-store-tab="seeds" type="button">花种</button>
+              <button class="store-tab-btn" data-store-tab="cat-items" type="button">猫咪用品</button>
+            </div>
+
+            <div id="seedsStorePane" class="store-pane active">
+              <p class="store-hint">花种购买后进入背包，可在上方空花盆种植。</p>
+              <div id="seedShopGrid" class="shop-card-grid"></div>
+            </div>
+
+            <div id="catItemsStorePane" class="store-pane">
+              <p class="store-hint">消耗品和玩具会进入背包，永久用品购买一次即可。</p>
+              <div id="catShopGrid" class="shop-card-grid"></div>
+            </div>
           </article>
 
           <article class="panel cat-panel">
@@ -92,17 +113,25 @@
             </div>
             <div id="catContent"></div>
           </article>
+
+
+
+          <article class="panel vase-panel">
+            <div class="panel-heading">
+              <div><p class="section-kicker">FLOWER VASE</p><h2>今日插花</h2></div>
+              <span class="muted">鲜花保鲜约12小时</span>
+            </div>
+            <div id="vaseGrid" class="vase-grid"></div>
+          </article>
         </div>
 
         <aside class="side-column">
           <article class="panel tabs-panel">
-            <div class="tabs" role="tablist">
-              <button class="tab-btn active" data-tab="shop" type="button">商店</button>
-              <button class="tab-btn" data-tab="inventory" type="button">背包</button>
+            <div class="tabs two-tabs" role="tablist">
+              <button class="tab-btn active" data-tab="inventory" type="button">背包</button>
               <button class="tab-btn" data-tab="collection" type="button">收藏</button>
             </div>
-            <div id="shopTab" class="tab-content active"></div>
-            <div id="inventoryTab" class="tab-content"></div>
+            <div id="inventoryTab" class="tab-content active"></div>
             <div id="collectionTab" class="tab-content"></div>
           </article>
 

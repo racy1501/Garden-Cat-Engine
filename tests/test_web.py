@@ -150,3 +150,63 @@ def test_v486_fixed_six_pot_layout_and_prices(tmp_path):
     assert "locked-pot" in js
     assert "potCountMeta" in html
     assert "buyPotBtn" not in html
+
+
+def test_v487_main_action_area_and_harvest_all(tmp_path):
+    game_api = load_app(tmp_path)
+    client = game_api.app.test_client()
+    root = Path(__file__).resolve().parents[1]
+    html = (root / "templates" / "index.html").read_text(encoding="utf-8")
+    js = (root / "static" / "app.js").read_text(encoding="utf-8")
+    css = (root / "static" / "style.css").read_text(encoding="utf-8")
+
+    assert 'id="gardenNotice"' in html
+    assert 'id="seedShopGrid"' in html
+    assert 'id="harvestAllBtn"' in html
+    assert 'data-store-tab="seeds"' in html
+    assert 'data-store-tab="cat-items"' in html
+    assert 'id="suppliesTab"' not in html
+    assert 'runCommand("harvest all"' in js
+    assert "renderSeedShop()" in js
+    assert "renderGardenNotice()" in js
+    assert "pointer-events: none" not in css.split(".loading", 1)[1].split("}", 1)[0]
+
+
+def test_v488_mobile_compact_layout():
+    root = Path(__file__).resolve().parents[1]
+    css = (root / "static" / "style.css").read_text(encoding="utf-8")
+    assert "grid-template-columns: 1.35fr repeat(3, minmax(0, 1fr));" in css
+    assert ".pots-grid {" in css
+    assert "grid-template-columns: repeat(2, minmax(0, 1fr));" in css
+    assert ".vase-grid {" in css
+    assert ".command-panel {" in css
+    assert "display: none;" in css
+
+
+def test_v489_mobile_three_columns_and_cat_before_vase():
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    html = (root / "templates" / "index.html").read_text(encoding="utf-8")
+    css = (root / "static" / "style.css").read_text(encoding="utf-8")
+    assert '购买后进入背包，可在上方空花盆种植' in html
+    assert html.index('class="panel cat-panel"') < html.index('class="panel vase-panel"')
+    assert 'grid-template-columns: repeat(3, minmax(0, 1fr));' in css
+    assert '.utility-card' in css
+
+
+def test_v4810_compact_store_and_item_effects():
+    root = Path(__file__).resolve().parents[1]
+    html = (root / "templates" / "index.html").read_text(encoding="utf-8")
+    js = (root / "static" / "app.js").read_text(encoding="utf-8")
+    css = (root / "static" / "style.css").read_text(encoding="utf-8")
+
+    assert 'id="catShopGrid"' in html
+    assert 'data-store-tab="seeds"' in html
+    assert 'data-store-tab="cat-items"' in html
+    assert 'id="suppliesTab"' not in html
+    assert "renderCatShop()" in js
+    assert "口渴下降速度减半" in js
+    assert "心情自然下降降低40%" in js
+    assert "grid-template-columns: repeat(4, minmax(0, 1fr));" in css
+    assert ".shop-square-card" in css
+    assert ".vase-grid.real-vase" in css

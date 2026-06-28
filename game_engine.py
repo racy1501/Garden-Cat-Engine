@@ -1,8 +1,8 @@
 """
-花园与猫咪 v4.8.6 - API与网页兼容游戏引擎
+花园与猫咪 v4.8.10 - API与网页兼容游戏引擎
 支持独立存档 API、可视化网页与本地单文件运行
 
-v4.8.6 更新：
+v4.8.10 更新：
 - 天气生长倍率重平衡：晴天1.1 / 雨天1.2 / 多云1.0
 - 网页状态摘要新增游戏时间、天气倍率、花盆当前倍率与摸猫冷却
 
@@ -715,9 +715,9 @@ def get_weather_info(state, now):
                 gold = random.randint(3, 5)
                 state["money"] += gold
                 messages.append(f"   💰 蝴蝶掉落了{gold}块金币！")
-                add_event(state, "蝴蝶掉落金币")
+                add_event(state, f"🦋 蝴蝶掉落了{gold}块金币")
             else:
-                add_event(state, "蝴蝶飞过")
+                add_event(state, "🦋 一只蝴蝶飞过花园")
 
     if state["cat"] is not None:
         if now - state.get("last_collectible_check", now) >= COLLECTIBLE_CHECK_INTERVAL:
@@ -727,7 +727,7 @@ def get_weather_info(state, now):
                 collectible_id = collectible["id"]
                 state["collectibles"][collectible_id] = state["collectibles"].get(collectible_id, 0) + 1
                 messages.append(f"🎁 小猫带回来了{collectible['emoji']}{collectible['name']}！")
-                add_event(state, f"猫咪带回{collectible['name']}")
+                add_event(state, f"🎁 猫咪带回了{collectible['emoji']}{collectible['name']}")
 
         if now - state.get("last_letter_check", now) >= LETTER_CHECK_INTERVAL:
             state["last_letter_check"] = now
@@ -740,7 +740,7 @@ def get_weather_info(state, now):
                     messages.append("\n✉️ 收到猫咪的一封信！")
                     messages.append(f"   「{letter['text']}」")
                     messages.append(f"   （已收集{len(state['letters_received'])}/5封）")
-                    add_event(state, "猫咪写信")
+                    add_event(state, f"✉️ 收到猫咪第{next_letter_idx + 1}封信")
 
     return weather_data, messages
 
@@ -1022,6 +1022,102 @@ def _summary(state):
     return text
 
 
+
+def _harvest_one_pot(state, pot_idx, now, weather_data):
+    """收获一个花盆，返回玩家可读结果。"""
+    if pot_idx < 0 or pot_idx >= state["max_pots"]:
+        return f"❌ 盆号必须是1-{state['max_pots']}"
+
+    pot = state["pots"][pot_idx]
+    if pot is None:
+        return "❌ 这个盆是空的"
+    if is_pot_withered(pot):
+        return f"❌ 这盆花已经枯萎，请使用 clear {pot_idx + 1} 清理"
+    if "pest_time" in pot and now < pot["pest_time"] and (
+        pot_idx not in state["pest_treatment"]
+        or now >= state["pest_treatment"].get(pot_idx, 0)
+    ):
+        return "❌ 花长虫子了！先治疗才能收获"
+
+    flower_id = pot["flower_id"]
+    flower_data = FLOWERS[flower_id]
+    grow_time = flower_data["grow_time"]
+    progress = float(pot.get("growth_progress", 0.0))
+
+    if progress < grow_time:
+        if not pot.get("watered", True):
+            return "❌ 这盆花还没浇水，生长暂停"
+        speed = weather_data["grow_speed"]
+        remaining = (grow_time - progress) / speed
+        return f"❌ 还没成熟，还需约{format_time(remaining)}"
+
+    state["inventory"]["flowers"][flower_id] = (
+        state["inventory"]["flowers"].get(flower_id, 0) + 1
+    )
+    state["pots"][pot_idx] = None
+    state["pest_treatment"].pop(pot_idx, None)
+
+    if flower_id in state["encyclopedia"]:
+        return f"🌸 收获了{flower_data['name']}！"
+
+    encyclopedia_before = list(state["encyclopedia"])
+    before_count = len(encyclopedia_before)
+    state["encyclopedia"].append(flower_id)
+    after_count = len(state["encyclopedia"])
+    result = f"🎉 收获{flower_data['name']}！图鉴+1！"
+    reward = ENCYCLOPEDIA_REWARDS.get(flower_id, {})
+    reward_text = []
+
+    for seed_id, qty in reward.get("seeds", {}).items():
+        state["inventory"]["seeds"][seed_id] = (
+            state["inventory"]["seeds"].get(seed_id, 0) + qty
+        )
+        reward_text.append(f"{FLOWERS[seed_id]['name']}种子x{qty}")
+
+    for item_id, qty in reward.get("items", {}).items():
+        state["inventory"]["items"][item_id] = (
+            state["inventory"]["items"].get(item_id, 0) + qty
+        )
+        reward_text.append(f"{ITEMS[item_id]['name']}x{qty}")
+
+    if "permanent" in reward:
+        permanent_id = reward["permanent"]
+        if permanent_id not in state["permanent_items"]:
+            state["permanent_items"].append(permanent_id)
+            reward_text.append(f"{ITEMS[permanent_id]['name']}（永久）")
+        else:
+            compensation = int(ITEMS[permanent_id]["price"])
+            state["money"] += compensation
+            reward_text.append(
+                f"{ITEMS[permanent_id]['name']}已拥有，折算{compensation}块"
+            )
+
+    if "cat_mood" in reward:
+        mood_bonus = int(reward["cat_mood"])
+        if state["cat"] is not None:
+            state["cat_stats"]["mood"] = min(
+                100, state["cat_stats"]["mood"] + mood_bonus
+            )
+            reward_text.append(f"猫咪心情+{mood_bonus}")
+        else:
+            state["pending_cat_mood_bonus"] += mood_bonus
+            reward_text.append(f"猫咪心情+{mood_bonus}（收养后生效）")
+
+    if reward_text:
+        result += "\n🎁 解锁奖励：" + ", ".join(reward_text)
+
+    newly_unlocked = get_stage_unlocks(
+        before_count,
+        after_count,
+        encyclopedia_before,
+    )
+    if newly_unlocked:
+        result += "\n🔓 商店新解锁：" + "、".join(newly_unlocked)
+
+    return result
+
+
+
 def process_command(state, command):
     """在传入的存档字典上执行命令，并原地更新状态。
 
@@ -1194,87 +1290,38 @@ def process_command(state, command):
 
     elif action == "harvest":
         if len(parts) != 2:
-            result = "❌ 用法：harvest <盆号>"
+            result = "❌ 用法：harvest <盆号> 或 harvest all"
+        elif parts[1].lower() == "all":
+            ready_indices = []
+            for pot_idx, pot in enumerate(state["pots"][: state["max_pots"]]):
+                if pot is None or is_pot_withered(pot):
+                    continue
+                if "pest_time" in pot and now < pot["pest_time"] and (
+                    pot_idx not in state["pest_treatment"]
+                    or now >= state["pest_treatment"].get(pot_idx, 0)
+                ):
+                    continue
+                flower_id = pot["flower_id"]
+                if float(pot.get("growth_progress", 0.0)) >= FLOWERS[flower_id]["grow_time"]:
+                    ready_indices.append(pot_idx)
+
+            if not ready_indices:
+                result = "❌ 现在没有可以收获的成熟花朵"
+            else:
+                harvested_messages = [
+                    _harvest_one_pot(state, pot_idx, now, weather_data)
+                    for pot_idx in ready_indices
+                ]
+                result = (
+                    f"🧺 一键收获完成，共收获{len(ready_indices)}朵花！\n\n"
+                    + "\n\n".join(harvested_messages)
+                )
         else:
             pot_idx = get_pot_index(parts[1], state)
             if pot_idx is None:
                 result = f"❌ 盆号必须是1-{state['max_pots']}"
             else:
-                pot = state["pots"][pot_idx]
-                if pot is None:
-                    result = "❌ 这个盆是空的"
-                elif is_pot_withered(pot):
-                    result = f"❌ 这盆花已经枯萎，请使用 clear {pot_idx + 1} 清理"
-                elif "pest_time" in pot and now < pot["pest_time"] and (
-                    pot_idx not in state["pest_treatment"] or now >= state["pest_treatment"].get(pot_idx, 0)
-                ):
-                    result = "❌ 花长虫子了！先治疗才能收获"
-                else:
-                    flower_id = pot["flower_id"]
-                    flower_data = FLOWERS[flower_id]
-                    grow_time = flower_data["grow_time"]
-                    progress = float(pot.get("growth_progress", 0.0))
-                    if progress >= grow_time:
-                        state["inventory"]["flowers"][flower_id] = state["inventory"]["flowers"].get(flower_id, 0) + 1
-                        state["pots"][pot_idx] = None
-                        state["pest_treatment"].pop(pot_idx, None)
-
-                        if flower_id not in state["encyclopedia"]:
-                            encyclopedia_before = list(state["encyclopedia"])
-                            before_count = len(encyclopedia_before)
-                            state["encyclopedia"].append(flower_id)
-                            after_count = len(state["encyclopedia"])
-                            result = f"🎉 收获{flower_data['name']}！图鉴+1！"
-                            reward = ENCYCLOPEDIA_REWARDS.get(flower_id, {})
-                            reward_text = []
-
-                            for seed_id, qty in reward.get("seeds", {}).items():
-                                state["inventory"]["seeds"][seed_id] = state["inventory"]["seeds"].get(seed_id, 0) + qty
-                                reward_text.append(f"{FLOWERS[seed_id]['name']}种子x{qty}")
-
-                            for item_id, qty in reward.get("items", {}).items():
-                                state["inventory"]["items"][item_id] = state["inventory"]["items"].get(item_id, 0) + qty
-                                reward_text.append(f"{ITEMS[item_id]['name']}x{qty}")
-
-                            if "permanent" in reward:
-                                permanent_id = reward["permanent"]
-                                if permanent_id not in state["permanent_items"]:
-                                    state["permanent_items"].append(permanent_id)
-                                    reward_text.append(f"{ITEMS[permanent_id]['name']}（永久）")
-                                else:
-                                    compensation = int(ITEMS[permanent_id]["price"])
-                                    state["money"] += compensation
-                                    reward_text.append(
-                                        f"{ITEMS[permanent_id]['name']}已拥有，折算{compensation}块"
-                                    )
-
-                            if "cat_mood" in reward:
-                                mood_bonus = int(reward["cat_mood"])
-                                if state["cat"] is not None:
-                                    state["cat_stats"]["mood"] = min(100, state["cat_stats"]["mood"] + mood_bonus)
-                                    reward_text.append(f"猫咪心情+{mood_bonus}")
-                                else:
-                                    state["pending_cat_mood_bonus"] += mood_bonus
-                                    reward_text.append(f"猫咪心情+{mood_bonus}（收养后生效）")
-
-                            if reward_text:
-                                result += "\n🎁 解锁奖励：" + ", ".join(reward_text)
-
-                            newly_unlocked = get_stage_unlocks(
-                                before_count,
-                                after_count,
-                                encyclopedia_before,
-                            )
-                            if newly_unlocked:
-                                result += "\n🔓 商店新解锁：" + "、".join(newly_unlocked)
-                        else:
-                            result = f"🌸 收获了{flower_data['name']}！"
-                    elif not pot.get("watered", True):
-                        result = "❌ 这盆花还没浇水，生长暂停"
-                    else:
-                        speed = weather_data["grow_speed"]
-                        remaining = (grow_time - progress) / speed
-                        result = f"❌ 还没成熟，还需约{format_time(remaining)}"
+                result = _harvest_one_pot(state, pot_idx, now, weather_data)
 
     elif action == "treat":
         if len(parts) != 2:
@@ -1597,7 +1644,7 @@ shop - 查看商店
 buy <物品> [数量] - 买东西（数量必须大于0）
 plant <花> <盆号> - 种花（雨天自动浇水，否则需手动浇水才能生长）
 water <盆号|all> - 给花浇水（浇一次永久有效，直到收获）
-harvest <盆号> - 收花
+harvest <盆号|all> - 收获一盆，或一键收获全部成熟花朵
 sell <花> [数量] - 卖花，或 sell all
 treat <盆号> - 治疗害虫({PEST_TREATMENT_COST}块，本轮不再长虫)
 clear <盆号> - 清理枯萎花（50%概率获得少量金币）

@@ -183,3 +183,58 @@ def test_pot_unlock_rejects_when_next_price_is_unaffordable():
     result = process_command(state, "buy_pot")
     assert result.startswith("❌")
     assert state["max_pots"] == 3
+
+
+def test_harvest_all_collects_every_ready_flower():
+    state = fresh_state()
+    now = int(time.time())
+    state["pots"] = [
+        {
+            "flower_id": "daisy",
+            "planted_time": now - 1000,
+            "watered": True,
+            "growth_progress": FLOWERS["daisy"]["grow_time"],
+            "last_growth_update": now,
+        },
+        {
+            "flower_id": "tulip",
+            "planted_time": now - 1000,
+            "watered": True,
+            "growth_progress": FLOWERS["tulip"]["grow_time"],
+            "last_growth_update": now,
+        },
+        None,
+    ]
+    result = process_command(state, "harvest all")
+    assert "共收获2朵花" in result
+    assert state["pots"][0] is None
+    assert state["pots"][1] is None
+    assert state["inventory"]["flowers"]["daisy"] == 1
+    assert state["inventory"]["flowers"]["tulip"] == 1
+
+
+def test_harvest_all_skips_unready_and_pested_flowers():
+    state = fresh_state()
+    now = int(time.time())
+    state["pots"] = [
+        {
+            "flower_id": "daisy",
+            "planted_time": now,
+            "watered": True,
+            "growth_progress": 10,
+            "last_growth_update": now,
+        },
+        {
+            "flower_id": "tulip",
+            "planted_time": now - 1000,
+            "watered": True,
+            "growth_progress": FLOWERS["tulip"]["grow_time"],
+            "last_growth_update": now,
+            "pest_time": now + 300,
+        },
+        None,
+    ]
+    result = process_command(state, "harvest all")
+    assert result.startswith("❌")
+    assert state["pots"][0] is not None
+    assert state["pots"][1] is not None
