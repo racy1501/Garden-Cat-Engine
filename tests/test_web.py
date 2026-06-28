@@ -1,0 +1,152 @@
+from pathlib import Path
+import importlib
+import os
+
+
+def load_app(tmp_path):
+    os.environ["SQLITE_PATH"] = str(tmp_path / "garden_web.db")
+    os.environ["GARDEN_API_KEY"] = "test-key"
+    import game_api
+    return importlib.reload(game_api)
+
+
+def test_home_serves_visual_frontend(tmp_path):
+    game_api = load_app(tmp_path)
+    client = game_api.app.test_client()
+    response = client.get("/")
+    assert response.status_code == 200
+    assert response.content_type.startswith("text/html")
+    assert "花园与猫咪" in response.get_data(as_text=True)
+    assert "/static/app.js" in response.get_data(as_text=True)
+
+
+def test_web_garden_uses_private_per_garden_token(tmp_path):
+    game_api = load_app(tmp_path)
+    client = game_api.app.test_client()
+
+    created = client.post("/web/register", json={"name": "人类花园"})
+    assert created.status_code == 200
+    sid = created.json["session_id"]
+    token = created.json["garden_token"]
+    assert sid.startswith("web_")
+    assert token
+
+    status = client.get(
+        f"/web/status?session_id={sid}",
+        headers={"X-Garden-Token": token},
+    )
+    assert status.status_code == 200
+    assert status.json["state"]["garden_name"] == "人类花园"
+
+    denied = client.get(
+        f"/web/status?session_id={sid}",
+        headers={"X-Garden-Token": "wrong-token"},
+    )
+    assert denied.status_code == 401
+
+
+def test_web_command_does_not_need_global_api_key(tmp_path):
+    game_api = load_app(tmp_path)
+    client = game_api.app.test_client()
+    created = client.post("/web/register", json={})
+    sid = created.json["session_id"]
+    token = created.json["garden_token"]
+
+    result = client.post(
+        "/web/cmd",
+        headers={"X-Garden-Token": token},
+        json={"session_id": sid, "command": "buy daisy 1"},
+    )
+    assert result.status_code == 200
+    assert result.json["state"]["money"] == 47
+
+
+def test_catalog_is_public_and_ai_api_stays_protected(tmp_path):
+    game_api = load_app(tmp_path)
+    client = game_api.app.test_client()
+    catalog = client.get("/api/catalog")
+    assert catalog.status_code == 200
+    assert catalog.json["flowers"]["moonflower"]["unlock_requirement"] == 7
+    assert client.post("/api/register", json={}).status_code == 401
+
+
+def test_web_summary_includes_cat_name_and_readable_letters(tmp_path):
+    game_api = load_app(tmp_path)
+    client = game_api.app.test_client()
+    created = client.post("/web/register", json={})
+    sid = created.json["session_id"]
+    token = created.json["garden_token"]
+
+    state = game_api.db_load_state(sid)
+    state["money"] = 200
+    state["letters_received"] = [0, 1]
+    game_api.db_save_state(sid, state)
+
+    adopted = client.post(
+        "/web/cmd",
+        headers={"X-Garden-Token": token},
+        json={"session_id": sid, "command": "adopt 栗子"},
+    )
+    assert adopted.status_code == 200
+    assert adopted.json["state"]["cat"]["name"] == "栗子"
+    assert len(adopted.json["state"]["letters"]) == 2
+    assert "爪印" in adopted.json["state"]["letters"][0]["text"]
+
+
+def test_web_summary_includes_time_speed_and_pet_cooldown(tmp_path):
+    game_api = load_app(tmp_path)
+    client = game_api.app.test_client()
+    created = client.post("/web/register", json={})
+    sid = created.json["session_id"]
+    token = created.json["garden_token"]
+
+    state = game_api.db_load_state(sid)
+    state["money"] = 200
+    game_api.db_save_state(sid, state)
+    adopted = client.post(
+        "/web/cmd",
+        headers={"X-Garden-Token": token},
+        json={"session_id": sid, "command": "adopt 栗子"},
+    )
+    summary = adopted.json["state"]
+    assert summary["weather_grow_speed"] in (1.0, 1.1, 1.2)
+    assert summary["game_day"] >= 1
+    assert summary["daypart"] in {"清晨", "上午", "中午", "下午", "傍晚", "夜晚"}
+    assert summary["cat"]["pet_cooldown_remaining_seconds"] == 0
+
+
+def test_v485_ui_assets_and_labels():
+    from pathlib import Path
+    root = Path(__file__).resolve().parents[1]
+    html = (root / "templates" / "index.html").read_text(encoding="utf-8")
+    js = (root / "static" / "app.js").read_text(encoding="utf-8")
+    css = (root / "static" / "style.css").read_text(encoding="utf-8")
+    assert "👝" in html
+    assert "· ×1.1" not in html
+    assert "/static/orange_cat.png" in js
+    assert "/static/lavender.svg" in js
+    assert ".mini-btn:disabled" in css
+    assert (root / "static" / "orange_cat.png").exists()
+    assert (root / "static" / "lavender.svg").exists()
+
+
+def test_v486_fixed_six_pot_layout_and_prices(tmp_path):
+    game_api = load_app(tmp_path)
+    client = game_api.app.test_client()
+    catalog = client.get("/api/catalog").json
+    assert catalog["max_pots"] == 6
+    assert catalog["pot_unlock_costs"] == {"4": 20, "5": 35, "6": 50}
+
+    created = client.post("/web/register", json={})
+    state = created.json["state"]
+    assert state["max_pots"] == 3
+    assert state["pot_capacity"] == 6
+    assert state["next_pot_cost"] == 20
+
+    root = Path(__file__).resolve().parents[1]
+    js = (root / "static" / "app.js").read_text(encoding="utf-8")
+    html = (root / "templates" / "index.html").read_text(encoding="utf-8")
+    assert "for (let slot = 1; slot <= capacity; slot += 1)" in js
+    assert "locked-pot" in js
+    assert "potCountMeta" in html
+    assert "buyPotBtn" not in html

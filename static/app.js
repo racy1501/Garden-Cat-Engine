@@ -1,0 +1,880 @@
+const STORAGE_KEY = "garden_cat_web_credentials_v1";
+
+const FLOWER_ICON_ASSET = { lavender: "/static/lavender.svg" };
+
+const FLOWER_EMOJI = {
+  daisy: "🌼",
+  tulip: "🌷",
+  sunflower: "🌻",
+  rose: "🌹",
+  lavender: "🪻",
+  lily: "🪷",
+  cherry: "🌸",
+  moonflower: "🌙",
+};
+
+const ITEM_EMOJI = {
+  basic_food: "🥣",
+  premium_food: "🍗",
+  water_bowl: "💧",
+  cat_bed: "🛏️",
+  ball: "🧶",
+  feather_wand: "🪶",
+};
+
+let credentials = null;
+let catalog = null;
+let currentState = null;
+let isBusy = false;
+let petCooldownTimer = null;
+
+const $ = (selector) => document.querySelector(selector);
+const welcomeScreen = $("#welcomeScreen");
+const appShell = $("#app");
+const toast = $("#toast");
+
+function escapeText(value) {
+  return String(value ?? "");
+}
+
+function setFlowerIcon(element, flowerId, fallback = "🌺") {
+  const asset = FLOWER_ICON_ASSET[flowerId];
+  if (asset) {
+    const image = document.createElement("img");
+    image.src = asset;
+    image.alt = catalog?.flowers?.[flowerId]?.name || "花朵";
+    image.className = "flower-icon-image";
+    element.replaceChildren(image);
+    return;
+  }
+  element.textContent = FLOWER_EMOJI[flowerId] || fallback;
+}
+
+function formatDuration(seconds) {
+  if (seconds === null || seconds === undefined) return "暂停中";
+  const total = Math.max(0, Number(seconds) || 0);
+  if (total < 60) return `${Math.ceil(total)}秒`;
+  if (total < 3600) return `${Math.floor(total / 60)}分${Math.floor(total % 60)}秒`;
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  return `${hours}小时${minutes}分`;
+}
+
+function showToast(message) {
+  toast.textContent = message;
+  toast.classList.remove("hidden");
+  clearTimeout(showToast.timer);
+  showToast.timer = setTimeout(() => toast.classList.add("hidden"), 2600);
+}
+
+function setBusy(value) {
+  isBusy = value;
+  document.body.classList.toggle("loading", value);
+  $("#refreshBtn").classList.toggle("spin", value);
+}
+
+function saveCredentials(value) {
+  credentials = value;
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
+}
+
+function loadCredentials() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed.session_id || !parsed.garden_token) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function showWelcome() {
+  welcomeScreen.classList.remove("hidden");
+  appShell.classList.add("hidden");
+}
+
+function showApp() {
+  welcomeScreen.classList.add("hidden");
+  appShell.classList.remove("hidden");
+}
+
+async function requestJson(url, options = {}) {
+  const response = await fetch(url, options);
+  let data = {};
+  try {
+    data = await response.json();
+  } catch {
+    throw new Error("服务器返回了无法识别的内容。");
+  }
+  if (!response.ok) {
+    throw new Error(data.message || `请求失败（${response.status}）`);
+  }
+  return data;
+}
+
+function authHeaders(extra = {}) {
+  return {
+    "Content-Type": "application/json",
+    "X-Garden-Token": credentials?.garden_token || "",
+    ...extra,
+  };
+}
+
+async function createGarden(name) {
+  setBusy(true);
+  try {
+    const data = await requestJson("/web/register", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    saveCredentials({
+      session_id: data.session_id,
+      garden_token: data.garden_token,
+    });
+    showApp();
+    updateFromResponse(data);
+    showToast("花园创建成功 🌱");
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function refreshGarden({ quiet = false } = {}) {
+  if (!credentials || isBusy) return;
+  setBusy(true);
+  try {
+    const query = encodeURIComponent(credentials.session_id);
+    const data = await requestJson(`/web/status?session_id=${query}`, {
+      headers: authHeaders(),
+    });
+    updateFromResponse(data, quiet);
+  } catch (error) {
+    if (!quiet) showToast(error.message);
+    if (/钥匙/.test(error.message)) {
+      localStorage.removeItem(STORAGE_KEY);
+      credentials = null;
+      showWelcome();
+    }
+    throw error;
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function runCommand(command) {
+  if (!credentials || isBusy) return;
+  setBusy(true);
+  try {
+    const data = await requestJson("/web/cmd", {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        session_id: credentials.session_id,
+        command,
+      }),
+    });
+    updateFromResponse(data);
+    if (!data.ok) showToast("这个操作没有成功");
+  } catch (error) {
+    showToast(error.message);
+  } finally {
+    setBusy(false);
+  }
+}
+
+function updateFromResponse(data, quiet = false) {
+  currentState = data.state;
+  renderAll();
+  if (!quiet && data.message) {
+    $("#messageBox").textContent = data.message;
+  }
+}
+
+function renderAll() {
+  if (!currentState || !catalog) return;
+  $("#gardenTitle").textContent = currentState.garden_name || "我的小花园";
+  $("#weatherEmoji").textContent = currentState.weather_emoji || "🌤️";
+  $("#weatherName").textContent = currentState.weather_name || "未知";
+  $("#weatherMeta").textContent = `第${currentState.game_day || 1}天 · ${currentState.daypart || ""} ${String(currentState.game_hour || 0).padStart(2, "0")}:${String(currentState.game_minute || 0).padStart(2, "0")}`;
+  $("#moneyValue").textContent = `${currentState.money} 块`;
+  $("#encyclopediaValue").textContent = `${currentState.encyclopedia_count} / ${Object.keys(catalog.flowers).length}`;
+  $("#earnedValue").textContent = `${currentState.total_earned} 块`;
+  $("#potCountMeta").textContent = `已解锁 ${currentState.max_pots} / ${currentState.pot_capacity || catalog.max_pots || 6}`;
+  renderPots();
+  renderVase();
+  renderCat();
+  renderShop();
+  renderInventory();
+  renderCollection();
+  renderEvents();
+  startPetCooldownTimer();
+}
+
+function makeButton(label, command, className = "mini-btn", disabled = false) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = className;
+  button.textContent = label;
+  button.disabled = disabled;
+  if (!disabled && command) button.addEventListener("click", () => runCommand(command));
+  return button;
+}
+
+function seedOptions(select) {
+  const seeds = currentState.inventory.seeds || {};
+  const available = Object.entries(seeds).filter(([, qty]) => qty > 0);
+  if (!available.length) {
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "没有种子";
+    select.append(option);
+    select.disabled = true;
+    return false;
+  }
+  for (const [id, qty] of available) {
+    const flower = catalog.flowers[id];
+    if (!flower) continue;
+    const option = document.createElement("option");
+    option.value = id;
+    option.textContent = `${flower.name} ×${qty}`;
+    select.append(option);
+  }
+  return true;
+}
+
+function renderPots() {
+  const grid = $("#potsGrid");
+  grid.innerHTML = "";
+
+  const capacity = currentState.pot_capacity || catalog.max_pots || 6;
+  const unlockedCount = currentState.max_pots || currentState.pots.length;
+  const unlockCosts = catalog.pot_unlock_costs || {};
+
+  for (let slot = 1; slot <= capacity; slot += 1) {
+    if (slot > unlockedCount) {
+      const card = document.createElement("div");
+      card.className = "pot-card locked-pot";
+
+      const number = document.createElement("span");
+      number.className = "pot-number";
+      number.textContent = `POT ${String(slot).padStart(2, "0")}`;
+
+      const lock = document.createElement("div");
+      lock.className = "locked-pot-icon";
+      lock.textContent = "🔒";
+
+      const title = document.createElement("div");
+      title.className = "flower-name";
+      title.textContent = "尚未解锁";
+
+      const cost = Number(unlockCosts[String(slot)] ?? unlockCosts[slot] ?? 0);
+      const isNext = slot === unlockedCount + 1;
+
+      const status = document.createElement("div");
+      status.className = "pot-status";
+      status.textContent = isNext
+        ? `花费 ${cost} 金币扩建这块花圃`
+        : "请先解锁前一个花盆";
+
+      const actions = document.createElement("div");
+      actions.className = "pot-actions";
+      if (isNext) {
+        actions.append(
+          makeButton(
+            `解锁 · ${cost}块`,
+            "buy_pot",
+            "mini-btn gold",
+            currentState.money < cost
+          )
+        );
+      } else {
+        actions.append(makeButton("暂未开放", null, "mini-btn", true));
+      }
+
+      card.append(number, lock, title, status, actions);
+      grid.append(card);
+      continue;
+    }
+
+    const pot = currentState.pots[slot - 1] || { slot, status: "empty" };
+    const card = document.createElement("div");
+    card.className = `pot-card ${pot.status === "empty" ? "empty-pot" : ""} ${pot.status === "withered" ? "withered-pot" : ""}`;
+
+    const number = document.createElement("span");
+    number.className = "pot-number";
+    number.textContent = `POT ${String(slot).padStart(2, "0")}`;
+    card.append(number);
+
+    if (!["empty", "withered"].includes(pot.status)) {
+      const speedBadge = document.createElement("span");
+      speedBadge.className = `growth-badge ${pot.grow_speed > 0 ? "" : "paused"}`;
+      speedBadge.textContent = pot.grow_speed > 0 ? `×${Number(pot.grow_speed).toFixed(1)} 生长` : "生长暂停";
+      card.append(speedBadge);
+    }
+
+    const visual = document.createElement("div");
+    visual.className = "plant-visual";
+    if (pot.status === "empty") visual.textContent = "🪴";
+    else if (pot.status === "withered") visual.textContent = "🥀";
+    else setFlowerIcon(visual, pot.flower);
+    card.append(visual);
+
+    const name = document.createElement("div");
+    name.className = "flower-name";
+    name.textContent = pot.status === "empty" ? "空花盆" : pot.flower_name;
+    card.append(name);
+
+    const status = document.createElement("div");
+    status.className = "pot-status";
+    if (pot.status === "empty") status.textContent = "泥土松软，正等着一粒种子。";
+    else if (pot.status === "withered") status.textContent = "花已经枯萎，需要清理后才能重新种植。";
+    else if (pot.has_pest) status.textContent = "🐛 正在遭受虫害，请尽快治疗。";
+    else if (pot.status === "ready") status.textContent = "花已经盛开，可以收获了。";
+    else if (!pot.watered) status.textContent = "尚未浇水，生长暂停。";
+    else status.textContent = `生长中，还需约${formatDuration(pot.remaining_seconds)}`;
+    card.append(status);
+
+    if (!["empty", "withered"].includes(pot.status)) {
+      const track = document.createElement("div");
+      track.className = "progress-track";
+      const fill = document.createElement("div");
+      fill.className = "progress-fill";
+      fill.style.width = `${pot.progress_pct || 0}%`;
+      track.append(fill);
+      card.append(track);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "pot-actions";
+    if (pot.status === "empty") {
+      const select = document.createElement("select");
+      const hasSeeds = seedOptions(select);
+      const plant = makeButton("种下", null, "mini-btn", !hasSeeds);
+      plant.addEventListener("click", () => {
+        if (select.value) runCommand(`plant ${select.value} ${slot}`);
+      });
+      actions.append(select, plant);
+    } else if (pot.status === "withered") {
+      actions.append(makeButton("清理花盆", `clear ${slot}`, "mini-btn rose"));
+    } else {
+      if (!pot.watered) {
+        actions.append(makeButton("浇水", `water ${slot}`));
+      } else if (currentState.weather === "rainy") {
+        actions.append(makeButton("🌧️ 雨水滋润中", null, "mini-btn", true));
+      } else {
+        actions.append(makeButton("已浇水", null, "mini-btn", true));
+      }
+      if (pot.has_pest) actions.append(makeButton("治疗 3块", `treat ${slot}`, "mini-btn rose", currentState.money < 3));
+      if (pot.status === "ready" && !pot.has_pest) actions.append(makeButton("收获", `harvest ${slot}`, "mini-btn gold"));
+    }
+    card.append(actions);
+    grid.append(card);
+  }
+}
+
+function renderVase() {
+  const grid = $("#vaseGrid");
+  grid.innerHTML = "";
+  const entries = currentState.vase?.flowers || [];
+  const capacity = currentState.vase?.capacity || catalog.vase_capacity || 3;
+  const flowersInBag = Object.entries(currentState.inventory.flowers || {}).filter(([, qty]) => qty > 0);
+
+  for (let position = 1; position <= capacity; position += 1) {
+    const entry = entries.find((item) => item.position === position);
+    const slot = document.createElement("div");
+    slot.className = "vase-slot";
+    if (entry) {
+      const icon = document.createElement("div");
+      icon.className = "vase-flower";
+      setFlowerIcon(icon, entry.flower);
+      const name = document.createElement("strong");
+      name.textContent = entry.flower_name;
+      const info = document.createElement("small");
+      info.textContent = `${entry.freshness_label}${entry.remaining_seconds > 0 ? ` · ${formatDuration(entry.remaining_seconds)}` : ""}`;
+      slot.append(icon, name, info, makeButton("移除", `remove_vase ${position}`, "mini-btn rose"));
+    } else {
+      const icon = document.createElement("div");
+      icon.className = "vase-flower";
+      icon.textContent = "〰️";
+      const name = document.createElement("strong");
+      name.textContent = `空位 ${position}`;
+      const select = document.createElement("select");
+      if (!flowersInBag.length) {
+        const option = document.createElement("option");
+        option.textContent = "背包里没有鲜花";
+        option.value = "";
+        select.append(option);
+        select.disabled = true;
+      } else {
+        for (const [id, qty] of flowersInBag) {
+          const option = document.createElement("option");
+          option.value = id;
+          option.textContent = `${catalog.flowers[id]?.name || id} ×${qty}`;
+          select.append(option);
+        }
+      }
+      const button = makeButton("插入花瓶", null, "mini-btn", !flowersInBag.length);
+      button.addEventListener("click", () => {
+        if (select.value) runCommand(`arrange ${select.value}`);
+      });
+      slot.append(icon, name, select, button);
+    }
+    grid.append(slot);
+  }
+}
+
+function statRow(label, value) {
+  const row = document.createElement("div");
+  row.className = "stat-row";
+  const labelEl = document.createElement("span");
+  labelEl.textContent = label;
+  const track = document.createElement("div");
+  track.className = "stat-track";
+  const fill = document.createElement("div");
+  fill.className = "stat-fill";
+  fill.style.width = `${Math.max(0, Math.min(100, value))}%`;
+  track.append(fill);
+  const number = document.createElement("strong");
+  number.textContent = Math.round(value);
+  row.append(labelEl, track, number);
+  return row;
+}
+
+function renderCat() {
+  const root = $("#catContent");
+  root.innerHTML = "";
+  if (!currentState.has_cat) {
+    const empty = document.createElement("div");
+    empty.className = "cat-empty";
+    empty.innerHTML = `<div class="cat-avatar">🐾</div><h3>还没有猫咪入住</h3><p class="muted">攒够100块，就可以接一只猫回家。</p>`;
+    const adoptButton = makeButton("收养猫咪 · 100块", null, "primary-btn", currentState.money < 100);
+    adoptButton.addEventListener("click", () => {
+      const rawName = window.prompt("给猫咪取一个名字（最多12个字符）", "小猫");
+      if (rawName === null) return;
+      const name = rawName.trim();
+      if (name.length > 12) {
+        showToast("猫咪名字不能超过12个字符");
+        return;
+      }
+      runCommand(name ? `adopt ${name}` : "adopt");
+    });
+    empty.append(adoptButton);
+    root.append(empty);
+    return;
+  }
+
+  const cat = currentState.cat;
+  const layout = document.createElement("div");
+  layout.className = "cat-layout";
+  const portrait = document.createElement("div");
+  portrait.className = "cat-portrait";
+  const catImage = document.createElement("img");
+  catImage.src = "/static/orange_cat.png";
+  catImage.alt = "橘猫头像";
+  catImage.className = "cat-image";
+  const catName = document.createElement("h3");
+  catName.textContent = cat.name || "小猫";
+  portrait.append(catImage, catName);
+  const badges = document.createElement("div");
+  badges.className = "cat-badges";
+  const owned = new Set(currentState.permanent_items || []);
+  badges.innerHTML = `
+    <span class="badge ${owned.has("water_bowl") ? "" : "locked-badge"}">💧 水碗</span>
+    <span class="badge ${owned.has("cat_bed") ? "" : "locked-badge"}">🛏️ 猫窝</span>
+  `;
+  portrait.append(badges);
+
+  const details = document.createElement("div");
+  details.append(
+    statRow("饱食", cat.hunger),
+    statRow("口渴", cat.thirst),
+    statRow("心情", cat.mood),
+    statRow("亲密", cat.affection),
+  );
+  const actions = document.createElement("div");
+  actions.className = "cat-actions";
+  const items = currentState.inventory.items || {};
+  const renameButton = makeButton("改名字", null, "mini-btn");
+  renameButton.addEventListener("click", () => {
+    const rawName = window.prompt("给猫咪换一个名字（最多12个字符）", cat.name || "小猫");
+    if (rawName === null) return;
+    const name = rawName.trim();
+    if (!name) {
+      showToast("猫咪名字不能为空");
+      return;
+    }
+    if (name.length > 12) {
+      showToast("猫咪名字不能超过12个字符");
+      return;
+    }
+    runCommand(`rename_cat ${name}`);
+  });
+  actions.append(
+    renameButton,
+    makeButton(`普通猫粮 ×${items.basic_food || 0}`, "feed basic", "mini-btn", !(items.basic_food > 0)),
+    makeButton(`高级猫粮 ×${items.premium_food || 0}`, "feed premium", "mini-btn gold", !(items.premium_food > 0)),
+    makeButton("喂水", "give_water"),
+    makeButton(cat.pet_cooldown_remaining_seconds > 0 ? `摸摸猫 · ${formatDuration(cat.pet_cooldown_remaining_seconds)}` : "摸摸猫", "pet", "mini-btn", cat.pet_cooldown_remaining_seconds > 0),
+    makeButton(`毛线球 ×${items.ball || 0}`, "play ball", "mini-btn", !(items.ball > 0)),
+    makeButton(`逗猫棒 ×${items.feather_wand || 0}`, "play feather", "mini-btn", !(items.feather_wand > 0)),
+  );
+  details.append(actions);
+  layout.append(portrait, details);
+  root.append(layout);
+}
+
+function startPetCooldownTimer() {
+  clearInterval(petCooldownTimer);
+  if (!currentState?.cat || !(currentState.cat.pet_cooldown_remaining_seconds > 0)) return;
+  const deadline = Date.now() + currentState.cat.pet_cooldown_remaining_seconds * 1000;
+  petCooldownTimer = setInterval(() => {
+    const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+    currentState.cat.pet_cooldown_remaining_seconds = remaining;
+    if (remaining <= 0) {
+      clearInterval(petCooldownTimer);
+      renderCat();
+      return;
+    }
+    const buttons = [...document.querySelectorAll(".cat-actions button")];
+    const petButton = buttons.find((button) => button.textContent.startsWith("摸摸猫"));
+    if (petButton) {
+      petButton.textContent = `摸摸猫 · ${formatDuration(remaining)}`;
+      petButton.disabled = true;
+    }
+  }, 1000);
+}
+
+function renderShop() {
+  const root = $("#shopTab");
+  root.innerHTML = "";
+  const unlocked = new Set(currentState.unlocked_flowers || []);
+  const heading = document.createElement("h3");
+  heading.className = "subheading";
+  heading.textContent = "花种";
+  root.append(heading);
+  const flowerList = document.createElement("div");
+  flowerList.className = "shop-list";
+  for (const [id, flower] of Object.entries(catalog.flowers)) {
+    const isUnlocked = unlocked.has(id);
+    const item = document.createElement("div");
+    item.className = `shop-item ${isUnlocked ? "" : "locked"}`;
+    const icon = document.createElement("div");
+    icon.className = "item-icon";
+    if (isUnlocked) setFlowerIcon(icon, id);
+    else icon.textContent = "🔒";
+    const meta = document.createElement("div");
+    meta.className = "item-meta";
+    const note = isUnlocked
+      ? `${flower.rarity_name} · ${Math.round(flower.grow_time / 60)}分钟 · 售${flower.sell_price}块`
+      : `图鉴达到${flower.unlock_requirement}种后解锁`;
+    meta.innerHTML = `<strong>${escapeText(flower.name)}</strong><small>${note}</small>`;
+    const button = makeButton(`${flower.seed_price}块`, `buy ${id} 1`, "mini-btn", !isUnlocked || currentState.money < flower.seed_price);
+    item.append(icon, meta, button);
+    flowerList.append(item);
+  }
+  root.append(flowerList);
+
+  const itemHeading = document.createElement("h3");
+  itemHeading.className = "subheading";
+  itemHeading.textContent = "猫咪用品";
+  root.append(itemHeading);
+  const itemList = document.createElement("div");
+  itemList.className = "shop-list";
+  for (const [id, itemData] of Object.entries(catalog.items)) {
+    const ownedPermanent = itemData.type === "permanent" && (currentState.permanent_items || []).includes(id);
+    const item = document.createElement("div");
+    item.className = "shop-item";
+    const icon = document.createElement("div");
+    icon.className = "item-icon";
+    icon.textContent = ITEM_EMOJI[id] || "🎁";
+    const meta = document.createElement("div");
+    meta.className = "item-meta";
+    const typeText = itemData.type === "permanent" ? "永久用品" : itemData.type === "toy" ? "一次性玩具" : "消耗品";
+    meta.innerHTML = `<strong>${escapeText(itemData.name)}</strong><small>${typeText}</small>`;
+    const button = makeButton(ownedPermanent ? "已拥有" : `${itemData.price}块`, `buy ${id} 1`, "mini-btn", ownedPermanent || currentState.money < itemData.price);
+    item.append(icon, meta, button);
+    itemList.append(item);
+  }
+  root.append(itemList);
+}
+
+function renderInventory() {
+  const root = $("#inventoryTab");
+  root.innerHTML = "";
+  let hasAny = false;
+
+  const addGroup = (title, data, kind) => {
+    const entries = Object.entries(data || {}).filter(([, qty]) => qty > 0);
+    if (!entries.length) return;
+    hasAny = true;
+    const heading = document.createElement("h3");
+    heading.className = "subheading";
+    heading.textContent = title;
+    const list = document.createElement("div");
+    list.className = "inventory-list";
+    for (const [id, qty] of entries) {
+      const item = document.createElement("div");
+      item.className = "inventory-item";
+      const icon = document.createElement("div");
+      icon.className = "item-icon";
+      if (kind === "items") icon.textContent = ITEM_EMOJI[id] || "🎁";
+      else setFlowerIcon(icon, id, "🌱");
+      const meta = document.createElement("div");
+      meta.className = "item-meta";
+      const name = kind === "items" ? catalog.items[id]?.name : catalog.flowers[id]?.name;
+      meta.innerHTML = `<strong>${escapeText(name || id)}</strong><small>数量 ×${qty}</small>`;
+      const actions = document.createElement("div");
+      actions.className = "item-actions";
+      if (kind === "flowers") {
+        actions.append(
+          makeButton("卖1朵", `sell ${id} 1`, "mini-btn gold"),
+          makeButton("插花", `arrange ${id}`, "mini-btn", (currentState.vase?.flowers?.length || 0) >= (currentState.vase?.capacity || 3)),
+        );
+      }
+      item.append(icon, meta, actions);
+      list.append(item);
+    }
+    root.append(heading, list);
+  };
+
+  addGroup("种子", currentState.inventory.seeds, "seeds");
+  addGroup("鲜花", currentState.inventory.flowers, "flowers");
+  addGroup("物品", currentState.inventory.items, "items");
+
+  if ((Object.values(currentState.inventory.flowers || {}).reduce((a, b) => a + b, 0)) > 0) {
+    const sellAll = makeButton("卖掉背包里的全部鲜花", "sell all", "mini-btn gold");
+    sellAll.style.marginTop = "12px";
+    root.append(sellAll);
+  }
+  if (!hasAny) root.innerHTML = `<div class="empty-note">背包还是空的。去商店买一包种子吧。</div>`;
+}
+
+function renderCollection() {
+  const root = $("#collectionTab");
+  root.innerHTML = "";
+  const heading = document.createElement("h3");
+  heading.className = "subheading";
+  heading.textContent = `花卉图鉴 · ${currentState.encyclopedia_count}/${Object.keys(catalog.flowers).length}`;
+  const grid = document.createElement("div");
+  grid.className = "collection-grid";
+  const discovered = new Set(currentState.encyclopedia || []);
+  for (const [id, flower] of Object.entries(catalog.flowers)) {
+    const known = discovered.has(id);
+    const item = document.createElement("div");
+    item.className = `collection-item ${known ? "" : "unknown"}`;
+    const icon = document.createElement("div");
+    icon.className = "item-icon";
+    if (known) setFlowerIcon(icon, id);
+    else icon.textContent = "❔";
+    const meta = document.createElement("div");
+    meta.className = "item-meta";
+    const title = document.createElement("strong");
+    title.textContent = known ? flower.name : "尚未发现";
+    const note = document.createElement("small");
+    note.textContent = known ? flower.rarity_name : "???";
+    meta.append(title, note);
+    item.append(icon, meta);
+    grid.append(item);
+  }
+  root.append(heading, grid);
+
+  const catHeading = document.createElement("h3");
+  catHeading.className = "subheading";
+  catHeading.textContent = "猫咪留下的小东西";
+  const collected = currentState.collectibles || {};
+  const lines = [
+    ["shell", "🐚", "贝壳"],
+    ["maple_leaf", "🍁", "枫叶"],
+    ["pine_needle", "🌲", "松针"],
+    ["clover", "🍀", "四叶草"],
+    ["wildflower", "🌺", "野花"],
+  ];
+  const collectibleGrid = document.createElement("div");
+  collectibleGrid.className = "collection-grid";
+  for (const [id, emoji, label] of lines) {
+    const count = collected[id] || 0;
+    const item = document.createElement("div");
+    item.className = `collection-item ${count ? "" : "unknown"}`;
+    item.innerHTML = `<div class="item-icon">${emoji}</div><div class="item-meta"><strong>${label}</strong><small>数量 ×${count}</small></div>`;
+    collectibleGrid.append(item);
+  }
+  root.append(catHeading, collectibleGrid);
+
+  const letters = currentState.letters || [];
+  const letterHeading = document.createElement("h3");
+  letterHeading.className = "subheading";
+  letterHeading.textContent = `猫咪信箱 · ${letters.length}/5`;
+  root.append(letterHeading);
+
+  if (!letters.length) {
+    const note = document.createElement("div");
+    note.className = "empty-note";
+    note.textContent = "✉️ 还没有收到猫咪写来的信。";
+    root.append(note);
+  } else {
+    const letterList = document.createElement("div");
+    letterList.className = "letter-list";
+    for (const letter of letters) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "letter-card";
+      button.innerHTML = `<span>✉️</span><div><strong>第 ${letter.index} 封信</strong><small>点击拆开查看</small></div>`;
+      button.addEventListener("click", () => showLetterModal(letter));
+      letterList.append(button);
+    }
+    root.append(letterList);
+  }
+}
+
+function renderEvents() {
+  const root = $("#eventsList");
+  root.innerHTML = "";
+  const events = currentState.recent_events || [];
+  if (!events.length) {
+    root.innerHTML = `<div class="muted">还没有新的花园事件。</div>`;
+    return;
+  }
+  for (const event of [...events].reverse()) {
+    const line = document.createElement("div");
+    line.className = "event-line";
+    line.textContent = event;
+    root.append(line);
+  }
+}
+
+function showLetterModal(letter) {
+  $("#modalTitle").textContent = `第 ${letter.index} 封猫咪来信`;
+  const body = $("#modalBody");
+  body.innerHTML = "";
+  const paper = document.createElement("div");
+  paper.className = "letter-paper";
+  paper.textContent = letter.text;
+  body.append(paper);
+  $("#modal").classList.remove("hidden");
+}
+
+function showKeyModal() {
+  const keyText = JSON.stringify(credentials, null, 2);
+  $("#modalTitle").textContent = "你的花园存档码";
+  const body = $("#modalBody");
+  body.innerHTML = "";
+  const intro = document.createElement("p");
+  intro.textContent = "换电脑、清除浏览器数据或想在别的设备继续时，需要这把钥匙。请把它保存在私密位置。";
+  const box = document.createElement("div");
+  box.className = "key-box";
+  box.textContent = keyText;
+  const actions = document.createElement("div");
+  actions.className = "modal-actions";
+  const copy = document.createElement("button");
+  copy.type = "button";
+  copy.className = "primary-btn";
+  copy.textContent = "复制花园存档码";
+  copy.addEventListener("click", async () => {
+    await navigator.clipboard.writeText(keyText);
+    showToast("花园存档码已复制");
+  });
+  actions.append(copy);
+  body.append(intro, box, actions);
+  $("#modal").classList.remove("hidden");
+}
+
+function closeModal() {
+  $("#modal").classList.add("hidden");
+}
+
+async function initialize() {
+  try {
+    catalog = await requestJson("/api/catalog");
+  } catch (error) {
+    showToast(`加载游戏资料失败：${error.message}`);
+    return;
+  }
+
+  credentials = loadCredentials();
+  if (!credentials) {
+    showWelcome();
+    return;
+  }
+  showApp();
+  try {
+    await refreshGarden();
+  } catch {
+    // refreshGarden 已处理无效钥匙与提示。
+  }
+}
+
+$("#createForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const name = $("#gardenName").value.trim() || "我的小花园";
+  try {
+    await createGarden(name);
+  } catch (error) {
+    showToast(error.message);
+  }
+});
+
+$("#importBtn").addEventListener("click", async () => {
+  try {
+    const parsed = JSON.parse($("#importKey").value.trim());
+    if (!parsed.session_id || !parsed.garden_token) throw new Error("钥匙格式不完整");
+    saveCredentials({ session_id: parsed.session_id, garden_token: parsed.garden_token });
+    showApp();
+    await refreshGarden();
+    showToast("旧花园已经打开");
+  } catch (error) {
+    showToast(error.message || "无法打开这把花园存档码");
+  }
+});
+
+$("#refreshBtn").addEventListener("click", () => refreshGarden().catch(() => {}));
+$("#keyBtn").addEventListener("click", showKeyModal);
+$("#modalClose").addEventListener("click", closeModal);
+$("#modal").addEventListener("click", (event) => { if (event.target.id === "modal") closeModal(); });
+
+$("#commandForm").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const command = $("#commandInput").value.trim();
+  if (!command) return;
+  $("#commandInput").value = "";
+  runCommand(command);
+});
+
+$("#leaveBtn").addEventListener("click", () => {
+  const confirmed = window.confirm("只会从这台设备移除钥匙，云端花园不会被删除。确认继续吗？");
+  if (!confirmed) return;
+  localStorage.removeItem(STORAGE_KEY);
+  credentials = null;
+  currentState = null;
+  showWelcome();
+  showToast("花园存档码已从当前设备移除");
+});
+
+for (const button of document.querySelectorAll(".tab-btn")) {
+  button.addEventListener("click", () => {
+    document.querySelectorAll(".tab-btn").forEach((item) => item.classList.remove("active"));
+    document.querySelectorAll(".tab-content").forEach((item) => item.classList.remove("active"));
+    button.classList.add("active");
+    $(`#${button.dataset.tab}Tab`).classList.add("active");
+  });
+}
+
+window.addEventListener("focus", () => {
+  if (credentials && !isBusy) refreshGarden({ quiet: true }).catch(() => {});
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && credentials && !isBusy) {
+    refreshGarden({ quiet: true }).catch(() => {});
+  }
+});
+
+setInterval(() => {
+  if (document.visibilityState === "visible" && credentials && !isBusy) {
+    refreshGarden({ quiet: true }).catch(() => {});
+  }
+}, 60_000);
+
+initialize();

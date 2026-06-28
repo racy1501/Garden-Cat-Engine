@@ -125,3 +125,61 @@ def test_mature_flower_does_not_get_new_pests():
     with patch("game_engine.random.random", return_value=0.0):
         process_command(state, "status")
     assert "pest_time" not in state["pots"][0]
+
+
+def test_cat_can_be_named_when_adopted_and_renamed():
+    state = fresh_state()
+    state["money"] = 200
+    result = process_command(state, "adopt 栗子")
+    assert "栗子" in result
+    assert state["cat"]["name"] == "栗子"
+
+    result = process_command(state, "rename_cat 橘子")
+    assert "橘子" in result
+    assert state["cat"]["name"] == "橘子"
+
+
+def test_cat_name_defaults_and_length_limit():
+    state = fresh_state()
+    state["money"] = 200
+    process_command(state, "adopt")
+    assert state["cat"]["name"] == "小猫"
+
+    result = process_command(state, "rename_cat 这是一个超过十二个字符的猫咪名字")
+    assert result.startswith("❌")
+    assert state["cat"]["name"] == "小猫"
+
+
+def test_weather_growth_speed_rebalance():
+    assert WEATHER["sunny"]["grow_speed"] == 1.1
+    assert WEATHER["rainy"]["grow_speed"] == 1.2
+    assert WEATHER["rainy"]["auto_water"] is True
+    assert WEATHER["cloudy"]["grow_speed"] == 1.0
+
+
+def test_pot_unlock_costs_increase_by_slot():
+    state = fresh_state()
+    state["money"] = 200
+
+    result = process_command(state, "buy_pot")
+    assert state["max_pots"] == 4
+    assert state["money"] == 180
+    assert "20块" in result
+
+    result = process_command(state, "buy_pot")
+    assert state["max_pots"] == 5
+    assert state["money"] == 145
+    assert "35块" in result
+
+    result = process_command(state, "buy_pot")
+    assert state["max_pots"] == 6
+    assert state["money"] == 95
+    assert "50块" in result
+
+
+def test_pot_unlock_rejects_when_next_price_is_unaffordable():
+    state = fresh_state()
+    state["money"] = 19
+    result = process_command(state, "buy_pot")
+    assert result.startswith("❌")
+    assert state["max_pots"] == 3

@@ -1,6 +1,21 @@
 """
-花园与猫咪 v4.8.1 - API兼容游戏引擎
-支持独立存档 API 与本地单文件运行
+花园与猫咪 v4.8.6 - API与网页兼容游戏引擎
+支持独立存档 API、可视化网页与本地单文件运行
+
+v4.8.6 更新：
+- 天气生长倍率重平衡：晴天1.1 / 雨天1.2 / 多云1.0
+- 网页状态摘要新增游戏时间、天气倍率、花盆当前倍率与摸猫冷却
+
+v4.8.3 更新：
+- 猫咪支持自定义名字：adopt <名字>，不填则默认“小猫”
+- 新增 rename_cat <名字>，收养后可随时改名
+- 猫名最长12个字符，AI接口与可视化网页共用同一套规则
+- 网页收藏页可展开阅读已收到的猫咪信件
+
+v4.8.2 更新：
+- 新增人类玩家可视化网页，游戏数值与玩法规则保持不变
+- 人类网页与 AI 接口并存，不同花园默认使用独立存档
+- 网页花园使用专属钥匙鉴权，不在前端暴露全局 API Key
 
 v4.8.1 更新：
 - 花瓶鲜花保鲜时间由现实24小时调整为现实12小时
@@ -103,11 +118,11 @@ ITEMS = {
 }
 
 # v4.6.6: 天气系统 - 浇水开关版
-# 晴天最快但需手动浇水；雨天自动浇水且自带+10%加速；多云需手动浇水
+# 雨天生长最快并自动浇水；晴天小幅加速且需手动浇水；多云为标准速度
 WEATHER = {
-    "sunny": {"name": "晴天", "emoji": "☀️", "grow_speed": 1.2, "cat_mood_change": 1.5},
-    "rainy": {"name": "下雨", "emoji": "🌧️", "grow_speed": 1.1, "cat_mood_change": -1.5, "auto_water": True},
-    "cloudy": {"name": "多云", "emoji": "☁️", "grow_speed": 1.1, "cat_mood_change": 0},
+    "sunny": {"name": "晴天", "emoji": "☀️", "grow_speed": 1.1, "cat_mood_change": 1.5},
+    "rainy": {"name": "下雨", "emoji": "🌧️", "grow_speed": 1.2, "cat_mood_change": -1.5, "auto_water": True},
+    "cloudy": {"name": "多云", "emoji": "☁️", "grow_speed": 1.0, "cat_mood_change": 0},
 }
 
 WEATHER_CHANGE_MIN = 300
@@ -147,11 +162,12 @@ CAT_LETTERS = [
     {"min_affection": 80, "text": "你是我最重要的人。永远。——猫"},
 ]
 
-POT_COST = 20
+POT_UNLOCK_COSTS = {4: 20, 5: 35, 6: 50}
 MAX_POTS = 6
 PEST_TREATMENT_COST = 3
 
 CAT_ADOPT_COST = 100
+CAT_NAME_MAX_LENGTH = 12
 SAVE_FILE = "garden_cat_save.json"
 
 BUTTERFLY_CHECK_INTERVAL = 300
@@ -165,6 +181,26 @@ VASE_CAPACITY = 3
 VASE_LIFESPAN_REAL_HOURS = 12
 VASE_LIFESPAN_SECONDS = VASE_LIFESPAN_REAL_HOURS * 3600
 WITHERED_CLEAR_REWARD_CHANCE = 0.50
+
+
+def get_next_pot_cost(state):
+    """返回解锁下一个花盆所需金币；达到上限时返回 None。"""
+    next_pot_number = int(state.get("max_pots", 3)) + 1
+    return POT_UNLOCK_COSTS.get(next_pot_number)
+
+
+def normalize_cat_name(raw_name, default="小猫"):
+    """整理并校验猫咪名字；返回 None 表示名字不合法。"""
+    if raw_name is None:
+        return default
+    name = " ".join(str(raw_name).strip().split())
+    if not name:
+        return default
+    if len(name) > CAT_NAME_MAX_LENGTH:
+        return None
+    if any(ord(char) < 32 for char in name):
+        return None
+    return name
 
 
 def get_default_state():
@@ -422,6 +458,8 @@ def normalize_state(data, now=None):
     else:
         if not isinstance(data.get("cat"), dict):
             data["cat"] = {"name": "小猫"}
+        normalized_name = normalize_cat_name(data["cat"].get("name"), default="小猫")
+        data["cat"]["name"] = normalized_name or "小猫"
         stats = data.get("cat_stats")
         if not isinstance(stats, dict):
             stats = {"hunger": 70, "thirst": 70, "mood": 60, "affection": 10}
@@ -487,7 +525,7 @@ def new_game():
     return (
         "🌱 新游戏开始！你有50块钱，3盆花，3包普通猫粮。\n"
         "先种花赚钱，攒够100块就能收养小猫啦！\n\n"
-        "🌤️ 当前天气：晴天 ☀️ (花长得快，猫咪心情好)"
+        "🌤️ 当前天气：晴天 ☀️（花生长×1.1，需手动浇水）"
     )
 
 
@@ -871,7 +909,8 @@ def get_status(state, weather_data):
             lines.append(f"  🎁 已保存猫咪心情奖励+{state['pending_cat_mood_bonus']}，收养后生效")
     else:
         stats = state["cat_stats"]
-        lines.append("\n【猫咪】")
+        cat_name = state["cat"].get("name", "小猫")
+        lines.append(f"\n【猫咪】{cat_name}")
         lines.append(f"  饱食度：{get_bar(stats['hunger'])} {int(stats['hunger'])}")
         lines.append(f"  口渴度：{get_bar(stats['thirst'])} {int(stats['thirst'])}")
         lines.append(f"  心情  ：{get_bar(stats['mood'])} {int(stats['mood'])}")
@@ -975,8 +1014,9 @@ def _summary(state):
     )
     if state["cat"]:
         stats = state["cat_stats"]
+        cat_name = state["cat"].get("name", "小猫")
         text += (
-            f" 🐱饱{int(stats['hunger'])}渴{int(stats['thirst'])}"
+            f" 🐱{cat_name} 饱{int(stats['hunger'])}渴{int(stats['thirst'])}"
             f"心情{int(stats['mood'])}亲密{int(stats['affection'])}"
         )
     return text
@@ -1384,8 +1424,10 @@ def process_command(state, command):
                 result = f"💰 卖了{quantity}朵{FLOWERS[flower_id]['name']}，赚了{price}块！"
 
     elif action == "adopt":
-        if len(parts) != 1:
-            result = "❌ 用法：adopt"
+        requested_name = " ".join(parts[1:]) if len(parts) > 1 else "小猫"
+        cat_name = normalize_cat_name(requested_name, default="小猫")
+        if cat_name is None:
+            result = f"❌ 猫咪名字不能超过{CAT_NAME_MAX_LENGTH}个字符"
         elif state["cat"] is not None:
             result = "❌ 已经有猫了"
         elif state["money"] < CAT_ADOPT_COST:
@@ -1393,7 +1435,7 @@ def process_command(state, command):
         else:
             state["money"] -= CAT_ADOPT_COST
             pending_bonus = max(0, int(state.get("pending_cat_mood_bonus", 0)))
-            state["cat"] = {"name": "小猫"}
+            state["cat"] = {"name": cat_name}
             state["cat_stats"] = {
                 "hunger": 70.0,
                 "thirst": 70.0,
@@ -1404,9 +1446,23 @@ def process_command(state, command):
             state["cat_last_pet_real_time"] = now - (PET_COOLDOWN_REAL_MINUTES * 60)
             state["last_letter_check"] = now
             state["last_collectible_check"] = now
-            result = "🎉 收养了一只小猫！记得喂它哦~"
+            result = f"🎉 成功收养了{cat_name}！记得喂它哦~"
             if pending_bonus > 0:
                 result += f"\n🎁 已保存的图鉴奖励生效：猫咪心情+{pending_bonus}"
+
+    elif action == "rename_cat":
+        if state["cat"] is None:
+            result = "❌ 还没有猫"
+        elif len(parts) < 2:
+            result = "❌ 用法：rename_cat <名字>"
+        else:
+            new_name = normalize_cat_name(" ".join(parts[1:]), default=None)
+            if new_name is None:
+                result = f"❌ 猫咪名字不能为空，且不能超过{CAT_NAME_MAX_LENGTH}个字符"
+            else:
+                old_name = state["cat"].get("name", "小猫")
+                state["cat"]["name"] = new_name
+                result = f"🐱 {old_name}现在叫{new_name}了！"
 
     elif action == "feed":
         if state["cat"] is None:
@@ -1473,13 +1529,21 @@ def process_command(state, command):
             result = "❌ 用法：buy_pot"
         elif state["max_pots"] >= MAX_POTS:
             result = f"❌ 已经有{MAX_POTS}个花盆了，无法再扩展！"
-        elif state["money"] < POT_COST:
-            result = f"❌ 买花盆需要{POT_COST}块，钱不够！"
         else:
-            state["money"] -= POT_COST
-            state["pots"].append(None)
-            state["max_pots"] += 1
-            result = f"✅ 买了新花盆！现在{state['max_pots']}个花盆了 (-{POT_COST}块)"
+            next_pot_number = state["max_pots"] + 1
+            pot_cost = get_next_pot_cost(state)
+            if pot_cost is None:
+                result = f"❌ 已经有{MAX_POTS}个花盆了，无法再扩展！"
+            elif state["money"] < pot_cost:
+                result = f"❌ 解锁第{next_pot_number}个花盆需要{pot_cost}块，钱不够！"
+            else:
+                state["money"] -= pot_cost
+                state["pots"].append(None)
+                state["max_pots"] += 1
+                result = (
+                    f"✅ 解锁了第{next_pot_number}个花盆！"
+                    f"现在有{state['max_pots']}个花盆 (-{pot_cost}块)"
+                )
 
     elif action == "collectibles":
         if len(parts) != 1:
@@ -1537,11 +1601,12 @@ harvest <盆号> - 收花
 sell <花> [数量] - 卖花，或 sell all
 treat <盆号> - 治疗害虫({PEST_TREATMENT_COST}块，本轮不再长虫)
 clear <盆号> - 清理枯萎花（50%概率获得少量金币）
-buy_pot - 买新花盆({POT_COST}块，最多{MAX_POTS}个)
+buy_pot - 解锁下一个花盆(第4盆20块 / 第5盆35块 / 第6盆50块)
 arrange <花> - 把已收获鲜花插入花瓶（插入后不可出售）
 vase - 查看花瓶与鲜花枯萎度
 remove_vase <位置> - 移除花瓶中任意状态的花（不返还花朵或金币）
-adopt - 收养猫咪(需{CAT_ADOPT_COST}块)
+adopt [名字] - 收养猫咪并可选取名(需{CAT_ADOPT_COST}块)
+rename_cat <名字> - 给已收养的猫咪改名
 feed <basic|premium> - 喂猫
 give_water - 给猫喝水
 pet - 抚摸猫(冷却{PET_COOLDOWN_REAL_MINUTES}分钟)
@@ -1553,9 +1618,9 @@ status - 查看状态
 help - 显示帮助
 
 🌤️ 天气系统（真实时间）：
-☀️ 晴天：花生长+20%，需手动浇水，猫心情净+1.0/小时
-🌧️ 下雨：花生长+10%，自动浇水，猫心情净-2.0/小时
-☁️ 多云：花生长+10%，需手动浇水，猫心情净-0.5/小时
+☀️ 晴天：花生长×1.1，需手动浇水，猫心情净+1.0/小时
+🌧️ 下雨：花生长×1.2，自动浇水，猫心情净-2.0/小时
+☁️ 多云：花生长×1.0，需手动浇水，猫心情净-0.5/小时
 天气到期后在下一次游戏指令时变化一次；离线期间不补算多轮天气
 
 💧 浇水系统：

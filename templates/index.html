@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#7d9473">
+  <title>花园与猫咪</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="paper-noise" aria-hidden="true"></div>
+
+  <section id="welcomeScreen" class="welcome-screen">
+    <div class="welcome-card">
+      <div class="welcome-mark">🌸</div>
+      <p class="eyebrow">GARDEN & CAT</p>
+      <h1>花园与猫咪</h1>
+      <p class="welcome-copy">种下花，留住喜欢的颜色，再等一只猫慢慢把这里当成家。</p>
+
+      <form id="createForm" class="welcome-form">
+        <label for="gardenName">给花园取一个名字</label>
+        <div class="input-row">
+          <input id="gardenName" maxlength="30" placeholder="例如：月光小院" autocomplete="off">
+          <button type="submit" class="primary-btn">创建花园</button>
+        </div>
+      </form>
+
+      <details class="import-box">
+        <summary>我已经有花园存档码</summary>
+        <p>把之前复制保存的花园存档码粘贴到这里。</p>
+        <textarea id="importKey" rows="4" placeholder='{"session_id":"web_...","garden_token":"..."}'></textarea>
+        <button id="importBtn" class="secondary-btn" type="button">打开旧花园</button>
+      </details>
+
+      <p class="privacy-note">每位玩家与每个 AI 都拥有独立花园。钥匙只保存在当前浏览器中。</p>
+    </div>
+  </section>
+
+  <div id="app" class="app-shell hidden">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">MY LITTLE GARDEN</p>
+        <h1 id="gardenTitle">我的小花园</h1>
+      </div>
+      <div class="top-actions">
+        <button id="refreshBtn" class="icon-btn" title="刷新花园">↻</button>
+        <button id="keyBtn" class="secondary-btn">花园存档码</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="dashboard-grid" aria-label="花园概览">
+        <article class="metric-card weather-card">
+          <span id="weatherEmoji" class="metric-icon">☀️</span>
+          <div><small>天气</small><strong id="weatherName">晴天</strong><span id="weatherMeta" class="metric-meta">第1天 · 清晨 06:20</span></div>
+        </article>
+        <article class="metric-card">
+          <span class="metric-icon coin-icon" aria-hidden="true"><svg viewBox="0 0 32 32" role="img"><circle cx="16" cy="16" r="12" fill="#e3b653" stroke="#9a6b23" stroke-width="2"/><circle cx="16" cy="16" r="8" fill="none" stroke="#f7df91" stroke-width="2"/><path d="M16 9.5l1.7 3.5 3.8.6-2.8 2.7.7 3.8-3.4-1.8-3.4 1.8.7-3.8-2.8-2.7 3.8-.6z" fill="#fff0a8"/></svg></span>
+          <div><small>金币</small><strong id="moneyValue">0</strong></div>
+        </article>
+        <article class="metric-card">
+          <span class="metric-icon">📖</span>
+          <div><small>图鉴</small><strong id="encyclopediaValue">0 / 8</strong></div>
+        </article>
+        <article class="metric-card">
+          <span class="metric-icon">👝</span>
+          <div><small>累计收入</small><strong id="earnedValue">0</strong></div>
+        </article>
+      </section>
+
+      <section class="main-grid">
+        <div class="main-column">
+          <article class="panel garden-panel">
+            <div class="panel-heading">
+              <div><p class="section-kicker">THE GARDEN</p><h2>花园</h2></div>
+              <span id="potCountMeta" class="muted">已解锁 3 / 6</span>
+            </div>
+            <div id="potsGrid" class="pots-grid"></div>
+          </article>
+
+          <article class="panel vase-panel">
+            <div class="panel-heading">
+              <div><p class="section-kicker">FLOWER VASE</p><h2>今日插花</h2></div>
+              <span class="muted">鲜花保鲜约12小时</span>
+            </div>
+            <div id="vaseGrid" class="vase-grid"></div>
+          </article>
+
+          <article class="panel cat-panel">
+            <div class="panel-heading">
+              <div><p class="section-kicker">THE CAT</p><h2>猫咪的小天地</h2></div>
+            </div>
+            <div id="catContent"></div>
+          </article>
+        </div>
+
+        <aside class="side-column">
+          <article class="panel tabs-panel">
+            <div class="tabs" role="tablist">
+              <button class="tab-btn active" data-tab="shop" type="button">商店</button>
+              <button class="tab-btn" data-tab="inventory" type="button">背包</button>
+              <button class="tab-btn" data-tab="collection" type="button">收藏</button>
+            </div>
+            <div id="shopTab" class="tab-content active"></div>
+            <div id="inventoryTab" class="tab-content"></div>
+            <div id="collectionTab" class="tab-content"></div>
+          </article>
+
+          <article class="panel diary-panel">
+            <div class="panel-heading compact">
+              <div><p class="section-kicker">GARDEN DIARY</p><h2>花园手记</h2></div>
+            </div>
+            <div id="messageBox" class="message-box" aria-live="polite">花园正在醒来……</div>
+            <div id="eventsList" class="events-list"></div>
+          </article>
+
+          <details class="panel command-panel">
+            <summary>高级模式：输入文字命令</summary>
+            <form id="commandForm" class="command-form">
+              <input id="commandInput" placeholder="例如：status / shop / vase" autocomplete="off">
+              <button class="primary-btn" type="submit">执行</button>
+            </form>
+          </details>
+        </aside>
+      </section>
+    </main>
+
+    <footer>
+      <span>花园与猫咪 {{ app_version }}</span>
+      <button id="leaveBtn" class="link-btn">从这台设备移除花园存档码</button>
+    </footer>
+  </div>
+
+  <div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-card">
+      <button id="modalClose" class="modal-close" aria-label="关闭">×</button>
+      <h2 id="modalTitle">花园存档码</h2>
+      <div id="modalBody"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden" aria-live="assertive"></div>
+  <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+</body>
+</html>
