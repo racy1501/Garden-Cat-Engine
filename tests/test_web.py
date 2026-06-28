@@ -210,3 +210,25 @@ def test_v4810_compact_store_and_item_effects():
     assert "grid-template-columns: repeat(4, minmax(0, 1fr));" in css
     assert ".shop-square-card" in css
     assert ".vase-grid.real-vase" in css
+
+
+def test_v4811_live_timers_encyclopedia_shortcut_and_lily_asset():
+    root = Path(__file__).resolve().parents[1]
+    html = (root / "templates" / "index.html").read_text(encoding="utf-8")
+    js = (root / "static" / "app.js").read_text(encoding="utf-8")
+    css = (root / "static" / "style.css").read_text(encoding="utf-8")
+
+    assert 'id="encyclopediaCard"' in html
+    assert 'lily: "/static/lily.svg"' in js
+    assert 'lily: "🪷"' not in js
+    assert (root / "static" / "lily.svg").exists()
+    assert "GAME_MINUTES_PER_REAL_SECOND" in js
+    assert "updateLiveGameTime()" in js
+    assert "updateLiveCountdowns()" in js
+    assert "dataset.livePotStatus" in js
+    assert "dataset.liveVaseInfo" in js
+    assert "setInterval(updateLiveCountdowns, 1_000)" in js
+    assert "openCollectionShortcut" in js
+    assert "waitForNextPaint" in js
+    assert ".pending-action" in css
+    assert ".metric-link" in css

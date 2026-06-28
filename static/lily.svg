@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="白色百合">
+  <defs>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#705d42" flood-opacity=".16"/>
+    </filter>
+    <linearGradient id="petal" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fffdf7"/>
+      <stop offset=".72" stop-color="#f5ecd8"/>
+      <stop offset="1" stop-color="#e8d8b7"/>
+    </linearGradient>
+    <linearGradient id="leaf" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#7ea276"/>
+      <stop offset="1" stop-color="#4f7352"/>
+    </linearGradient>
+  </defs>
+
+  <g filter="url(#shadow)">
+    <path d="M64 70 C62 88 63 105 66 120" fill="none" stroke="#547b56" stroke-width="6" stroke-linecap="round"/>
+    <path d="M63 93 C49 83 39 84 31 91 C43 93 53 100 63 108 Z" fill="url(#leaf)" stroke="#456a49" stroke-width="2"/>
+    <path d="M66 101 C79 90 91 91 99 98 C87 100 76 107 67 116 Z" fill="url(#leaf)" stroke="#456a49" stroke-width="2"/>
+
+    <g transform="translate(64 57)">
+      <path d="M0 2 C-10 -10 -15 -27 -8 -42 C2 -33 7 -16 4 1 Z" fill="url(#petal)" stroke="#cdbb97" stroke-width="2"/>
+      <path d="M2 4 C12 -9 27 -18 42 -14 C35 -2 20 8 4 9 Z" fill="url(#petal)" stroke="#cdbb97" stroke-width="2"/>
+      <path d="M2 7 C18 9 32 20 35 35 C20 34 7 23 -1 10 Z" fill="url(#petal)" stroke="#cdbb97" stroke-width="2"/>
+      <path d="M-2 7 C-17 11 -31 22 -34 37 C-19 35 -6 24 1 10 Z" fill="url(#petal)" stroke="#cdbb97" stroke-width="2"/>
+      <path d="M-4 4 C-16 -8 -31 -16 -45 -10 C-37 2 -21 10 -5 10 Z" fill="url(#petal)" stroke="#cdbb97" stroke-width="2"/>
+      <path d="M-1 2 C8 -12 12 -29 4 -43 C-5 -32 -10 -15 -5 1 Z" fill="url(#petal)" stroke="#cdbb97" stroke-width="2"/>
+
+      <path d="M0 5 L-13 -13" stroke="#d7b14d" stroke-width="2.5" stroke-linecap="round"/>
+      <path d="M0 5 L13 -12" stroke="#d7b14d" stroke-width="2.5" stroke-linecap="round"/>
+      <path d="M0 5 L-18 0" stroke="#d7b14d" stroke-width="2.5" stroke-linecap="round"/>
+      <path d="M0 5 L18 1" stroke="#d7b14d" stroke-width="2.5" stroke-linecap="round"/>
+      <path d="M0 5 L-7 18" stroke="#d7b14d" stroke-width="2.5" stroke-linecap="round"/>
+      <path d="M0 5 L8 18" stroke="#d7b14d" stroke-width="2.5" stroke-linecap="round"/>
+
+      <circle cx="-13" cy="-13" r="3.2" fill="#c97634"/>
+      <circle cx="13" cy="-12" r="3.2" fill="#c97634"/>
+      <circle cx="-18" cy="0" r="3.2" fill="#c97634"/>
+      <circle cx="18" cy="1" r="3.2" fill="#c97634"/>
+      <circle cx="-7" cy="18" r="3.2" fill="#c97634"/>
+      <circle cx="8" cy="18" r="3.2" fill="#c97634"/>
+      <circle cx="0" cy="5" r="5" fill="#efd26b" stroke="#caa747" stroke-width="1.5"/>
+    </g>
+  </g>
+</svg>

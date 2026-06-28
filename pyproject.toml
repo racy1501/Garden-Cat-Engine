@@ -1,6 +1,6 @@
 [project]
 name = "garden-cat-engine"
-version = "4.8.10"
+version = "4.8.11"
 description = "A persistent multi-garden game with an AI REST API and a human visual web interface"
 requires-python = ">=3.11"
 dependencies = [

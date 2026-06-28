@@ -1233,3 +1233,58 @@ footer { padding: 22px 4px 34px; display: flex; justify-content: space-between; 
   .shop-square-name { font-size: 8px; }
   .shop-square-note { font-size: 5.5px; }
 }
+
+
+/* v4.8.11 实时交互与图鉴快捷入口 */
+.metric-link {
+  cursor: pointer;
+  user-select: none;
+  transition: transform .15s ease, box-shadow .15s ease, background .15s ease;
+}
+.metric-link:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgba(71, 82, 66, .11);
+}
+.metric-link:active {
+  transform: translateY(0) scale(.985);
+}
+.metric-link:focus-visible {
+  outline: 3px solid rgba(111, 135, 103, .26);
+  outline-offset: 2px;
+}
+.pending-action {
+  position: relative;
+  opacity: .82 !important;
+  transform: scale(.975);
+}
+.pending-action::after {
+  content: "";
+  width: 10px;
+  height: 10px;
+  margin-left: 6px;
+  display: inline-block;
+  vertical-align: -1px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: actionSpin .65s linear infinite;
+}
+@keyframes actionSpin {
+  to { transform: rotate(360deg); }
+}
+.shortcut-highlight {
+  animation: shortcutGlow 1.2s ease;
+}
+@keyframes shortcutGlow {
+  0%, 100% { box-shadow: var(--shadow); }
+  35% { box-shadow: 0 0 0 5px rgba(111,135,103,.18), var(--shadow); }
+}
+
+@media (max-width: 760px) {
+  .pending-action::after {
+    width: 7px;
+    height: 7px;
+    margin-left: 3px;
+    border-width: 1.5px;
+  }
+}
