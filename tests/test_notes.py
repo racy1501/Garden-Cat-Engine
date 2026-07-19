@@ -126,7 +126,7 @@ def test_ui_command_help_and_pet_cooldown_regression(api):
     html = home.get_data(as_text=True)
     assert home.status_code == 200
     assert 'id="notesBtn"' in html
-    assert "v4.9.8" in html
+    assert "v4.9.8b" in html
 
     write = client.post(
         "/api/cmd",

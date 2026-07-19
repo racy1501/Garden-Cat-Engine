@@ -1443,3 +1443,64 @@ html, body { min-width: 960px; }
 .vase-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .cat-layout { grid-template-columns: 280px minmax(0, 1fr); }
 .supplies, .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+
+/* v4.9.8b: layout regression hotfix */
+html, body { min-width: 960px; }
+.app-shell {
+  width: 920px;
+  max-width: none;
+  margin-left: auto;
+  margin-right: auto;
+}
+.main-switch-strip {
+  justify-content: flex-start;
+}
+.main-strip-actions {
+  align-self: flex-end;
+  margin: 0 0 8px 0;
+}
+.main-strip-actions .mini-btn {
+  padding: 9px 15px;
+  border-radius: 14px;
+  font-size: 12px;
+}
+.plant-visual > .asset-img,
+.plant-visual > .stage-icon {
+  width: 82px;
+  height: 82px;
+  object-fit: contain;
+}
+.modal-card {
+  width: min(680px, calc(100vw - 36px));
+}
+.collection-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.collection-item {
+  min-height: 132px;
+  padding: 14px 10px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+}
+.collection-item .item-icon {
+  width: 100%;
+  min-height: 72px;
+  display: grid;
+  place-items: center;
+}
+.collection-item .item-icon > .asset-img,
+.collection-item .item-icon > .flower-icon-image {
+  width: 68px;
+  height: 68px;
+  object-fit: contain;
+}
+.collection-item .item-meta small {
+  display: block;
+  margin-top: 4px;
+}

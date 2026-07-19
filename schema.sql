@@ -1,4 +1,4 @@
--- 花园与猫咪 v4.9.8 PostgreSQL 建表参考
+-- 花园与猫咪 v4.9.8b PostgreSQL 建表参考
 -- 程序启动时 game_api.py 会自动执行同等的 CREATE TABLE IF NOT EXISTS。
 
 CREATE TABLE IF NOT EXISTS garden_saves (
