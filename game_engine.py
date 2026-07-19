@@ -1,6 +1,20 @@
 """
-花园与猫咪 v4.8.11 - API与网页兼容游戏引擎
+花园与猫咪 v4.9.1 - API与网页兼容游戏引擎
 支持独立存档 API、可视化网页与本地单文件运行
+
+v4.9.1 更新：
+- 猫咪收集品改为“历史最高亲密度永久解锁，当前状态只影响概率”
+- 收藏阶段解锁后不会因亲密度自然衰减而重新锁定
+- 夜晚与高心情不再作为硬门槛，仅提高珍贵物品出现概率
+- 收集品允许完全随机重复，不再优先补齐尚未获得的物品
+- 新增收藏首次获得时间与稳定解锁提示，供后续收藏室界面使用
+- 兼容 v4.9.0 及更早存档
+
+v4.9.0 更新：
+- 猫咪收集品由5件扩充为16件，新增稀有度、描述与解锁条件
+- 猫咪信件由5封扩充为12封，统一为更有猫咪感的短句风格
+- 收集品与信件查看命令新增动态完成度和更完整内容
+- 兼容旧版收集品与信件存档
 
 v4.8.11 更新：
 - 天气生长倍率重平衡：晴天1.1 / 雨天1.2 / 多云1.0
@@ -145,21 +159,230 @@ GAME_HOURS_PER_REAL_HOUR = 96
 PEST_DEATH_REAL_MINUTES = 10
 
 # 猫咪收集品
+# 解锁规则：历史最高亲密度决定永久解锁；当前心情与昼夜只改变概率。
+# 旧版5件物品的内部 id 保持不变，确保已有存档继续有效。
 CAT_COLLECTIBLES = [
-    {"id": "shell", "name": "贝壳", "emoji": "🐚"},
-    {"id": "maple_leaf", "name": "枫叶", "emoji": "🍁"},
-    {"id": "pine_needle", "name": "松针", "emoji": "🌲"},
-    {"id": "clover", "name": "四叶草", "emoji": "🍀"},
-    {"id": "wildflower", "name": "野花", "emoji": "🌺"},
+    {
+        "id": "pebble",
+        "name": "圆润的小石子",
+        "emoji": "🪨",
+        "rarity": "common",
+        "description": "被猫咪舔得很干净，不知道它为什么如此珍惜。",
+        "unlock_affection": 10,
+    },
+    {
+        "id": "faded_button",
+        "name": "褪色纽扣",
+        "emoji": "🔘",
+        "rarity": "common",
+        "description": "蓝色已经快看不出来了，边缘还有浅浅的牙印。",
+        "unlock_affection": 10,
+    },
+    {
+        "id": "gray_feather",
+        "name": "灰白羽毛",
+        "emoji": "🪶",
+        "rarity": "common",
+        "description": "插在猫窝边上时，会跟着风轻轻晃。",
+        "unlock_affection": 10,
+    },
+    {
+        "id": "maple_leaf",
+        "name": "干枯的小树叶",
+        "emoji": "🍂",
+        "rarity": "common",
+        "description": "叶脉很完整，像一张缩小的地图。",
+        "unlock_affection": 10,
+    },
+    {
+        "id": "bottle_cap",
+        "name": "旧瓶盖",
+        "emoji": "◉",
+        "rarity": "common",
+        "description": "猫咪一路踢回来的，发出了很响的声音。",
+        "unlock_affection": 10,
+    },
+    {
+        "id": "glass_marble",
+        "name": "玻璃珠",
+        "emoji": "🔮",
+        "rarity": "common",
+        "description": "对着太阳看，里面藏着一点绿色的光。",
+        "unlock_affection": 30,
+    },
+    {
+        "id": "red_yarn",
+        "name": "红色毛线头",
+        "emoji": "🧶",
+        "rarity": "common",
+        "description": "缠成了一个歪歪扭扭的小球。",
+        "unlock_affection": 30,
+    },
+    {
+        "id": "pine_needle",
+        "name": "一小束松针",
+        "emoji": "🌲",
+        "rarity": "common",
+        "description": "沾着一点泥土，闻起来像雨后的树林。",
+        "unlock_affection": 30,
+    },
+    {
+        "id": "wildflower",
+        "name": "路边的小野花",
+        "emoji": "🌼",
+        "rarity": "common",
+        "description": "花茎被压弯了一点，但猫咪把它完整带回来了。",
+        "unlock_affection": 30,
+    },
+    {
+        "id": "shell",
+        "name": "完整的贝壳",
+        "emoji": "🐚",
+        "rarity": "uncommon",
+        "description": "放在耳边，似乎还能听见很远的水声。",
+        "unlock_affection": 30,
+    },
+    {
+        "id": "silver_bell",
+        "name": "银色铃铛",
+        "emoji": "🔔",
+        "rarity": "uncommon",
+        "description": "已经不会响了，但猫咪还是很喜欢拨弄它。",
+        "unlock_affection": 50,
+    },
+    {
+        "id": "star_wrapper",
+        "name": "星形糖纸",
+        "emoji": "⭐",
+        "rarity": "uncommon",
+        "description": "阳光照上去时，会闪出彩色的光点。",
+        "unlock_affection": 50,
+    },
+    {
+        "id": "purple_ribbon",
+        "name": "淡紫色丝带",
+        "emoji": "🎀",
+        "rarity": "uncommon",
+        "description": "不知道从哪里捡来的，刚好可以系在花瓶上。",
+        "unlock_affection": 50,
+    },
+    {
+        "id": "clover",
+        "name": "四叶草",
+        "emoji": "🍀",
+        "rarity": "uncommon",
+        "description": "四片叶子都完完整整，像是猫咪认真挑过。",
+        "unlock_affection": 50,
+        "boost_hint": "猫咪心情很好时，出现概率会略微提高。",
+    },
+    {
+        "id": "moonstone",
+        "name": "月光石碎片",
+        "emoji": "🌙",
+        "rarity": "rare",
+        "description": "夜里会泛起很淡的蓝光，像一小块凝固的月亮。",
+        "unlock_affection": 75,
+        "boost_hint": "夜晚或猫咪心情很好时，出现概率提高。",
+        "night_multiplier": 3.0,
+        "mood_threshold": 80,
+        "mood_multiplier": 1.5,
+    },
+    {
+        "id": "paw_tag",
+        "name": "刻着爪印的铜牌",
+        "emoji": "🏷️",
+        "rarity": "rare",
+        "description": "背面刻着一句已经模糊的话：记得回家。",
+        "unlock_affection": 90,
+        "boost_hint": "猫咪心情很好时，出现概率提高。",
+        "mood_threshold": 85,
+        "mood_multiplier": 3.0,
+    },
 ]
+
+CAT_COLLECTIBLE_RARITY_LABELS = {
+    "common": "普通",
+    "uncommon": "少见",
+    "rare": "珍贵",
+}
+
+# 历史最高亲密度达到阶段后，阶段永久开启。
+# 数值是抽取权重，归一化后即为大致概率。
+CAT_COLLECTIBLE_STAGE_RARITY_WEIGHTS = [
+    (90, {"common": 55, "uncommon": 35, "rare": 10}),
+    (75, {"common": 60, "uncommon": 35, "rare": 5}),
+    (50, {"common": 65, "uncommon": 35, "rare": 0}),
+    (30, {"common": 85, "uncommon": 15, "rare": 0}),
+    (10, {"common": 100, "uncommon": 0, "rare": 0}),
+]
+
+# 当前状态只用于概率加成，不会让收藏品在界面里反复解锁/锁定。
+CAT_COLLECTIBLE_RARE_NIGHT_MULTIPLIER = 1.35
+CAT_COLLECTIBLE_RARE_HIGH_MOOD_THRESHOLD = 80
+CAT_COLLECTIBLE_RARE_HIGH_MOOD_MULTIPLIER = 1.25
 
 # 猫咪信件（按亲密度顺序）
 CAT_LETTERS = [
-    {"min_affection": 0, "text": "喵。（这张纸条上只有一个爪印）"},
-    {"min_affection": 20, "text": "...喵。（纸条上有歪歪扭扭的字：你...还行）"},
-    {"min_affection": 40, "text": "今天的花开得不错。——猫"},
-    {"min_affection": 60, "text": "谢谢你每天来看我。——猫"},
-    {"min_affection": 80, "text": "你是我最重要的人。永远。——猫"},
+    {
+        "title": "爪印",
+        "min_affection": 10,
+        "text": "喵。\n（纸上只有一个黑乎乎的爪印。）",
+    },
+    {
+        "title": "饭，还行",
+        "min_affection": 18,
+        "text": "……喵。\n（爪印旁边歪歪扭扭地写着：饭，还行。）",
+    },
+    {
+        "title": "花盆",
+        "min_affection": 26,
+        "text": "今天我没有碰倒花盆。\n你应该知道这很难。\n——猫",
+    },
+    {
+        "title": "窗边",
+        "min_affection": 34,
+        "text": "窗边那块有太阳的地方，是我的。\n你可以坐旁边。\n——猫",
+    },
+    {
+        "title": "叶子",
+        "min_affection": 42,
+        "text": "我给你带了一片叶子。\n不是捡的，是选的。\n——猫",
+    },
+    {
+        "title": "三觉",
+        "min_affection": 50,
+        "text": "你出门以后，我睡了三觉。\n醒来的时候你还没回来。\n不合理。\n——猫",
+    },
+    {
+        "title": "晚饭",
+        "min_affection": 58,
+        "text": "今天的饭晚了一点。\n我已经原谅你了。\n大概。\n——猫",
+    },
+    {
+        "title": "床",
+        "min_affection": 66,
+        "text": "你的床比猫窝大。\n所以今晚我睡你的床。\n你睡哪里自己想。\n——猫",
+    },
+    {
+        "title": "这里有猫",
+        "min_affection": 74,
+        "text": "外面有一只猫看了我很久。\n我告诉它，这里已经有猫了。\n——猫",
+    },
+    {
+        "title": "很高的评价",
+        "min_affection": 82,
+        "text": "你摸我的时候，我没有咬你。\n这是很高的评价。\n——猫",
+    },
+    {
+        "title": "门口",
+        "min_affection": 90,
+        "text": "今天我在门口等了一会儿。\n不是等你。\n只是门口正好需要一只猫。\n——猫",
+    },
+    {
+        "title": "我的",
+        "min_affection": 96,
+        "text": "这里的饭是我的，花盆是我的，窗台也是我的。\n你也是。\n（下面盖了两个很用力的爪印。）",
+    },
 ]
 
 POT_UNLOCK_COSTS = {4: 20, 5: 35, 6: 50}
@@ -203,6 +426,184 @@ def normalize_cat_name(raw_name, default="小猫"):
     return name
 
 
+
+def get_collectible_by_id(collectible_id):
+    """按内部 id 获取猫咪收集品资料。"""
+    return next(
+        (item for item in CAT_COLLECTIBLES if item["id"] == collectible_id),
+        None,
+    )
+
+
+def get_cat_max_affection(state):
+    """返回猫咪历史最高亲密度；旧存档会至少继承当前亲密度。"""
+    current = 0.0
+    if isinstance(state.get("cat_stats"), dict):
+        try:
+            current = float(state["cat_stats"].get("affection", 0))
+        except (TypeError, ValueError):
+            current = 0.0
+
+    try:
+        recorded = float(state.get("cat_max_affection", 0))
+    except (TypeError, ValueError):
+        recorded = 0.0
+
+    return min(100.0, max(0.0, current, recorded))
+
+
+def update_cat_max_affection(state):
+    """在亲密度上升后刷新历史最高值，并保证只增不减。"""
+    if state.get("cat") is None or not isinstance(state.get("cat_stats"), dict):
+        state["cat_max_affection"] = 0.0
+        return 0.0
+
+    maximum = get_cat_max_affection(state)
+    state["cat_max_affection"] = maximum
+    return maximum
+
+
+def is_collectible_unlocked(state, item):
+    """是否已永久解锁某件收集品。"""
+    return get_cat_max_affection(state) >= float(item.get("unlock_affection", 10))
+
+
+def get_collectible_unlock_hint(item):
+    """收藏室中稳定显示的解锁条件。"""
+    required = int(item.get("unlock_affection", 10))
+    return f"曾达到亲密度{required}后，猫咪外出时可能带回。"
+
+
+def get_collectible_boost_hint(item):
+    """收藏室中显示的概率加成提示。"""
+    return str(item.get("boost_hint", "")).strip()
+
+
+def get_collectible_status_text(state, item):
+    """未获得卡片使用的稳定状态文字，不受当前心情与昼夜起伏影响。"""
+    if state.get("collectibles", {}).get(item["id"], 0) > 0:
+        return "已经收集到。"
+    if is_collectible_unlocked(state, item):
+        return "条件已满足，猫咪外出时有机会带回。"
+    return get_collectible_unlock_hint(item)
+
+
+def get_collectible_rarity_weights(state, now=None):
+    """按永久解锁阶段返回稀有度权重，并应用当前状态概率加成。"""
+    if now is None:
+        now = int(time.time())
+
+    max_affection = get_cat_max_affection(state)
+    weights = {"common": 0.0, "uncommon": 0.0, "rare": 0.0}
+    for threshold, stage_weights in CAT_COLLECTIBLE_STAGE_RARITY_WEIGHTS:
+        if max_affection >= threshold:
+            weights = {key: float(value) for key, value in stage_weights.items()}
+            break
+
+    stats = state.get("cat_stats") or {}
+    try:
+        mood = float(stats.get("mood", 0))
+    except (TypeError, ValueError):
+        mood = 0.0
+
+    _, game_hour, _ = get_game_time_info(state, now)
+    is_night = game_hour >= 19 or game_hour < 5
+
+    if weights["rare"] > 0:
+        if is_night:
+            weights["rare"] *= CAT_COLLECTIBLE_RARE_NIGHT_MULTIPLIER
+        if mood >= CAT_COLLECTIBLE_RARE_HIGH_MOOD_THRESHOLD:
+            weights["rare"] *= CAT_COLLECTIBLE_RARE_HIGH_MOOD_MULTIPLIER
+
+    return weights
+
+
+def get_eligible_cat_collectibles(state, now=None):
+    """返回已经被历史最高亲密度永久解锁的收集品。"""
+    if state.get("cat") is None or not isinstance(state.get("cat_stats"), dict):
+        return []
+    return [
+        item
+        for item in CAT_COLLECTIBLES
+        if is_collectible_unlocked(state, item)
+    ]
+
+
+def _get_collectible_item_weight(item, mood, is_night):
+    """同一稀有度内，根据当前状态调整单件物品的相对概率。"""
+    weight = 1.0
+
+    if item.get("night_multiplier") and is_night:
+        weight *= float(item["night_multiplier"])
+
+    mood_threshold = item.get("mood_threshold")
+    if mood_threshold is not None and mood >= float(mood_threshold):
+        weight *= float(item.get("mood_multiplier", 1.0))
+
+    # 四叶草只有轻微的心情加成，不设置硬门槛。
+    if item["id"] == "clover" and mood >= 60:
+        weight *= 1.35
+
+    return max(0.01, weight)
+
+
+def choose_cat_collectible(state, now=None):
+    """先抽稀有度，再在已永久解锁的同稀有度物品中完全随机抽取。
+
+    已获得物品不会被排除，也不会给未获得物品额外权重。
+    """
+    if now is None:
+        now = int(time.time())
+
+    eligible = get_eligible_cat_collectibles(state, now)
+    if not eligible:
+        return None
+
+    by_rarity = {}
+    for item in eligible:
+        by_rarity.setdefault(item["rarity"], []).append(item)
+
+    rarity_weights = get_collectible_rarity_weights(state, now)
+    rarities = [
+        rarity
+        for rarity, items in by_rarity.items()
+        if items and rarity_weights.get(rarity, 0) > 0
+    ]
+    if not rarities:
+        return None
+
+    selected_rarity = random.choices(
+        rarities,
+        weights=[rarity_weights[rarity] for rarity in rarities],
+        k=1,
+    )[0]
+
+    stats = state.get("cat_stats") or {}
+    try:
+        mood = float(stats.get("mood", 0))
+    except (TypeError, ValueError):
+        mood = 0.0
+    _, game_hour, _ = get_game_time_info(state, now)
+    is_night = game_hour >= 19 or game_hour < 5
+
+    candidates = by_rarity[selected_rarity]
+    item_weights = [
+        _get_collectible_item_weight(item, mood, is_night)
+        for item in candidates
+    ]
+    return random.choices(candidates, weights=item_weights, k=1)[0]
+
+
+def get_collectible_unique_count(state):
+    """返回已获得的不同收集品数量。"""
+    valid_ids = {item["id"] for item in CAT_COLLECTIBLES}
+    return sum(
+        1
+        for collectible_id, count in state.get("collectibles", {}).items()
+        if collectible_id in valid_ids and int(count) > 0
+    )
+
+
 def get_default_state():
     now = int(time.time())
     return {
@@ -226,6 +627,8 @@ def get_default_state():
         "events": [],
         "pest_treatment": {},
         "collectibles": {},
+        "collectible_first_found": {},
+        "cat_max_affection": 0.0,
         "letters_received": [],
         "last_letter_check": now,
         "last_collectible_check": now,
@@ -356,6 +759,20 @@ def normalize_state(data, now=None):
         data["collectibles"] = {}
     data["collectibles"] = _positive_inventory(data["collectibles"])
 
+    first_found = {}
+    raw_first_found = data.get("collectible_first_found", {})
+    if isinstance(raw_first_found, dict):
+        for collectible_id, timestamp in raw_first_found.items():
+            if get_collectible_by_id(str(collectible_id)) is None:
+                continue
+            try:
+                timestamp = int(timestamp)
+            except (TypeError, ValueError):
+                continue
+            if timestamp > 0:
+                first_found[str(collectible_id)] = timestamp
+    data["collectible_first_found"] = first_found
+
     if not isinstance(data.get("letters_received"), list):
         data["letters_received"] = []
     valid_letters = []
@@ -470,6 +887,19 @@ def normalize_state(data, now=None):
                 stats[stat] = float(default_value)
             stats[stat] = min(100.0, max(0.0, stats[stat]))
         data["cat_stats"] = stats
+
+    if data.get("cat") is None:
+        data["cat_max_affection"] = 0.0
+    else:
+        try:
+            recorded_max = float(data.get("cat_max_affection", 0))
+        except (TypeError, ValueError):
+            recorded_max = 0.0
+        current_affection = float(data["cat_stats"].get("affection", 0))
+        data["cat_max_affection"] = min(
+            100.0,
+            max(0.0, recorded_max, current_affection),
+        )
 
     return data
 
@@ -723,11 +1153,16 @@ def get_weather_info(state, now):
         if now - state.get("last_collectible_check", now) >= COLLECTIBLE_CHECK_INTERVAL:
             state["last_collectible_check"] = now
             if random.random() < 0.05:
-                collectible = random.choice(CAT_COLLECTIBLES)
-                collectible_id = collectible["id"]
-                state["collectibles"][collectible_id] = state["collectibles"].get(collectible_id, 0) + 1
-                messages.append(f"🎁 小猫带回来了{collectible['emoji']}{collectible['name']}！")
-                add_event(state, f"🎁 猫咪带回了{collectible['emoji']}{collectible['name']}")
+                collectible = choose_cat_collectible(state, now)
+                if collectible is not None:
+                    collectible_id = collectible["id"]
+                    previous_count = state["collectibles"].get(collectible_id, 0)
+                    state["collectibles"][collectible_id] = previous_count + 1
+                    if previous_count <= 0:
+                        state.setdefault("collectible_first_found", {})[collectible_id] = now
+                    messages.append(f"🎁 小猫带回来了{collectible['emoji']}{collectible['name']}！")
+                    messages.append(f"   {collectible['description']}")
+                    add_event(state, f"🎁 猫咪带回了{collectible['emoji']}{collectible['name']}")
 
         if now - state.get("last_letter_check", now) >= LETTER_CHECK_INTERVAL:
             state["last_letter_check"] = now
@@ -739,7 +1174,7 @@ def get_weather_info(state, now):
                     state["letters_received"].append(next_letter_idx)
                     messages.append("\n✉️ 收到猫咪的一封信！")
                     messages.append(f"   「{letter['text']}」")
-                    messages.append(f"   （已收集{len(state['letters_received'])}/5封）")
+                    messages.append(f"   （已收集{len(state['letters_received'])}/{len(CAT_LETTERS)}封）")
                     add_event(state, f"✉️ 收到猫咪第{next_letter_idx + 1}封信")
 
     return weather_data, messages
@@ -809,11 +1244,13 @@ def check_pests(state, now):
     return messages
 
 
-def get_game_time_info(state):
-    now = int(time.time())
+def get_game_time_info(state, now=None):
+    if now is None:
+        now = int(time.time())
     elapsed_real_seconds = max(0, now - state.get("game_start_time", now))
-    elapsed_real_minutes = elapsed_real_seconds / 60
-    game_minutes_total = int(elapsed_real_minutes * 96)
+    game_minutes_total = int(
+        (elapsed_real_seconds / 3600) * GAME_HOURS_PER_REAL_HOUR * 60
+    )
     game_days = game_minutes_total // (24 * 60) + 1
     game_hour = (game_minutes_total // 60) % 24
     game_minute = game_minutes_total % 60
@@ -942,7 +1379,7 @@ def get_status(state, weather_data):
         collectible_count = sum(state["collectibles"].values())
         letter_count = len(state["letters_received"])
         if collectible_count > 0 or letter_count > 0:
-            lines.append(f"🎁 收集品{collectible_count}个 ✉️ 信件{letter_count}/5封")
+            lines.append(f"🎁 收集品{get_collectible_unique_count(state)}/{len(CAT_COLLECTIBLES)}种（共{collectible_count}件） ✉️ 信件{letter_count}/{len(CAT_LETTERS)}封")
 
     return "\n".join(lines)
 
@@ -1490,6 +1927,7 @@ def process_command(state, command):
                 "affection": 10.0,
             }
             state["pending_cat_mood_bonus"] = 0
+            state["cat_max_affection"] = 10.0
             state["cat_last_pet_real_time"] = now - (PET_COOLDOWN_REAL_MINUTES * 60)
             state["last_letter_check"] = now
             state["last_collectible_check"] = now
@@ -1596,27 +2034,58 @@ def process_command(state, command):
         if len(parts) != 1:
             result = "❌ 用法：collectibles"
         else:
-            lines = ["🎁 猫咪收集品"]
-            if not state["collectibles"]:
-                lines.append("  还没有收集品")
-            else:
-                for collectible in CAT_COLLECTIBLES:
-                    count = state["collectibles"].get(collectible["id"], 0)
-                    if count > 0:
-                        lines.append(f"  {collectible['emoji']} {collectible['name']} x{count}")
+            unique_count = get_collectible_unique_count(state)
+            total_count = sum(state["collectibles"].values())
+            max_affection = get_cat_max_affection(state)
+            lines = [
+                "🎁 猫咪的小小收藏",
+                f"  已收集：{unique_count}/{len(CAT_COLLECTIBLES)}种（共{total_count}件）",
+                f"  历史最高亲密度：{int(max_affection)}",
+                "  条件满足后仅代表进入随机范围，仍可能重复带回已有物品。",
+            ]
+
+            for collectible in CAT_COLLECTIBLES:
+                count = state["collectibles"].get(collectible["id"], 0)
+                rarity_name = CAT_COLLECTIBLE_RARITY_LABELS.get(
+                    collectible.get("rarity"), ""
+                )
+
+                if count > 0:
+                    lines.append(
+                        f"\n  {collectible['emoji']} {collectible['name']} x{count} · {rarity_name}"
+                    )
+                    lines.append(f"     {collectible['description']}")
+                    first_found = state.get("collectible_first_found", {}).get(
+                        collectible["id"], 0
+                    )
+                    if first_found:
+                        date_text = datetime.fromtimestamp(first_found).strftime("%Y-%m-%d")
+                        lines.append(f"     首次获得：{date_text}")
+                else:
+                    unlock_mark = "🔓" if is_collectible_unlocked(state, collectible) else "🔒"
+                    lines.append(f"\n  {unlock_mark} ❓ 未知的小东西 · {rarity_name}")
+                    lines.append(f"     {get_collectible_status_text(state, collectible)}")
+                    boost_hint = get_collectible_boost_hint(collectible)
+                    if boost_hint:
+                        lines.append(f"     {boost_hint}")
+
             result = "\n".join(lines)
 
     elif action == "letters":
         if len(parts) != 1:
             result = "❌ 用法：letters"
         else:
-            lines = ["✉️ 猫咪信件"]
+            lines = [
+                "✉️ 猫咪来信",
+                f"  已收集：{len(state['letters_received'])}/{len(CAT_LETTERS)}封",
+            ]
             if not state["letters_received"]:
                 lines.append("  还没有收到信")
             else:
                 for idx in state["letters_received"]:
-                    lines.append(f"  「{CAT_LETTERS[idx]['text']}」")
-            lines.append(f"\n  已收集：{len(state['letters_received'])}/5封")
+                    letter = CAT_LETTERS[idx]
+                    lines.append(f"\n  第{idx + 1}封《{letter['title']}》")
+                    lines.extend(f"    {line}" for line in letter["text"].splitlines())
             result = "\n".join(lines)
 
     elif action == "encyclopedia":
@@ -1692,8 +2161,8 @@ help - 显示帮助
 🎉 特殊事件：
 🌈 雨后彩虹：获得金币或普通种子
 🦋 蝴蝶飞过：每5分钟最多检查一次，可能掉落少量金币
-🎁 猫咪收集品：每5分钟最多检查一次
-✉️ 猫咪写信：每5分钟最多检查一次，按亲密度收5封信
+🎁 猫咪收集品：每5分钟最多检查一次；历史最高亲密度永久解锁阶段，允许随机重复
+✉️ 猫咪写信：每5分钟最多检查一次，按亲密度顺序收12封信
 🐛 害虫：每5分钟最多检查一次；成熟花不再长新虫，染虫后{PEST_DEATH_REAL_MINUTES}分钟内不治疗会枯萎
    枯萎花会留在花盆里，需使用 clear <盆号> 手动清理
 
@@ -1705,6 +2174,8 @@ help - 显示帮助
 
     else:
         result = "❌ 未知命令，输入 help 查看帮助"
+
+    update_cat_max_affection(state)
 
     if all_event_messages:
         result = "\n".join(all_event_messages) + "\n\n" + result
