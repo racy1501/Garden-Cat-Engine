@@ -1,5 +1,5 @@
 """
-花园与猫咪 v4.8.11 - Flask REST API + 可视化网页
+"game": "花园与猫咪 v4.9.1 🌸" - Flask REST API + 可视化网页
 双入口多存档版：AI 使用 REST API，人类使用可视化网页；支持 PostgreSQL 持久化。
 """
 
