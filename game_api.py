@@ -1,5 +1,5 @@
 """
-"game": "花园与猫咪 v4.9.1 🌸" - Flask REST API + 可视化网页
+"game": "花园与猫咪 v4.9.8 🌸" - Flask REST API + 可视化网页
 双入口多存档版：AI 使用 REST API，人类使用可视化网页；支持 PostgreSQL 持久化。
 """
 
@@ -32,8 +32,13 @@ from game_engine import (
     VASE_CAPACITY,
     WEATHER,
     get_actual_grow_speed,
+    get_cat_max_affection,
+    get_collectible_boost_hint,
+    get_collectible_status_text,
+    get_collectible_unlock_hint,
     get_game_time_info,
     get_next_pot_cost,
+    is_collectible_unlocked,
     PET_COOLDOWN_REAL_MINUTES,
     get_default_state,
     get_vase_flower_status,
@@ -50,7 +55,7 @@ except ImportError:  # 本地仅使用 SQLite 时允许不安装 PostgreSQL 驱�
     psycopg2 = None
 
 
-APP_VERSION = "v4.9.1"
+APP_VERSION = "v4.9.8"
 app = Flask(__name__)
 
 API_KEY = os.environ.get("GARDEN_API_KEY", "")
@@ -60,6 +65,10 @@ DEFAULT_SESSION = "default"
 SESSION_ID_RE = re.compile(r"^[A-Za-z0-9_\-]{1,60}$")
 USE_POSTGRES = DATABASE_URL.startswith(("postgres://", "postgresql://"))
 WEB_TOKEN_FIELD = "_web_token_hash"
+NOTE_MAX_CHARS = 20
+NOTE_COOLDOWN_SECONDS = 2 * 60 * 60
+NOTE_PAGE_SIZE = 10
+NOTE_AUTHOR_TYPES = {"human", "ai"}
 
 
 # ─── 数据库 ───────────────────────────────────────────────────────────────────
@@ -94,6 +103,17 @@ def ensure_schema() -> None:
                 )
                 """
             )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS garden_notes (
+                    id BIGSERIAL PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    author_type TEXT NOT NULL CHECK (author_type IN ('human', 'ai')),
+                    content TEXT NOT NULL,
+                    created_at BIGINT NOT NULL
+                )
+                """
+            )
         else:
             cur.execute(
                 """
@@ -104,6 +124,25 @@ def ensure_schema() -> None:
                 )
                 """
             )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS garden_notes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL,
+                    author_type TEXT NOT NULL CHECK (author_type IN ('human', 'ai')),
+                    content TEXT NOT NULL,
+                    created_at INTEGER NOT NULL
+                )
+                """
+            )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_garden_notes_timeline "
+            "ON garden_notes (session_id, created_at DESC, id DESC)"
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_garden_notes_cooldown "
+            "ON garden_notes (session_id, author_type, created_at DESC, id DESC)"
+        )
         conn.commit()
 
 
@@ -223,12 +262,301 @@ def db_delete_session(session_id: str) -> bool:
     with _get_conn() as conn:
         cur = conn.cursor()
         if USE_POSTGRES:
+            cur.execute("DELETE FROM garden_notes WHERE session_id = %s", (session_id,))
             cur.execute("DELETE FROM garden_saves WHERE session_id = %s", (session_id,))
         else:
+            cur.execute("DELETE FROM garden_notes WHERE session_id = ?", (session_id,))
             cur.execute("DELETE FROM garden_saves WHERE session_id = ?", (session_id,))
         deleted = cur.rowcount
         conn.commit()
     return deleted > 0
+
+
+def _normalize_note_content(value: Any) -> str:
+    """Normalize a note into one short line; validation is based on Unicode characters."""
+    return " ".join(str(value or "").split())
+
+
+def _note_iso_time(timestamp: int) -> str:
+    return datetime.fromtimestamp(timestamp, tz=timezone.utc).isoformat()
+
+
+def _note_row_to_dict(row: Any) -> dict[str, Any]:
+    timestamp = int(row["created_at"])
+    return {
+        "id": int(row["id"]),
+        "author_type": str(row["author_type"]),
+        "content": str(row["content"]),
+        "created_at": timestamp,
+        "created_at_iso": _note_iso_time(timestamp),
+    }
+
+
+def db_list_notes(
+    session_id: str,
+    author_type: str,
+    page: int = 1,
+    page_size: int = NOTE_PAGE_SIZE,
+    now: int | None = None,
+) -> dict[str, Any]:
+    """Return one page of append-only notes, newest first."""
+    ensure_schema()
+    if author_type not in NOTE_AUTHOR_TYPES:
+        raise ValueError("invalid note author type")
+    if now is None:
+        now = int(time.time())
+    page = max(1, int(page or 1))
+    page_size = max(1, min(50, int(page_size or NOTE_PAGE_SIZE)))
+    offset = (page - 1) * page_size
+
+    with _get_conn() as conn:
+        if USE_POSTGRES:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(
+                    "SELECT COUNT(*) AS total FROM garden_notes WHERE session_id = %s",
+                    (session_id,),
+                )
+                total = int(cur.fetchone()["total"])
+                cur.execute(
+                    """
+                    SELECT id, author_type, content, created_at
+                    FROM garden_notes
+                    WHERE session_id = %s
+                    ORDER BY created_at DESC, id DESC
+                    LIMIT %s OFFSET %s
+                    """,
+                    (session_id, page_size, offset),
+                )
+                rows = cur.fetchall()
+                cur.execute(
+                    """
+                    SELECT created_at
+                    FROM garden_notes
+                    WHERE session_id = %s AND author_type = %s
+                    ORDER BY created_at DESC, id DESC
+                    LIMIT 1
+                    """,
+                    (session_id, author_type),
+                )
+                latest = cur.fetchone()
+        else:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT COUNT(*) AS total FROM garden_notes WHERE session_id = ?",
+                (session_id,),
+            )
+            total = int(cur.fetchone()[0])
+            cur.execute(
+                """
+                SELECT id, author_type, content, created_at
+                FROM garden_notes
+                WHERE session_id = ?
+                ORDER BY created_at DESC, id DESC
+                LIMIT ? OFFSET ?
+                """,
+                (session_id, page_size, offset),
+            )
+            rows = cur.fetchall()
+            cur.execute(
+                """
+                SELECT created_at
+                FROM garden_notes
+                WHERE session_id = ? AND author_type = ?
+                ORDER BY created_at DESC, id DESC
+                LIMIT 1
+                """,
+                (session_id, author_type),
+            )
+            latest = cur.fetchone()
+
+    last_written_at = int(latest["created_at"]) if latest else 0
+    cooldown_remaining = max(0, last_written_at + NOTE_COOLDOWN_SECONDS - now)
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    return {
+        "notes": [_note_row_to_dict(row) for row in rows],
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "total_pages": total_pages,
+        "can_write": cooldown_remaining == 0,
+        "cooldown_remaining_seconds": cooldown_remaining,
+        "max_chars": NOTE_MAX_CHARS,
+        "cooldown_seconds": NOTE_COOLDOWN_SECONDS,
+    }
+
+
+def db_add_note(
+    session_id: str,
+    author_type: str,
+    content: Any,
+    now: int | None = None,
+) -> tuple[dict[str, Any] | None, int, str | None]:
+    """Append a note. Returns (note, cooldown_remaining, validation_error)."""
+    ensure_schema()
+    if author_type not in NOTE_AUTHOR_TYPES:
+        return None, 0, "发送身份无效。"
+    normalized = _normalize_note_content(content)
+    if not normalized:
+        return None, 0, "便签不能为空。"
+    if len(normalized) > NOTE_MAX_CHARS:
+        return None, 0, f"便签最多 {NOTE_MAX_CHARS} 个字符。"
+    if now is None:
+        now = int(time.time())
+
+    with _get_conn() as conn:
+        cur = conn.cursor()
+        if USE_POSTGRES:
+            cur.execute(
+                """
+                SELECT created_at
+                FROM garden_notes
+                WHERE session_id = %s AND author_type = %s
+                ORDER BY created_at DESC, id DESC
+                LIMIT 1
+                """,
+                (session_id, author_type),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT created_at
+                FROM garden_notes
+                WHERE session_id = ? AND author_type = ?
+                ORDER BY created_at DESC, id DESC
+                LIMIT 1
+                """,
+                (session_id, author_type),
+            )
+        latest = cur.fetchone()
+        if latest:
+            last_written_at = int(latest[0])
+            remaining = max(0, last_written_at + NOTE_COOLDOWN_SECONDS - now)
+            if remaining > 0:
+                return None, remaining, None
+
+        if USE_POSTGRES:
+            cur.execute(
+                """
+                INSERT INTO garden_notes (session_id, author_type, content, created_at)
+                VALUES (%s, %s, %s, %s)
+                RETURNING id
+                """,
+                (session_id, author_type, normalized, now),
+            )
+            note_id = int(cur.fetchone()[0])
+        else:
+            cur.execute(
+                """
+                INSERT INTO garden_notes (session_id, author_type, content, created_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (session_id, author_type, normalized, now),
+            )
+            note_id = int(cur.lastrowid)
+        conn.commit()
+
+    note = {
+        "id": note_id,
+        "author_type": author_type,
+        "content": normalized,
+        "created_at": now,
+        "created_at_iso": _note_iso_time(now),
+    }
+    return note, NOTE_COOLDOWN_SECONDS, None
+
+
+def _parse_positive_page(value: Any) -> int | None:
+    try:
+        page = int(value)
+    except (TypeError, ValueError):
+        return None
+    return page if page > 0 else None
+
+
+def _format_note_duration(seconds: int) -> str:
+    seconds = max(0, int(seconds))
+    hours, remainder = divmod(seconds, 3600)
+    minutes = (remainder + 59) // 60
+    if hours and minutes:
+        return f"{hours}小时{minutes}分钟"
+    if hours:
+        return f"{hours}小时"
+    return f"{max(1, minutes)}分钟"
+
+
+def _format_notes_for_command(payload: dict[str, Any]) -> str:
+    notes = payload["notes"]
+    if not notes:
+        lines = ["📝 花园便签", "  还没有人留下便签。"]
+    else:
+        lines = [
+            f"📝 花园便签（第{payload['page']}/{payload['total_pages']}页，共{payload['total']}条）"
+        ]
+        for note in notes:
+            sender = "AI" if note["author_type"] == "ai" else "人类"
+            stamp = datetime.fromtimestamp(note["created_at"], tz=timezone.utc).strftime(
+                "%Y-%m-%d %H:%M UTC"
+            )
+            lines.append(f"  [{sender}] {note['content']} · {stamp}")
+    if payload["cooldown_remaining_seconds"] > 0:
+        lines.append(
+            "\n你的下一张便签还需等待："
+            + _format_note_duration(payload["cooldown_remaining_seconds"])
+        )
+    else:
+        lines.append("\n你现在可以写一张新便签。")
+    return "\n".join(lines)
+
+
+def _handle_note_command(
+    session_id: str,
+    command: str,
+    author_type: str,
+) -> str | None:
+    """Handle note commands at the API layer so the game engine stays independent."""
+    stripped = command.strip()
+    lowered = stripped.lower()
+
+    page_text: str | None = None
+    if lowered == "notes" or stripped == "查看便签":
+        page_text = "1"
+    elif lowered.startswith("notes "):
+        page_text = stripped[6:].strip()
+    elif stripped.startswith("查看便签 "):
+        page_text = stripped[5:].strip()
+
+    if page_text is not None:
+        page = _parse_positive_page(page_text)
+        if page is None:
+            return "❌ 用法：notes [页码]"
+        return _format_notes_for_command(
+            db_list_notes(session_id, author_type, page=page)
+        )
+
+    content: str | None = None
+    if lowered.startswith("note "):
+        content = stripped[5:]
+    elif stripped.startswith("写便签 "):
+        content = stripped[4:]
+    elif lowered == "note" or stripped == "写便签":
+        content = ""
+
+    if content is None:
+        return None
+
+    note, remaining, error = db_add_note(session_id, author_type, content)
+    if error:
+        return f"❌ {error}"
+    if note is None:
+        return "❌ 便签冷却中，还需等待" + _format_note_duration(remaining) + "。"
+    return f"📝 便签已贴好：{note['content']}"
+
+
+NOTE_HELP_TEXT = (
+    "\n\n【共享便签】\n"
+    "notes [页码] - 查看共享便签，最新在前\n"
+    "note <内容> - 写一张1-20字便签（AI与人类各自冷却2小时）"
+)
 
 
 def _new_state(name: str = "") -> dict[str, Any]:
@@ -366,6 +694,41 @@ def _summary(state: dict[str, Any]) -> dict[str, Any]:
             }
         )
 
+    collectibles = state.get("collectibles", {})
+    collectible_first_found = state.get("collectible_first_found", {})
+    collectible_catalog = []
+    rarity_names = {"common": "普通", "uncommon": "少见", "rare": "珍贵"}
+    for item in CAT_COLLECTIBLES:
+        count = int(collectibles.get(item["id"], 0) or 0)
+        owned = count > 0
+        unlocked = is_collectible_unlocked(state, item)
+        collectible_catalog.append(
+            {
+                **item,
+                "display_name": item["name"] if owned else "未知的小东西",
+                "rarity_name": rarity_names.get(item.get("rarity", ""), ""),
+                "description": item.get("description", "") if owned else "",
+                "owned": owned,
+                "count": count,
+                "unlocked": unlocked,
+                "unlock_hint": get_collectible_unlock_hint(item),
+                "status_text": get_collectible_status_text(state, item),
+                "boost_hint": get_collectible_boost_hint(item),
+                "first_found_at": int(collectible_first_found.get(item["id"], 0) or 0),
+            }
+        )
+
+    received_letter_indexes = set(state.get("letters_received", []))
+    letter_catalog = [
+        {
+            "index": index + 1,
+            "title": letter["title"] if index in received_letter_indexes else "未收到",
+            "received": index in received_letter_indexes,
+            "text": letter["text"] if index in received_letter_indexes else "",
+        }
+        for index, letter in enumerate(CAT_LETTERS)
+    ]
+
     cat_summary = None
     if state.get("cat") and state.get("cat_stats"):
         stats = state["cat_stats"]
@@ -377,9 +740,13 @@ def _summary(state: dict[str, Any]) -> dict[str, Any]:
             "thirst": round(stats["thirst"], 1),
             "mood": round(stats["mood"], 1),
             "affection": round(stats["affection"], 1),
+            "max_affection": round(get_cat_max_affection(state), 1),
             "permanent_items": state.get("permanent_items", []),
-            "letters_received": len(state.get("letters_received", [])),
-            "collectibles_count": sum(state.get("collectibles", {}).values()),
+            "letters_received": len(received_letter_indexes),
+            "letters_capacity": len(CAT_LETTERS),
+            "collectibles_count": sum(1 for count in collectibles.values() if int(count or 0) > 0),
+            "collectibles_total_found": sum(int(count or 0) for count in collectibles.values()),
+            "collectibles_capacity": len(CAT_COLLECTIBLES),
             "pet_cooldown_remaining_seconds": pet_cooldown_remaining,
         }
 
@@ -411,13 +778,23 @@ def _summary(state: dict[str, Any]) -> dict[str, Any]:
         },
         "has_cat": state.get("cat") is not None,
         "cat": cat_summary,
-        "collectibles": state.get("collectibles", {}),
+        "collectibles": collectibles,
+        "collectibles_count": sum(1 for count in collectibles.values() if int(count or 0) > 0),
+        "collectibles_total_found": sum(int(count or 0) for count in collectibles.values()),
+        "collectibles_capacity": len(CAT_COLLECTIBLES),
+        "collectible_catalog": collectible_catalog,
         "letters_received": state.get("letters_received", []),
+        "letters_capacity": len(CAT_LETTERS),
         "letters": [
-            {"index": idx + 1, "text": CAT_LETTERS[idx]["text"]}
+            {
+                "index": idx + 1,
+                "title": CAT_LETTERS[idx]["title"],
+                "text": CAT_LETTERS[idx]["text"],
+            }
             for idx in state.get("letters_received", [])
             if isinstance(idx, int) and 0 <= idx < len(CAT_LETTERS)
         ],
+        "letter_catalog": letter_catalog,
         "recent_events": [event.get("text", "") for event in state.get("events", [])[-5:]],
     }
 
@@ -472,7 +849,7 @@ def info():
                 "种下喜欢的花，布置花瓶，攒钱收养猫咪，慢慢留下自己的生活痕迹。"
             ),
             "world": f"🌍 目前共有 {garden_count} 个花园在这个世界里",
-            "description": "一个同时支持 AI 接口与人类可视化网页的养成游戏。每个 session_id 都对应独立花园。",
+            "description": "一个同时支持 AI 接口与人类可视化网页的养成游戏。绑定后，AI 与人类可在同一 session_id 下共享花园与便签。",
             "how_to_start": [
                 "第一步：注册并获得专属 session_id（只需一次）",
                 f"  POST {base}/register",
@@ -501,6 +878,8 @@ def info():
                 "adopt [名字]         - 花100块收养猫咪，可同时取名",
                 "rename_cat 名字       - 给猫咪改名",
                 "status               - 查看完整花园状态",
+                "notes [页码]         - 查看共享便签，最新在前",
+                "note 内容            - 写一张1-20字便签（AI端冷却2小时）",
             ],
             "features": [
                 "🌱 未浇水的花暂停生长，雨天自动浇水",
@@ -511,6 +890,7 @@ def info():
                 "✉️ 猫咪信件与随机收集品",
                 "🖱️ 人类可通过首页按钮操作自己的独立花园",
                 "💾 每个 session_id 对应一份独立数据库存档",
+                "📝 AI与人类可在同一花园共享便签，各自独立冷却2小时",
             ],
             "endpoints": {
                 f"GET  {base}/info": "游戏说明（无需密钥）",
@@ -519,6 +899,8 @@ def info():
                 f"GET  {base}/status?session_id=xxx": "查看并结算状态",
                 f"GET  {base}/state?session_id=xxx": "获取完整 JSON 存档",
                 f"POST {base}/new_game": "重置指定存档（慎用）",
+                f"GET/POST {base}/notes": "AI查看或写共享便签",
+                f"GET/POST {request.host_url.rstrip('/')}/web/notes": "人类网页查看或写共享便签",
                 f"GET  {request.host_url.rstrip('/')}/": "人类玩家可视化网页",
             },
         }
@@ -546,6 +928,26 @@ def catalog():
                 for flower_id, flower in FLOWERS.items()
             },
             "items": ITEMS,
+            "collectibles": [
+                {
+                    **item,
+                    "rarity_name": {
+                        "common": "普通",
+                        "uncommon": "少见",
+                        "rare": "珍贵",
+                    }.get(item.get("rarity", ""), ""),
+                    "unlock_hint": get_collectible_unlock_hint(item),
+                    "boost_hint": get_collectible_boost_hint(item),
+                }
+                for item in CAT_COLLECTIBLES
+            ],
+            "collectibles_capacity": len(CAT_COLLECTIBLES),
+            "letters_capacity": len(CAT_LETTERS),
+            "notes": {
+                "max_chars": NOTE_MAX_CHARS,
+                "cooldown_seconds": NOTE_COOLDOWN_SECONDS,
+                "page_size": NOTE_PAGE_SIZE,
+            },
             "vase_capacity": VASE_CAPACITY,
             "max_pots": MAX_POTS,
             "pot_unlock_costs": POT_UNLOCK_COSTS,
@@ -605,8 +1007,12 @@ def web_cmd():
     state = _load_authorized_web_state(session_id, token)
     if state is None:
         return _web_auth_error()
-    result = process_command(state, command)
-    db_save_state(session_id, state)
+    result = _handle_note_command(session_id, command, "human")
+    if result is None:
+        result = process_command(state, command)
+        if command.strip().lower() == "help":
+            result += NOTE_HELP_TEXT
+        db_save_state(session_id, state)
     return jsonify(
         {
             "ok": not result.lstrip().startswith("❌"),
@@ -615,6 +1021,38 @@ def web_cmd():
             "state": _summary(state),
         }
     )
+
+
+@app.route("/web/notes", methods=["GET", "POST"])
+def web_notes():
+    data = (request.get_json(silent=True) or {}) if request.method == "POST" else {}
+    session_id = _safe_session_id(
+        data.get("session_id", "") if request.method == "POST" else request.args.get("session_id", "")
+    )
+    token = request.headers.get("X-Garden-Token", "")
+    state = _load_authorized_web_state(session_id, token)
+    if state is None:
+        return _web_auth_error()
+
+    if request.method == "POST":
+        note, remaining, error = db_add_note(session_id, "human", data.get("content", ""))
+        if error:
+            return jsonify({"ok": False, "message": error}), 400
+        if note is None:
+            return jsonify(
+                {
+                    "ok": False,
+                    "message": "便签冷却中，请稍后再写。",
+                    "cooldown_remaining_seconds": remaining,
+                }
+            ), 429
+        payload = db_list_notes(session_id, "human", page=1)
+        return jsonify({"ok": True, "message": "便签已经贴好了。", "note": note, **payload})
+
+    page = _parse_positive_page(request.args.get("page", 1))
+    if page is None:
+        return jsonify({"ok": False, "message": "页码必须是正整数。"}), 400
+    return jsonify({"ok": True, **db_list_notes(session_id, "human", page=page)})
 
 
 @app.route("/web/new_game", methods=["POST"])
@@ -692,8 +1130,12 @@ def cmd_route():
         return jsonify({"ok": False, "message": "❌ 请在请求体中提供 command 字段"}), 400
 
     state = _get_or_create_state(session_id)
-    result = process_command(state, command)
-    db_save_state(session_id, state)
+    result = _handle_note_command(session_id, command, "ai")
+    if result is None:
+        result = process_command(state, command)
+        if command.strip().lower() == "help":
+            result += NOTE_HELP_TEXT
+        db_save_state(session_id, state)
     return jsonify(
         {
             "ok": not result.lstrip().startswith("❌"),
@@ -702,6 +1144,38 @@ def cmd_route():
             "state": _summary(state),
         }
     )
+
+
+@app.route("/api/notes", methods=["GET", "POST"])
+@require_api_key
+def api_notes():
+    data = (request.get_json(silent=True) or {}) if request.method == "POST" else {}
+    session_id = _safe_session_id(
+        data.get("session_id", DEFAULT_SESSION)
+        if request.method == "POST"
+        else request.args.get("session_id", DEFAULT_SESSION)
+    )
+    _get_or_create_state(session_id)
+
+    if request.method == "POST":
+        note, remaining, error = db_add_note(session_id, "ai", data.get("content", ""))
+        if error:
+            return jsonify({"ok": False, "message": f"❌ {error}"}), 400
+        if note is None:
+            return jsonify(
+                {
+                    "ok": False,
+                    "message": "❌ 便签冷却中，请稍后再写。",
+                    "cooldown_remaining_seconds": remaining,
+                }
+            ), 429
+        payload = db_list_notes(session_id, "ai", page=1)
+        return jsonify({"ok": True, "message": "📝 便签已贴好。", "note": note, **payload})
+
+    page = _parse_positive_page(request.args.get("page", 1))
+    if page is None:
+        return jsonify({"ok": False, "message": "❌ 页码必须是正整数。"}), 400
+    return jsonify({"ok": True, **db_list_notes(session_id, "ai", page=page)})
 
 
 @app.route("/api/status", methods=["GET"])
@@ -725,7 +1199,7 @@ def status():
 @require_api_key
 def help_route():
     state = _new_state()
-    result = process_command(state, "help")
+    result = process_command(state, "help") + NOTE_HELP_TEXT
     return jsonify({"ok": True, "message": result})
 
 
