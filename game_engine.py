@@ -1,13 +1,14 @@
 """
-花园与猫咪 v4.9.8b - API与网页兼容游戏引擎
+花园与猫咪 v4.9.9 - API与网页兼容游戏引擎
 支持独立存档 API、可视化网页与本地单文件运行
 
-v4.9.8b 更新：
-- 新增 AI 与人类共享便签接口，便签数据由 API 层独立保存
-- 便签每条1-20个字符，AI端与人类端各自冷却2小时
-- 历史便签按时间倒序分页显示，不提供修改与删除
-- 网页界面同步至固定窄版布局，并保留摸猫现实10分钟冷却
-- 兼容 v4.9.1 及更早存档
+v4.9.9 更新：
+- 心情离线结算最多计算前2个现实小时，超出部分冻结；饱食、口渴、亲密度维持原规则
+- 新增每种花的累计收获计数；旧存档以升级时背包中的鲜花数量作为最低起点
+- 网页图鉴按普通、稀有、珍贵顺序展示，并显示已发现花卉的累计收获数量
+- 网页顶部与猫屋标题旁新增背包入口，摸摸按钮移到猫咪名字旁
+- 背包鲜花区新增一键售出与单种卖全部，商店两页卡片尺寸统一
+- 保留共享便签与摸猫现实10分钟冷却，兼容 v4.9.8c 及更早存档
 
 v4.9.1 更新：
 - 猫咪收集品改为“历史最高亲密度永久解锁，当前状态只影响概率”
@@ -151,6 +152,9 @@ WEATHER_CHANGE_MAX = 600
 
 # v4.6.5: 心情基础衰减（/真实小时）
 MOOD_BASE_DECAY = 0.5
+
+# v4.9.9: 单次离线心情结算最多覆盖前2个现实小时
+MOOD_OFFLINE_CAP_REAL_HOURS = 2.0
 
 # v4.6.5: 亲密度衰减（/真实小时）
 AFFECTION_NATURAL_DECAY = 0.5
@@ -628,6 +632,7 @@ def get_default_state():
         "last_update": now,
         "cat_last_pet": 0,
         "encyclopedia": [],
+        "flower_harvest_counts": {},
         "total_earned": 0,
         "weather": "sunny",
         "weather_change_time": now + random.randint(WEATHER_CHANGE_MIN, WEATHER_CHANGE_MAX),
@@ -677,6 +682,7 @@ def normalize_state(data, now=None):
     if not isinstance(data, dict):
         return get_default_state()
 
+    had_harvest_counts = "flower_harvest_counts" in data
     defaults = get_default_state()
     for key, value in defaults.items():
         if key not in data:
@@ -707,6 +713,26 @@ def normalize_state(data, now=None):
         "flowers": _positive_inventory(inventory.get("flowers", {})),
         "items": _positive_inventory(inventory.get("items", {})),
     }
+
+    raw_harvest_counts = data.get("flower_harvest_counts", {})
+    harvest_counts = {}
+    if isinstance(raw_harvest_counts, dict):
+        for flower_id, value in raw_harvest_counts.items():
+            flower_id = str(flower_id)
+            if flower_id not in FLOWERS:
+                continue
+            try:
+                count = int(value)
+            except (TypeError, ValueError):
+                continue
+            if count > 0:
+                harvest_counts[flower_id] = count
+    if not had_harvest_counts:
+        # 旧存档无法还原已经售出或插花的历史，只以升级时仍在背包里的鲜花作为最低起点。
+        for flower_id, quantity in data["inventory"]["flowers"].items():
+            if flower_id in FLOWERS and quantity > harvest_counts.get(flower_id, 0):
+                harvest_counts[flower_id] = quantity
+    data["flower_harvest_counts"] = harvest_counts
 
     if data.get("weather") not in WEATHER:
         data["weather"] = "sunny"
@@ -1435,7 +1461,8 @@ def update_cat_stats(state, now, weather_data):
     mood_decay = MOOD_BASE_DECAY
     if "cat_bed" in state["permanent_items"]:
         mood_decay *= 0.6
-    mood_change = (weather_data["cat_mood_change"] - mood_decay) * hours
+    mood_hours = min(hours, MOOD_OFFLINE_CAP_REAL_HOURS)
+    mood_change = (weather_data["cat_mood_change"] - mood_decay) * mood_hours
     mood_floor = min(CAT_PASSIVE_STAT_FLOOR, stats["mood"])
     stats["mood"] = min(100.0, max(mood_floor, stats["mood"] + mood_change))
 
@@ -1498,6 +1525,8 @@ def _harvest_one_pot(state, pot_idx, now, weather_data):
     state["inventory"]["flowers"][flower_id] = (
         state["inventory"]["flowers"].get(flower_id, 0) + 1
     )
+    harvest_counts = state.setdefault("flower_harvest_counts", {})
+    harvest_counts[flower_id] = int(harvest_counts.get(flower_id, 0) or 0) + 1
     state["pots"][pot_idx] = None
     state["pest_treatment"].pop(pot_idx, None)
 
@@ -2154,7 +2183,7 @@ help - 显示帮助
 
 🐱 猫咪系统（真实时间）：
   饱食度：-5/小时    口渴度：-6/小时
-  心情：基础衰减-0.5/小时，天气影响
+  心情：基础衰减-0.5/小时，天气影响；单次离线最多结算前2小时
   亲密度：自然衰减-0.5/小时
          饱食或口渴<50时额外-2.0/小时
   被动衰减保护：各项最低停在20，不会因长期离线继续下降

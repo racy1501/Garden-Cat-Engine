@@ -555,27 +555,193 @@ function statRow(label, value, assetKey="") {
 }
 
 function renderCat() {
-  const root=$("#catContent"); root.innerHTML="";
-  if(!currentState.has_cat){const empty=document.createElement("div"); empty.className="cat-empty"; empty.innerHTML=`<div class="cat-avatar">🐾</div><h3>还没有猫咪入住</h3><p class="muted">攒够100块，就可以接一只猫回家。</p>`; const adopt=makeButton("收养猫咪 · 100块",null,"primary-btn",currentState.money<100); adopt.addEventListener("click",()=>runCommand("adopt 栗子",adopt)); empty.append(adopt); root.append(empty); return;}
-  const cat=currentState.cat; const layout=document.createElement("div"); layout.className="cat-layout";
-  const portrait=document.createElement("div"); portrait.className="cat-portrait"; const catImage=document.createElement("img"); catImage.src=CUSTOM_ASSETS.cat; catImage.alt="躺在猫窝里的橘猫"; catImage.className="cat-image"; const catName=document.createElement("h3"); catName.textContent=cat.name||"小猫"; portrait.append(catImage,catName);
-  const utilities=document.createElement("div"); utilities.className="cat-utilities"; const owned=new Set(currentState.permanent_items||[]);
-  for(const [id,label] of [["water_bowl","水碗"],["cat_bed","猫窝"]]){const card=document.createElement("div"); card.className=`utility-card ${owned.has(id)?"":"locked"}`; const image=document.createElement("img"); image.src=CUSTOM_ASSETS[id]; image.alt=label; const strong=document.createElement("strong"); strong.textContent=label; card.append(image,strong); utilities.append(card);} portrait.append(utilities);
-  const details=document.createElement("div"); details.append(statRow("饱食",cat.hunger,"hunger"),statRow("口渴",cat.thirst,"thirst"),statRow("心情",cat.mood,"mood"),statRow("亲密",cat.affection,"affection"));
-  const actions=document.createElement("div"); actions.className="cat-actions";
-  const pet=makeButton(cat.pet_cooldown_remaining_seconds>0?`摸摸 · ${formatDuration(cat.pet_cooldown_remaining_seconds)}`:"摸摸","pet","mini-btn",cat.pet_cooldown_remaining_seconds>0);
-  const backpack=makeButton("背包",null,"mini-btn gold"); backpack.addEventListener("click",showBackpackModal); actions.append(pet,backpack); details.append(actions); layout.append(portrait,details); root.append(layout);
+  const root = $("#catContent");
+  root.innerHTML = "";
+
+  if (!currentState.has_cat) {
+    const empty = document.createElement("div");
+    empty.className = "cat-empty";
+    empty.innerHTML = `<div class="cat-avatar">🐾</div><h3>还没有猫咪入住</h3><p class="muted">攒够100块，就可以接一只猫回家。</p>`;
+    const adopt = makeButton("收养猫咪 · 100块", null, "primary-btn", currentState.money < 100);
+    adopt.addEventListener("click", () => runCommand("adopt 栗子", adopt));
+    empty.append(adopt);
+    root.append(empty);
+    return;
+  }
+
+  const cat = currentState.cat;
+  const layout = document.createElement("div");
+  layout.className = "cat-layout";
+
+  const portrait = document.createElement("div");
+  portrait.className = "cat-portrait";
+  const catImage = document.createElement("img");
+  catImage.src = CUSTOM_ASSETS.cat;
+  catImage.alt = "躺在猫窝里的橘猫";
+  catImage.className = "cat-image";
+
+  const nameRow = document.createElement("div");
+  nameRow.className = "cat-name-row";
+  const catName = document.createElement("h3");
+  catName.textContent = cat.name || "小猫";
+  const pet = makeButton(
+    cat.pet_cooldown_remaining_seconds > 0
+      ? `摸摸 · ${formatDuration(cat.pet_cooldown_remaining_seconds)}`
+      : "摸摸",
+    "pet",
+    "mini-btn cat-pet-btn",
+    cat.pet_cooldown_remaining_seconds > 0,
+  );
+  pet.dataset.role = "pet-button";
+  nameRow.append(catName, pet);
+  portrait.append(catImage, nameRow);
+
+  const utilities = document.createElement("div");
+  utilities.className = "cat-utilities";
+  const owned = new Set(currentState.permanent_items || []);
+  for (const [id, label] of [["water_bowl", "水碗"], ["cat_bed", "猫窝"]]) {
+    const card = document.createElement("div");
+    card.className = `utility-card ${owned.has(id) ? "" : "locked"}`;
+    const image = document.createElement("img");
+    image.src = CUSTOM_ASSETS[id];
+    image.alt = label;
+    const strong = document.createElement("strong");
+    strong.textContent = label;
+    card.append(image, strong);
+    utilities.append(card);
+  }
+  portrait.append(utilities);
+
+  const details = document.createElement("div");
+  details.append(
+    statRow("饱食", cat.hunger, "hunger"),
+    statRow("口渴", cat.thirst, "thirst"),
+    statRow("心情", cat.mood, "mood"),
+    statRow("亲密", cat.affection, "affection"),
+  );
+
+  layout.append(portrait, details);
+  root.append(layout);
 }
 
-function showBackpackModal(){
-  $("#modalTitle").textContent="背包"; const body=$("#modalBody"); body.innerHTML=""; const wrap=document.createElement("div"); wrap.className="backpack-modal-grid";
-  const groups=[
-    ["种子",currentState.inventory.seeds||{},"seeds"],
-    ["鲜花",currentState.inventory.flowers||{},"flowers"],
-    ["猫咪用品",currentState.inventory.items||{},"items"],
+function makeBackpackActionButton(label, command, className = "mini-btn", disabled = false) {
+  const button = makeButton(label, null, className, disabled);
+  if (!disabled) {
+    button.addEventListener("click", async () => {
+      await runCommand(command, button);
+      if (!$("#modal").classList.contains("hidden") && currentState) {
+        showBackpackModal();
+      }
+    });
+  }
+  return button;
+}
+
+function showBackpackModal() {
+  $("#modalTitle").textContent = "背包";
+  const body = $("#modalBody");
+  body.innerHTML = "";
+  const wrap = document.createElement("div");
+  wrap.className = "backpack-modal-grid";
+
+  const groups = [
+    ["种子", currentState.inventory.seeds || {}, "seeds"],
+    ["鲜花", currentState.inventory.flowers || {}, "flowers"],
+    ["猫咪用品", currentState.inventory.items || {}, "items"],
   ];
-  for(const [title,data,kind] of groups){const group=document.createElement("section"); group.className="backpack-group"; const h=document.createElement("h3"); h.textContent=title; group.append(h); const list=document.createElement("div"); list.className="backpack-list"; const entries=Object.entries(data).filter(([,qty])=>qty>0); if(!entries.length){const e=document.createElement("div"); e.className="empty-note"; e.textContent="这一栏还是空的。"; list.append(e);} for(const [id,qty] of entries){const row=document.createElement("div"); row.className="backpack-item"; const icon=document.createElement("div"); if(kind==="items")setItemIcon(icon,id); else setFlowerIcon(icon,id,"🌱"); const meta=document.createElement("div"); meta.className="backpack-meta"; const name=kind==="items"?catalog.items[id]?.name:catalog.flowers[id]?.name; const effect=kind==="items"?(ITEM_EFFECT_TEXT[id]||[]).join(" · "):kind==="flowers"?`售价 ${catalog.flowers[id]?.sell_price||0} 块`:"可种进空花盆"; meta.innerHTML=`<strong>${escapeText(name||id)}</strong><small>数量 ×${qty}${effect?` · ${escapeText(effect)}`:""}</small>`; const acts=document.createElement("div"); acts.className="backpack-actions"; if(kind==="flowers"){acts.append(makeButton("卖1朵",`sell ${id} 1`,"mini-btn gold"),makeButton("插花",`arrange ${id}`,"mini-btn",(currentState.vase?.flowers?.length||0)>=(currentState.vase?.capacity||3)));} else if(kind==="items"){if(id==="basic_food")acts.append(makeButton("喂食","feed basic","mini-btn")); if(id==="premium_food")acts.append(makeButton("喂食","feed premium","mini-btn gold")); if(id==="ball")acts.append(makeButton("使用","play ball","mini-btn")); if(id==="feather_wand")acts.append(makeButton("使用","play feather","mini-btn"));} row.append(icon,meta,acts); list.append(row);} group.append(list); wrap.append(group);}
-  const owned=new Set(currentState.permanent_items||[]); const permanents=document.createElement("section"); permanents.className="backpack-group"; permanents.innerHTML="<h3>永久用品</h3>"; const list=document.createElement("div"); list.className="backpack-list"; for(const id of ["water_bowl","cat_bed"]){const row=document.createElement("div"); row.className="backpack-item"; const icon=document.createElement("div"); setItemIcon(icon,id); const meta=document.createElement("div"); meta.className="backpack-meta"; meta.innerHTML=`<strong>${catalog.items[id]?.name}</strong><small>${owned.has(id)?"已拥有 · 永久生效":"尚未拥有"}</small>`; row.append(icon,meta); list.append(row);} permanents.append(list); wrap.append(permanents); body.append(wrap); $("#modal").classList.remove("hidden");
+
+  for (const [title, data, kind] of groups) {
+    const group = document.createElement("section");
+    group.className = "backpack-group";
+    const entries = Object.entries(data).filter(([, qty]) => qty > 0);
+
+    const heading = document.createElement("div");
+    heading.className = "backpack-group-heading";
+    const h = document.createElement("h3");
+    h.textContent = title;
+    heading.append(h);
+    if (kind === "flowers" && entries.length) {
+      heading.append(
+        makeBackpackActionButton("一键售出", "sell all", "mini-btn gold backpack-sell-all"),
+      );
+    }
+    group.append(heading);
+
+    const list = document.createElement("div");
+    list.className = "backpack-list";
+    if (!entries.length) {
+      const empty = document.createElement("div");
+      empty.className = "empty-note";
+      empty.textContent = "这一栏还是空的。";
+      list.append(empty);
+    }
+
+    for (const [id, qty] of entries) {
+      const row = document.createElement("div");
+      row.className = "backpack-item";
+      const icon = document.createElement("div");
+      if (kind === "items") setItemIcon(icon, id);
+      else setFlowerIcon(icon, id, "🌱");
+
+      const meta = document.createElement("div");
+      meta.className = "backpack-meta";
+      const name = kind === "items" ? catalog.items[id]?.name : catalog.flowers[id]?.name;
+      const effect = kind === "items"
+        ? (ITEM_EFFECT_TEXT[id] || []).join(" · ")
+        : kind === "flowers"
+          ? `售价 ${catalog.flowers[id]?.sell_price || 0} 块`
+          : "可种进空花盆";
+      meta.innerHTML = `<strong>${escapeText(name || id)}</strong><small>数量 ×${qty}${effect ? ` · ${escapeText(effect)}` : ""}</small>`;
+
+      const actions = document.createElement("div");
+      actions.className = "backpack-actions";
+      if (kind === "flowers") {
+        actions.append(
+          makeBackpackActionButton("卖1朵", `sell ${id} 1`, "mini-btn gold"),
+          makeBackpackActionButton("卖全部", `sell ${id} ${qty}`, "mini-btn gold"),
+          makeBackpackActionButton(
+            "插花",
+            `arrange ${id}`,
+            "mini-btn",
+            (currentState.vase?.flowers?.length || 0) >= (currentState.vase?.capacity || 3),
+          ),
+        );
+      } else if (kind === "items") {
+        if (id === "basic_food") actions.append(makeBackpackActionButton("喂食", "feed basic", "mini-btn"));
+        if (id === "premium_food") actions.append(makeBackpackActionButton("喂食", "feed premium", "mini-btn gold"));
+        if (id === "ball") actions.append(makeBackpackActionButton("使用", "play ball", "mini-btn"));
+        if (id === "feather_wand") actions.append(makeBackpackActionButton("使用", "play feather", "mini-btn"));
+      }
+
+      row.append(icon, meta, actions);
+      list.append(row);
+    }
+    group.append(list);
+    wrap.append(group);
+  }
+
+  const owned = new Set(currentState.permanent_items || []);
+  const permanents = document.createElement("section");
+  permanents.className = "backpack-group";
+  permanents.innerHTML = '<div class="backpack-group-heading"><h3>永久用品</h3></div>';
+  const permanentList = document.createElement("div");
+  permanentList.className = "backpack-list";
+  for (const id of ["water_bowl", "cat_bed"]) {
+    const row = document.createElement("div");
+    row.className = "backpack-item";
+    const icon = document.createElement("div");
+    setItemIcon(icon, id);
+    const meta = document.createElement("div");
+    meta.className = "backpack-meta";
+    meta.innerHTML = `<strong>${catalog.items[id]?.name}</strong><small>${owned.has(id) ? "已拥有 · 永久生效" : "尚未拥有"}</small>`;
+    row.append(icon, meta);
+    permanentList.append(row);
+  }
+  permanents.append(permanentList);
+  wrap.append(permanents);
+
+  body.append(wrap);
+  $("#modal").classList.remove("hidden");
 }
 
 function startPetCooldownTimer() {
@@ -590,10 +756,9 @@ function startPetCooldownTimer() {
       renderCat();
       return;
     }
-    const buttons = [...document.querySelectorAll(".cat-actions button")];
-    const petButton = buttons.find((button) => button.textContent.startsWith("摸摸猫"));
+    const petButton = document.querySelector('[data-role="pet-button"]');
     if (petButton) {
-      petButton.textContent = `摸摸猫 · ${formatDuration(remaining)}`;
+      petButton.textContent = `摸摸 · ${formatDuration(remaining)}`;
       petButton.disabled = true;
     }
   }, 1000);
@@ -700,9 +865,17 @@ function renderInventory() {
     const entries = Object.entries(data || {}).filter(([, qty]) => qty > 0);
     if (!entries.length) return;
     hasAny = true;
+
+    const headingRow = document.createElement("div");
+    headingRow.className = "inventory-heading-row";
     const heading = document.createElement("h3");
     heading.className = "subheading";
     heading.textContent = title;
+    headingRow.append(heading);
+    if (kind === "flowers") {
+      headingRow.append(makeButton("一键售出", "sell all", "mini-btn gold"));
+    }
+
     const list = document.createElement("div");
     list.className = "inventory-list";
     for (const [id, qty] of entries) {
@@ -721,24 +894,25 @@ function renderInventory() {
       if (kind === "flowers") {
         actions.append(
           makeButton("卖1朵", `sell ${id} 1`, "mini-btn gold"),
-          makeButton("插花", `arrange ${id}`, "mini-btn", (currentState.vase?.flowers?.length || 0) >= (currentState.vase?.capacity || 3)),
+          makeButton("卖全部", `sell ${id} ${qty}`, "mini-btn gold"),
+          makeButton(
+            "插花",
+            `arrange ${id}`,
+            "mini-btn",
+            (currentState.vase?.flowers?.length || 0) >= (currentState.vase?.capacity || 3),
+          ),
         );
       }
       item.append(icon, meta, actions);
       list.append(item);
     }
-    root.append(heading, list);
+    root.append(headingRow, list);
   };
 
   addGroup("种子", currentState.inventory.seeds, "seeds");
   addGroup("鲜花", currentState.inventory.flowers, "flowers");
   addGroup("物品", currentState.inventory.items, "items");
 
-  if ((Object.values(currentState.inventory.flowers || {}).reduce((a, b) => a + b, 0)) > 0) {
-    const sellAll = makeButton("卖掉背包里的全部鲜花", "sell all", "mini-btn gold");
-    sellAll.style.marginTop = "12px";
-    root.append(sellAll);
-  }
   if (!hasAny) root.innerHTML = `<div class="empty-note">背包还是空的。去商店买一包种子吧。</div>`;
 }
 
@@ -760,8 +934,56 @@ function renderCatLetters(root){
   for(const letter of letters.slice(0,total)){const button=document.createElement("button"); button.type="button"; button.className=`cat-letter-card ${letter.received?"":"locked"}`; const image=document.createElement("img"); image.src=letter.received?CUSTOM_ASSETS.letter:CUSTOM_ASSETS.lock; image.alt=letter.received?"已收到的信":"尚未收到"; const meta=document.createElement("div"); const title=document.createElement("strong"); title.textContent=letter.received?(letter.title||`第 ${letter.index} 封信`):`第 ${letter.index} 封信`; const sub=document.createElement("small"); sub.textContent=letter.received?"点击拆开查看":"尚未收到"; meta.append(title,sub); button.append(image,meta); if(letter.received)button.addEventListener("click",()=>showLetterModal(letter)); else button.disabled=true; grid.append(button);} root.append(grid);
 }
 
-function showEncyclopediaModal(){
-  $("#modalTitle").textContent=`花卉图鉴 · ${currentState.encyclopedia_count}/${Object.keys(catalog.flowers||{}).length}`; const body=$("#modalBody"); body.innerHTML=""; const grid=document.createElement("div"); grid.className="collection-grid"; const known=new Set(currentState.encyclopedia||[]); for(const [id,flower] of Object.entries(catalog.flowers||{})){const item=document.createElement("div"); item.className=`collection-item ${known.has(id)?"":"unknown"}`; const icon=document.createElement("div"); icon.className="item-icon"; if(known.has(id))setFlowerIcon(icon,id); else setAssetIcon(icon,"unknown","尚未发现"); const meta=document.createElement("div"); meta.className="item-meta"; meta.innerHTML=`<strong>${known.has(id)?escapeText(flower.name):"尚未发现"}</strong><small>${known.has(id)?escapeText(flower.rarity_name):"???"}</small>`; item.append(icon,meta); grid.append(item);} body.append(grid); $("#modal").classList.remove("hidden");
+function showEncyclopediaModal() {
+  $("#modalTitle").textContent = `花卉图鉴 · ${currentState.encyclopedia_count}/${Object.keys(catalog.flowers || {}).length}`;
+  const body = $("#modalBody");
+  body.innerHTML = "";
+  const grid = document.createElement("div");
+  grid.className = "collection-grid";
+  const known = new Set(currentState.encyclopedia || []);
+  const harvestCounts = currentState.flower_harvest_counts || {};
+  const rarityRank = { common: 0, uncommon: 1, rare: 2, legendary: 3 };
+  const flowerDisplayOrder = [
+    "daisy", "tulip", "sunflower", "rose",
+    "lavender", "lily", "cherry", "moonflower",
+  ];
+  const displayRank = new Map(flowerDisplayOrder.map((id, index) => [id, index]));
+  const flowers = Object.entries(catalog.flowers || {})
+    .map(([id, flower], originalIndex) => ({ id, flower, originalIndex }))
+    .sort((left, right) => {
+      const rarityDifference = (rarityRank[left.flower.rarity] ?? 99) - (rarityRank[right.flower.rarity] ?? 99);
+      const orderDifference = (displayRank.get(left.id) ?? 99) - (displayRank.get(right.id) ?? 99);
+      return rarityDifference || orderDifference || left.originalIndex - right.originalIndex;
+    });
+
+  for (const { id, flower } of flowers) {
+    const isKnown = known.has(id);
+    const item = document.createElement("div");
+    item.className = `collection-item ${isKnown ? "" : "unknown"}`;
+    const icon = document.createElement("div");
+    icon.className = "item-icon";
+    if (isKnown) setFlowerIcon(icon, id);
+    else setAssetIcon(icon, "unknown", "尚未发现");
+
+    const meta = document.createElement("div");
+    meta.className = "item-meta";
+    const name = document.createElement("strong");
+    name.textContent = isKnown ? flower.name : "尚未发现";
+    const rarity = document.createElement("small");
+    rarity.textContent = isKnown ? flower.rarity_name : "???";
+    meta.append(name, rarity);
+    if (isKnown) {
+      const count = document.createElement("small");
+      count.className = "collection-harvest-count";
+      count.textContent = `累计收获 ${Number(harvestCounts[id] || 0)}朵`;
+      meta.append(count);
+    }
+    item.append(icon, meta);
+    grid.append(item);
+  }
+
+  body.append(grid);
+  $("#modal").classList.remove("hidden");
 }
 
 function renderEvents() {
@@ -1094,6 +1316,8 @@ $("#keyBtn").addEventListener("click", showKeyModal);
 $("#modalClose").addEventListener("click", closeModal);
 $("#modal").addEventListener("click", (event) => { if (event.target.id === "modal") closeModal(); });
 
+$("#backpackBtn").addEventListener("click", showBackpackModal);
+$("#catBackpackBtn").addEventListener("click", showBackpackModal);
 $("#harvestAllBtn").addEventListener("click", (event) => runCommand("harvest all", event.currentTarget));
 $("#notesBtn").addEventListener("click", () => showNotesModal(1));
 
