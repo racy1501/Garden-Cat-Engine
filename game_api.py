@@ -627,8 +627,10 @@ def _daypart_label(hour: int) -> str:
     return "夜晚"
 
 
-def _summary(state: dict[str, Any]) -> dict[str, Any]:
-    """给网页或其他 AI 返回易用的结构化状态摘要。"""
+def _summary(
+    state: dict[str, Any], *, include_catalogs: bool = True
+) -> dict[str, Any]:
+    """返回结构化状态摘要；网页可包含完整图鉴，AI 默认按需精简。"""
     now = int(time.time())
     normalize_state(state, now)
     weather_id = state.get("weather", "sunny")
@@ -697,37 +699,40 @@ def _summary(state: dict[str, Any]) -> dict[str, Any]:
     collectibles = state.get("collectibles", {})
     collectible_first_found = state.get("collectible_first_found", {})
     collectible_catalog = []
-    rarity_names = {"common": "普通", "uncommon": "少见", "rare": "珍贵"}
-    for item in CAT_COLLECTIBLES:
-        count = int(collectibles.get(item["id"], 0) or 0)
-        owned = count > 0
-        unlocked = is_collectible_unlocked(state, item)
-        collectible_catalog.append(
-            {
-                **item,
-                "display_name": item["name"] if owned else "未知的小东西",
-                "rarity_name": rarity_names.get(item.get("rarity", ""), ""),
-                "description": item.get("description", "") if owned else "",
-                "owned": owned,
-                "count": count,
-                "unlocked": unlocked,
-                "unlock_hint": get_collectible_unlock_hint(item),
-                "status_text": get_collectible_status_text(state, item),
-                "boost_hint": get_collectible_boost_hint(item),
-                "first_found_at": int(collectible_first_found.get(item["id"], 0) or 0),
-            }
-        )
+    if include_catalogs:
+        rarity_names = {"common": "普通", "uncommon": "少见", "rare": "珍贵"}
+        for item in CAT_COLLECTIBLES:
+            count = int(collectibles.get(item["id"], 0) or 0)
+            owned = count > 0
+            unlocked = is_collectible_unlocked(state, item)
+            collectible_catalog.append(
+                {
+                    **item,
+                    "display_name": item["name"] if owned else "未知的小东西",
+                    "rarity_name": rarity_names.get(item.get("rarity", ""), ""),
+                    "description": item.get("description", "") if owned else "",
+                    "owned": owned,
+                    "count": count,
+                    "unlocked": unlocked,
+                    "unlock_hint": get_collectible_unlock_hint(item),
+                    "status_text": get_collectible_status_text(state, item),
+                    "boost_hint": get_collectible_boost_hint(item),
+                    "first_found_at": int(collectible_first_found.get(item["id"], 0) or 0),
+                }
+            )
 
     received_letter_indexes = set(state.get("letters_received", []))
-    letter_catalog = [
-        {
-            "index": index + 1,
-            "title": letter["title"] if index in received_letter_indexes else "未收到",
-            "received": index in received_letter_indexes,
-            "text": letter["text"] if index in received_letter_indexes else "",
-        }
-        for index, letter in enumerate(CAT_LETTERS)
-    ]
+    letter_catalog = []
+    if include_catalogs:
+        letter_catalog = [
+            {
+                "index": index + 1,
+                "title": letter["title"] if index in received_letter_indexes else "未收到",
+                "received": index in received_letter_indexes,
+                "text": letter["text"] if index in received_letter_indexes else "",
+            }
+            for index, letter in enumerate(CAT_LETTERS)
+        ]
 
     cat_summary = None
     if state.get("cat") and state.get("cat_stats"):
@@ -750,7 +755,7 @@ def _summary(state: dict[str, Any]) -> dict[str, Any]:
             "pet_cooldown_remaining_seconds": pet_cooldown_remaining,
         }
 
-    return {
+    summary = {
         "garden_name": state.get("garden_name", ""),
         "money": state.get("money", 0),
         "weather": weather_id,
@@ -783,7 +788,6 @@ def _summary(state: dict[str, Any]) -> dict[str, Any]:
         "collectibles_count": sum(1 for count in collectibles.values() if int(count or 0) > 0),
         "collectibles_total_found": sum(int(count or 0) for count in collectibles.values()),
         "collectibles_capacity": len(CAT_COLLECTIBLES),
-        "collectible_catalog": collectible_catalog,
         "letters_received": state.get("letters_received", []),
         "letters_capacity": len(CAT_LETTERS),
         "letters": [
@@ -795,9 +799,17 @@ def _summary(state: dict[str, Any]) -> dict[str, Any]:
             for idx in state.get("letters_received", [])
             if isinstance(idx, int) and 0 <= idx < len(CAT_LETTERS)
         ],
-        "letter_catalog": letter_catalog,
         "recent_events": [event.get("text", "") for event in state.get("events", [])[-5:]],
     }
+    if include_catalogs:
+        summary["collectible_catalog"] = collectible_catalog
+        summary["letter_catalog"] = letter_catalog
+    return summary
+
+
+def _ai_summary(state: dict[str, Any]) -> dict[str, Any]:
+    """AI/MCP 常规响应不重复携带静态图鉴；需要时单独调用 /api/catalog。"""
+    return _summary(state, include_catalogs=False)
 
 
 # ─── 鉴权 ─────────────────────────────────────────────────────────────────────
@@ -864,6 +876,9 @@ def info():
                 "",
                 "也可以直接查看状态：",
                 f"  GET {base}/status?session_id=你的ID",
+                "",
+                "需要查看静态花卉、用品或收集品图鉴时再单独调用：",
+                f"  GET {base}/catalog",
             ],
             "quick_start_commands": [
                 "help                 - 查看所有命令",
@@ -878,7 +893,7 @@ def info():
                 "sell all             - 卖掉背包里的全部鲜花",
                 "adopt [名字]         - 花100块收养猫咪，可同时取名",
                 "rename_cat 名字       - 给猫咪改名",
-                "status               - 查看完整花园状态",
+                "status               - 查看花园状态（静态图鉴按需另取）",
                 "notes [页码]         - 查看共享便签，最新在前",
                 "note 内容            - 写一张1-20字便签（AI端冷却2小时）",
             ],
@@ -899,7 +914,8 @@ def info():
                 f"GET  {base}/info": "游戏说明（无需密钥）",
                 f"POST {base}/register": "注册独立花园",
                 f"POST {base}/cmd": "执行游戏命令",
-                f"GET  {base}/status?session_id=xxx": "查看并结算状态",
+                f"GET  {base}/status?session_id=xxx": "查看并结算精简状态",
+                f"GET  {base}/catalog": "按需获取静态花卉、用品与收集品图鉴",
                 f"GET  {base}/state?session_id=xxx": "获取完整 JSON 存档",
                 f"POST {base}/new_game": "重置指定存档（慎用）",
                 f"GET/POST {base}/notes": "AI查看或写共享便签",
@@ -1100,7 +1116,7 @@ def register():
                 "发送 help 查看玩法，发送 shop 购买第一批种子。\n\n"
                 "🌱 花盆已经摆好，泥土还是新的。"
             ),
-            "state": _summary(state),
+            "state": _ai_summary(state),
         }
     )
 
@@ -1118,7 +1134,7 @@ def new_game():
             "ok": True,
             "session_id": session_id,
             "message": f"🌱 [{session_id}] 新游戏开始！你有50块钱、3个花盆和3包普通猫粮。",
-            "state": _summary(state),
+            "state": _ai_summary(state),
         }
     )
 
@@ -1144,7 +1160,7 @@ def cmd_route():
             "ok": not result.lstrip().startswith("❌"),
             "session_id": session_id,
             "message": result,
-            "state": _summary(state),
+            "state": _ai_summary(state),
         }
     )
 
@@ -1193,7 +1209,7 @@ def status():
             "ok": True,
             "session_id": session_id,
             "message": result,
-            "state": _summary(state),
+            "state": _ai_summary(state),
         }
     )
 
