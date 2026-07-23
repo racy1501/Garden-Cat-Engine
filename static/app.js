@@ -1,4 +1,6 @@
 const STORAGE_KEY = "garden_cat_web_credentials_v1";
+const REQUIRED_CONFIRM_TEXT = "\u786e\u8ba4";
+const UPDATE_ANNOUNCEMENT_SEEN_KEY = "garden_cat_update_seen_v5_0";
 
 const FLOWER_ICON_ASSET = {
   lavender: "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA5NiA5NiI+CiAgPGRlZnM+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9InN0ZW0iIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIxIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjNmY5YjU3Ii8+CiAgICAgIDxzdG9wIG9mZnNldD0iMSIgc3RvcC1jb2xvcj0iIzNmNmYzZSIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0icGV0YWwiIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIxIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjYjk5OWU4Ii8+CiAgICAgIDxzdG9wIG9mZnNldD0iMSIgc3RvcC1jb2xvcj0iIzc2NTRiNyIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICA8L2RlZnM+CiAgPHBhdGggZD0iTTQ4IDgyQzQ3IDY1IDQ5IDQ4IDUyIDI3IiBmaWxsPSJub25lIiBzdHJva2U9InVybCgjc3RlbSkiIHN0cm9rZS13aWR0aD0iNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CiAgPHBhdGggZD0iTTQ3IDY3QzM2IDYzIDMxIDU2IDI4IDQ5IiBmaWxsPSJub25lIiBzdHJva2U9InVybCgjc3RlbSkiIHN0cm9rZS13aWR0aD0iNCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CiAgPHBhdGggZD0iTTQ4IDczQzU5IDY5IDY1IDYyIDY5IDU0IiBmaWxsPSJub25lIiBzdHJva2U9InVybCgjc3RlbSkiIHN0cm9rZS13aWR0aD0iNCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CiAgPGVsbGlwc2UgY3g9IjQ5IiBjeT0iMjIiIHJ4PSI4IiByeT0iMTEiIGZpbGw9InVybCgjcGV0YWwpIiB0cmFuc2Zvcm09InJvdGF0ZSg4IDQ5IDIyKSIvPgogIDxlbGxpcHNlIGN4PSIzOSIgY3k9IjMxIiByeD0iOCIgcnk9IjExIiBmaWxsPSJ1cmwoI3BldGFsKSIgdHJhbnNmb3JtPSJyb3RhdGUoLTM1IDM5IDMxKSIvPgogIDxlbGxpcHNlIGN4PSI1NyIgY3k9IjM0IiByeD0iOCIgcnk9IjExIiBmaWxsPSJ1cmwoI3BldGFsKSIgdHJhbnNmb3JtPSJyb3RhdGUoMzQgNTcgMzQpIi8+CiAgPGVsbGlwc2UgY3g9IjM2IiBjeT0iNDMiIHJ4PSI3IiByeT0iMTAiIGZpbGw9InVybCgjcGV0YWwpIiB0cmFuc2Zvcm09InJvdGF0ZSgtNDYgMzYgNDMpIi8+CiAgPGVsbGlwc2UgY3g9IjU4IiBjeT0iNDciIHJ4PSI3IiByeT0iMTAiIGZpbGw9InVybCgjcGV0YWwpIiB0cmFuc2Zvcm09InJvdGF0ZSg0MyA1OCA0NykiLz4KICA8ZWxsaXBzZSBjeD0iNDMiIGN5PSI1NCIgcng9IjciIHJ5PSIxMCIgZmlsbD0idXJsKCNwZXRhbCkiIHRyYW5zZm9ybT0icm90YXRlKC0yMiA0MyA1NCkiLz4KICA8cGF0aCBkPSJNMzAgNTFDMzcgNTIgNDIgNTYgNDYgNjJDMzggNjMgMzIgNTkgMzAgNTFaIiBmaWxsPSIjNzhhNjVlIi8+CiAgPHBhdGggZD0iTTY4IDU1QzYxIDU2IDU2IDYxIDUxIDY3QzYwIDY4IDY2IDYzIDY4IDU1WiIgZmlsbD0iIzc4YTY1ZSIvPgo8L3N2Zz4=",
@@ -30,6 +32,8 @@ const ITEM_EMOJI = {
 let credentials = null;
 let catalog = null;
 let currentState = null;
+let activeModalKind = null;
+let hasTriedAutoUpdateAnnouncement = false;
 let isBusy = false;
 let petCooldownTimer = null;
 let latestGardenNotice = "";
@@ -38,8 +42,59 @@ let liveRefreshQueued = false;
 let notesCooldownTimer = null;
 let currentNotesPage = 1;
 
-const GAME_MINUTES_PER_REAL_SECOND = 96 / 60;
+Object.assign(CUSTOM_ASSETS, {
+  basic_cat_bed: "static/assets/v5/cat_care/basic_cat_bed.png",
+  premium_cat_bed: "static/assets/v5/cat_care/premium_cat_bed.png",
+  basic_water_bowl: "static/assets/v5/cat_care/basic_water_bowl.png",
+  premium_water_bowl: "static/assets/v5/cat_care/premium_water_bowl.png",
+  basic_food_bowl: "static/assets/v5/cat_care/basic_food_bowl.png",
+  premium_food_bowl: "static/assets/v5/cat_care/premium_food_bowl.png",
+  basic_cat_food: "static/assets/v5/cat_care/basic_cat_food.png",
+  premium_cat_food: "static/assets/v5/cat_care/premium_cat_food.png",
+  cat_treat: "static/assets/v5/cat_care/cat_treat.png",
+  daisy: "static/assets/v5/flowers/daisy.png",
+  tulip: "static/assets/v5/flowers/tulip.png",
+  pansy: "static/assets/v5/flowers/pansy.png",
+  sunflower: "static/assets/v5/flowers/sunflower.png",
+  rose: "static/assets/v5/flowers/rose.png",
+  lavender: "static/assets/v5/flowers/lavender.png",
+  hydrangea: "static/assets/v5/flowers/hydrangea.png",
+  lily: "static/assets/v5/flowers/lily.png",
+  iris: "static/assets/v5/flowers/iris.png",
+  cherry_blossom: "static/assets/v5/flowers/cherry_blossom.png",
+  peony: "static/assets/v5/flowers/peony.png",
+  moonflower: "static/assets/v5/flowers/moonflower.png",
+  daisy_seed: "static/assets/v5/seeds/daisy_seed.png",
+  tulip_seed: "static/assets/v5/seeds/tulip_seed.png",
+  pansy_seed: "static/assets/v5/seeds/pansy_seed.png",
+  sunflower_seed: "static/assets/v5/seeds/sunflower_seed.png",
+  rose_seed: "static/assets/v5/seeds/rose_seed.png",
+  lavender_seed: "static/assets/v5/seeds/lavender_seed.png",
+  hydrangea_seed: "static/assets/v5/seeds/hydrangea_seed.png",
+  lily_seed: "static/assets/v5/seeds/lily_seed.png",
+  iris_seed: "static/assets/v5/seeds/iris_seed.png",
+  cherry_blossom_seed: "static/assets/v5/seeds/cherry_blossom_seed.png",
+  peony_seed: "static/assets/v5/seeds/peony_seed.png",
+  moonflower_seed: "static/assets/v5/seeds/moonflower_seed.png",
+});
+
+const FLOWER_DISPLAY_ORDER = [
+  "daisy",
+  "tulip",
+  "pansy",
+  "sunflower",
+  "rose",
+  "lavender",
+  "hydrangea",
+  "lily",
+  "iris",
+  "cherry_blossom",
+  "peony",
+  "moonflower",
+];
+
 const VASE_LIFESPAN_SECONDS = 12 * 60 * 60;
+const REAL_SECONDS_PER_DAY = 24 * 60 * 60;
 
 const $ = (selector) => document.querySelector(selector);
 const welcomeScreen = $("#welcomeScreen");
@@ -50,6 +105,26 @@ function escapeText(value) {
   return String(value ?? "");
 }
 
+function setTextIconFallback(element, label = "") {
+  if (!element) return;
+  const fallback = document.createElement("span");
+  fallback.className = "icon-fallback-label";
+  fallback.textContent = String(label || "物品").trim().slice(0, 4) || "物品";
+  element.replaceChildren(fallback);
+}
+
+function getCompactItemIconLabel(value, title = "") {
+  const source = String(value || title || "").trim();
+  if (!source) return "物品";
+  if (catalog?.items?.[source]?.name) return String(catalog.items[source].name).trim().slice(0, 4) || "物品";
+  if (/^[a-z0-9_]+$/i.test(source)) {
+    const parts = source.split("_").filter(Boolean);
+    const tail = parts[parts.length - 1] || source;
+    return tail.slice(0, 4) || "物品";
+  }
+  return source.slice(0, 4) || "物品";
+}
+
 function setAssetIcon(element, assetKey, alt = "") {
   const src = CUSTOM_ASSETS[assetKey];
   if (!src || !element) return false;
@@ -57,6 +132,7 @@ function setAssetIcon(element, assetKey, alt = "") {
   image.src = src;
   image.alt = alt;
   image.className = "asset-img";
+  image.onerror = () => setTextIconFallback(element, getCompactItemIconLabel(assetKey, alt));
   element.replaceChildren(image);
   return true;
 }
@@ -66,7 +142,30 @@ function setFlowerIcon(element, flowerId, fallback = "🌺") {
   element.textContent = FLOWER_EMOJI[flowerId] || fallback;
 }
 
+function getSeedAssetKey(flowerId) {
+  return flowerId ? `${flowerId}_seed` : "";
+}
+
+function getFlowerUnlockText(flower) {
+  const requirement = flower?.unlock_requirement;
+  if (typeof requirement === "number") {
+    return requirement > 0 ? `图鉴${requirement}种后解锁` : "开局解锁";
+  }
+  if (requirement && typeof requirement === "object") {
+    const encyclopedia = Number(requirement.encyclopedia) || 0;
+    const harvests = Number(requirement.harvests) || 0;
+    if (encyclopedia <= 0 && harvests <= 0) return "开局解锁";
+    const parts = [];
+    if (encyclopedia > 0) parts.push(`图鉴${encyclopedia}种`);
+    if (harvests > 0) parts.push(`累计收获${harvests}朵`);
+    return `${parts.join("，")}后解锁`;
+  }
+  return "达到条件后解锁";
+}
+
 function setItemIcon(element, itemId) {
+  const assetKey = CAT_CARE_ITEM_ASSETS[itemId] || itemId;
+  if (assetKey !== itemId && setAssetIcon(element, assetKey, catalog?.items?.[itemId]?.name || "物品")) return;
   if (setAssetIcon(element, itemId, catalog?.items?.[itemId]?.name || "物品")) return;
   element.textContent = ITEM_EMOJI[itemId] || "🎁";
 }
@@ -99,17 +198,17 @@ function getSnapshotElapsedSeconds() {
 function updateLiveGameTime() {
   if (!currentState) return;
 
-  const baseMinutes =
-    (Math.max(1, Number(currentState.game_day) || 1) - 1) * 24 * 60 +
-    (Number(currentState.game_hour) || 0) * 60 +
-    (Number(currentState.game_minute) || 0);
-
-  const liveMinutes = Math.floor(
-    baseMinutes + getSnapshotElapsedSeconds() * GAME_MINUTES_PER_REAL_SECOND
-  );
-
-  const day = Math.floor(liveMinutes / (24 * 60)) + 1;
-  const minuteOfDay = ((liveMinutes % (24 * 60)) + 24 * 60) % (24 * 60);
+  const elapsedSeconds = Math.floor(getSnapshotElapsedSeconds());
+  const baseServerNow = Math.max(0, Number(currentState.server_now) || 0);
+  const liveServerNow = baseServerNow + elapsedSeconds;
+  const baseDay = Math.max(1, Number(currentState.game_day) || 1);
+  const baseHour = Math.max(0, Number(currentState.game_hour) || 0);
+  const baseMinute = Math.max(0, Number(currentState.game_minute) || 0);
+  const baseMinuteOfDay = baseHour * 60 + baseMinute;
+  const elapsedMinutes = Math.floor(elapsedSeconds / 60);
+  const liveMinuteOfDay = baseMinuteOfDay + elapsedMinutes;
+  const day = baseDay + Math.floor(Math.max(0, liveServerNow - baseServerNow) / REAL_SECONDS_PER_DAY);
+  const minuteOfDay = ((liveMinuteOfDay % (24 * 60)) + (24 * 60)) % (24 * 60);
   const hour = Math.floor(minuteOfDay / 60);
   const minute = minuteOfDay % 60;
 
@@ -296,8 +395,70 @@ async function createGarden(name) {
   }
 }
 
+async function startFreshGarden(confirmButton) {
+  if (!credentials || !currentState || isBusy) return;
+  setBusy(true);
+  if (confirmButton) {
+    confirmButton.disabled = true;
+    confirmButton.textContent = "开启中...";
+  }
+  try {
+    const data = await requestJson("/web/new_game", {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        session_id: credentials.session_id,
+        name: currentState.garden_name || "",
+        confirm_text: REQUIRED_CONFIRM_TEXT,
+      }),
+    });
+    closeModal();
+    updateFromResponse(data);
+    showToast("全新花园已开启");
+  } catch (error) {
+    if (confirmButton) {
+      confirmButton.disabled = false;
+      confirmButton.textContent = "确认开启全新花园";
+    }
+    showToast(error.message);
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function startMoveWithCat(confirmButton) {
+  if (!credentials || !currentState || isBusy) return;
+  setBusy(true);
+  if (confirmButton) {
+    confirmButton.disabled = true;
+    confirmButton.textContent = "搬家中...";
+  }
+  try {
+    const data = await requestJson("/web/move_with_cat", {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        session_id: credentials.session_id,
+        name: currentState.garden_name || "",
+        confirm_text: REQUIRED_CONFIRM_TEXT,
+      }),
+    });
+    closeModal();
+    updateFromResponse(data);
+    showToast("已经带着猫咪搬进新花园");
+  } catch (error) {
+    if (confirmButton) {
+      confirmButton.disabled = false;
+      confirmButton.textContent = "确认带猫搬家";
+    }
+    showToast(error.message);
+  } finally {
+    setBusy(false);
+  }
+}
+
 async function refreshGarden({ quiet = false } = {}) {
-  if (!credentials || isBusy) return;
+  if (!credentials || isBusy) return false;
   setBusy(true);
   try {
     const query = encodeURIComponent(credentials.session_id);
@@ -368,8 +529,10 @@ async function runCommand(command, sourceButton = null) {
         .find((line) => line.trim());
       showToast(firstLine || "这个操作没有成功");
     }
+    return Boolean(data.ok);
   } catch (error) {
     showToast(error.message);
+    return false;
   } finally {
     setBusy(false);
 
@@ -389,6 +552,7 @@ function updateFromResponse(data, quiet = false) {
   if (!quiet && data.message) latestGardenNotice = data.message;
   renderAll();
   updateLiveCountdowns();
+  maybeAutoShowUpdateAnnouncement();
   if (!quiet && data.message) {
     $("#messageBox").textContent = data.message;
   }
@@ -402,7 +566,7 @@ function renderAll() {
   setAssetIcon($("#encyclopediaIcon"), "encyclopedia", "花卉图鉴");
   setAssetIcon($("#earnedIcon"), "income", "累计收入");
   $("#weatherName").textContent = currentState.weather_name || "未知";
-  $("#weatherMeta").textContent = `第${currentState.game_day || 1}天 · ${currentState.daypart || ""} ${String(currentState.game_hour || 0).padStart(2, "0")}:${String(currentState.game_minute || 0).padStart(2, "0")}`;
+  updateLiveGameTime();
   $("#moneyValue").textContent = `${currentState.money} 块`;
   $("#encyclopediaValue").textContent = `${currentState.encyclopedia_count} / ${Object.keys(catalog.flowers).length}`;
   $("#earnedValue").textContent = `${currentState.total_earned} 块`;
@@ -416,7 +580,7 @@ function renderAll() {
   renderGardenNotice();
   renderPots();
   renderVase();
-  renderCat();
+  renderCatHouseV5();
   renderSeedShop();
   renderCatShop();
   renderInventory();
@@ -472,16 +636,132 @@ function extractGardenNotice(message) {
   return lines[0] || "";
 }
 
+function buildGardenNoticeSupplements() {
+  const supplements = [];
+  const offline = currentState?.offline_summary || {};
+  if (Number(offline.offline_seconds || 0) > 0) {
+    supplements.push("你离开了一会儿，花园仍在安静生长。");
+  }
+
+  const events = currentState?.garden_events || {};
+  if (events.has_pests) {
+    supplements.push("有花盆遭了虫害，最好去看看。");
+  }
+  if (events.rainbow_active) {
+    supplements.push("一道彩虹挂在花园上空。");
+  }
+  if (events.butterfly_active) {
+    supplements.push("几只蝴蝶绕着花丛飞舞。");
+  }
+  return supplements;
+}
+
 function renderGardenNotice() {
   const root = $("#gardenNoticeText");
   let notice = extractGardenNotice(latestGardenNotice);
+  const offline = currentState?.offline_summary || {};
+  const supplements = buildGardenNoticeSupplements();
+  if (!notice && Number(offline.offline_seconds || 0) > 0) {
+    notice = offline.message || "花园在你离开时暂停在安全状态。";
+  }
   if (!notice) {
     const events = currentState.recent_events || [];
     notice = events.length
       ? events[events.length - 1]
       : "花园很安静，风从花叶间穿过去。";
   }
+  if (!extractGardenNotice(latestGardenNotice) && Number(offline.offline_seconds || 0) > 0) {
+    notice = supplements.shift() || notice;
+  }
+  if (supplements.length) {
+    notice = [notice, ...supplements].join("\n");
+  }
   root.textContent = notice;
+}
+
+
+function ensureOfflineSummaryBar() {
+  let bar = $("#offlineSummaryBar");
+  if (bar) return bar;
+  const notice = $("#gardenNotice");
+  if (!notice) return null;
+  bar = document.createElement("div");
+  bar.id = "offlineSummaryBar";
+  bar.className = "offline-summary-bar";
+  notice.append(bar);
+  return bar;
+}
+
+
+function renderOfflineSummaryBar() {
+  const bar = ensureOfflineSummaryBar();
+  if (!bar) return;
+  bar.innerHTML = "";
+  const offline = currentState?.offline_summary || {};
+  const offlineSeconds = Number(offline.offline_seconds || 0);
+  if (offlineSeconds <= 0) {
+    bar.classList.add("hidden");
+    return;
+  }
+
+  const chips = [
+    `离线：${formatDuration(offlineSeconds)}`,
+    `结算：${formatDuration(Number(offline.settled_seconds || 0))}`,
+    offline.is_frozen ? "冻结：已触发 72 小时保护" : "冻结：未触发",
+    currentState?.is_frozen ? "花园状态：暂停保护" : "花园状态：已恢复",
+  ];
+  if (Number(offline.skipped_seconds || 0) > 0) {
+    chips.push(`未推进：${formatDuration(Number(offline.skipped_seconds || 0))}`);
+  }
+  bar.classList.remove("hidden");
+  chips.forEach((text) => {
+    const chip = document.createElement("span");
+    chip.className = "offline-summary-chip";
+    chip.textContent = text;
+    bar.append(chip);
+  });
+}
+
+
+function ensureGardenEventBar() {
+  let bar = $("#gardenEventBar");
+  if (bar) return bar;
+  const notice = $("#gardenNotice");
+  if (!notice) return null;
+  bar = document.createElement("div");
+  bar.id = "gardenEventBar";
+  bar.className = "garden-event-bar";
+  notice.append(bar);
+  return bar;
+}
+
+
+function renderGardenEventBar() {
+  const bar = ensureGardenEventBar();
+  if (!bar) return;
+  bar.innerHTML = "";
+  const events = currentState?.garden_events || {};
+  const pestText = events.has_pests
+    ? `虫害：盆${(events.pest_pots || []).join("、")}`
+    : "虫害：暂无";
+  const rainbowText = events.rainbow_active
+    ? `彩虹：出现中${events.rainbow_reward ? ` · ${events.rainbow_reward}` : ""}`
+    : "彩虹：未出现";
+  const butterflyText = events.butterfly_active
+    ? `蝴蝶：出现中${events.butterfly_reward ? ` · ${events.butterfly_reward}` : ""}`
+    : "蝴蝶：未出现";
+  const chips = [
+    `天气：${currentState.weather_name || "未知"}`,
+    pestText,
+    rainbowText,
+    butterflyText,
+  ];
+  chips.forEach((text) => {
+    const chip = document.createElement("span");
+    chip.className = "garden-event-chip";
+    chip.textContent = text;
+    bar.append(chip);
+  });
 }
 
 
@@ -527,7 +807,7 @@ function renderPots() {
     const actions=document.createElement("div"); actions.className="pot-actions";
     if(pot.status==="empty"){const select=document.createElement("select"); const hasSeeds=seedOptions(select); const plant=makeButton("种下",null,"mini-btn",!hasSeeds); plant.addEventListener("click",()=>{if(select.value) runCommand(`plant ${select.value} ${slot}`,plant)}); actions.append(select,plant);}
     else if(pot.status==="withered") actions.append(makeButton("清理花盆",`clear ${slot}`,"mini-btn rose"));
-    else {if(!pot.watered) actions.append(makeButton("浇水",`water ${slot}`)); else if(currentState.weather==="rainy") actions.append(makeButton("雨水滋润中",null,"mini-btn",true)); else actions.append(makeButton("已浇水",null,"mini-btn",true)); if(pot.has_pest) actions.append(makeButton("治疗 3块",`treat ${slot}`,"mini-btn rose",currentState.money<3)); if(pot.status==="ready"&&!pot.has_pest) actions.append(makeButton("收获",`harvest ${slot}`,"mini-btn gold"));}
+    else {if(!pot.watered) actions.append(makeButton("浇水",`water ${slot}`)); else if(currentState.weather==="rainy") actions.append(makeButton("雨水滋润中",null,"mini-btn",true)); else actions.append(makeButton("已浇水",null,"mini-btn",true)); if(pot.has_pest) actions.append(makeButton("治疗 2金币",`treat ${slot}`,"mini-btn rose",currentState.money<2)); if(pot.status==="ready"&&!pot.has_pest) actions.append(makeButton("收获",`harvest ${slot}`,"mini-btn gold"));}
     card.append(actions); grid.append(card);
   }
 }
@@ -561,10 +841,7 @@ function renderCat() {
   if (!currentState.has_cat) {
     const empty = document.createElement("div");
     empty.className = "cat-empty";
-    empty.innerHTML = `<div class="cat-avatar">🐾</div><h3>还没有猫咪入住</h3><p class="muted">攒够100块，就可以接一只猫回家。</p>`;
-    const adopt = makeButton("收养猫咪 · 100块", null, "primary-btn", currentState.money < 100);
-    adopt.addEventListener("click", () => runCommand("adopt 栗子", adopt));
-    empty.append(adopt);
+    empty.innerHTML = `<div class="cat-avatar">🐾</div><h3>还没有猫咪入住</h3><p class="muted">花园里暂时没有猫咪。也许过些时候，会有一位小客人来拜访。</p>`;
     root.append(empty);
     return;
   }
@@ -624,6 +901,463 @@ function renderCat() {
   root.append(layout);
 }
 
+const CAT_PHASE_LABELS = {
+  visitor: "访客猫",
+  stayed_waiting_name: "等待取名",
+  adopted: "已收养",
+};
+
+const CAT_LOCATION_LABELS = {
+  garden: "在花园",
+  home: "在家",
+  away: "外出",
+};
+
+function getCatLifePhase() {
+  return currentState?.cat_state?.phase || (currentState?.has_cat ? "adopted" : "visitor");
+}
+
+function getCatLocation() {
+  return currentState?.cat_state?.location || (getCatLifePhase() === "adopted" ? "home" : "garden");
+}
+
+function getCatDisplayStats() {
+  const stats = currentState?.cat_state?.stats || {};
+  const legacy = currentState?.cat_stats || currentState?.cat || {};
+  return {
+    satiety: Number(stats.satiety ?? stats.hunger ?? legacy.satiety ?? legacy.hunger ?? 0),
+    hydration: Number(stats.hydration ?? stats.thirst ?? legacy.hydration ?? legacy.thirst ?? 0),
+    mood: Number(stats.mood ?? legacy.mood ?? 0),
+    affection: Number(stats.affection ?? legacy.affection ?? 0),
+  };
+}
+
+function getCatBedLabel(bed) {
+  const facilityId = String(bed?.facility_id || "");
+  if (!facilityId) return "未知";
+  if (facilityId === "basic_cat_bed" || facilityId.includes("basic")) return "普通猫窝";
+  if (facilityId.includes("premium") || facilityId.includes("deluxe")) return "高级猫窝";
+  return "未知猫窝";
+}
+
+function getCatFoodLabel(foodType) {
+  if (foodType === "premium_food") return "高级猫粮";
+  if (foodType === "basic_food") return "普通猫粮";
+  return "未知猫粮";
+}
+
+function makeCatInfoCard(label, value, note = "") {
+  const card = document.createElement("div");
+  card.className = "cat-info-card";
+  const strong = document.createElement("strong");
+  strong.textContent = label;
+  const span = document.createElement("span");
+  span.textContent = value;
+  card.append(strong, span);
+  if (note) {
+    const small = document.createElement("small");
+    small.textContent = note;
+    card.append(small);
+  }
+  return card;
+}
+
+const CAT_CARE_ITEM_ASSETS = {
+  basic_food: "basic_cat_food",
+  premium_food: "premium_cat_food",
+  cat_treat: "cat_treat",
+  ball: "ball",
+  feather_wand: "feather_wand",
+  cat_bed: "premium_cat_bed",
+  water_bowl: "premium_water_bowl",
+  premium_food_bowl: "premium_food_bowl",
+};
+
+function getCatShopAssetKey(itemId) {
+  return CAT_CARE_ITEM_ASSETS[itemId] || "";
+}
+
+function getCatBedAssetKey(bed) {
+  const facilityId = String(bed?.facility_id || "");
+  if (facilityId === "cat_bed" || facilityId.includes("premium") || facilityId.includes("deluxe")) {
+    return "premium_cat_bed";
+  }
+  return "basic_cat_bed";
+}
+
+function getCatBowlAssetKey(kind, facility) {
+  const facilityId = String(facility?.facility_id || "");
+  const premiumAsset = kind === "food" ? "premium_food_bowl" : "premium_water_bowl";
+  const basicAsset = kind === "food" ? "basic_food_bowl" : "basic_water_bowl";
+  if (
+    facilityId === "premium_food_bowl" ||
+    facilityId === "water_bowl" ||
+    facilityId.includes("premium") ||
+    facilityId.includes("deluxe")
+  ) {
+    return premiumAsset;
+  }
+  return basicAsset;
+}
+
+function getCatFoodAssetKey(foodType) {
+  return foodType === "premium_food" ? "premium_cat_food" : "basic_cat_food";
+}
+
+function renderCatHouseV5() {
+  const root = $("#catContent");
+  root.innerHTML = "";
+
+  const cat = currentState.cat || {};
+  const phase = getCatLifePhase();
+  const location = getCatLocation();
+  const stats = getCatDisplayStats();
+  const care = currentState.cat_care || {};
+  const bed = care.bed || {};
+  const foodBowl = care.food_bowl || {};
+  const waterBowl = care.water_bowl || {};
+  const isAdopted = phase === "adopted";
+  const adoptName = currentState?.cat?.name || "小猫";
+
+  const layout = document.createElement("div");
+  layout.className = "cat-layout";
+
+  const portrait = document.createElement("div");
+  portrait.className = "cat-portrait";
+  const catImage = document.createElement("img");
+  catImage.src = CUSTOM_ASSETS.cat;
+  catImage.alt = "猫屋里的猫咪";
+  catImage.className = "cat-image";
+
+  const nameRow = document.createElement("div");
+  nameRow.className = "cat-name-row";
+  const catName = document.createElement("h3");
+  catName.textContent = cat.name || (isAdopted ? "小猫" : "来访猫咪");
+  nameRow.append(catName);
+  if (isAdopted) {
+    const pet = makeButton(
+      cat.pet_cooldown_remaining_seconds > 0
+        ? `抚摸 · ${formatDuration(cat.pet_cooldown_remaining_seconds)}`
+        : "抚摸",
+      "pet",
+      "mini-btn cat-pet-btn",
+      cat.pet_cooldown_remaining_seconds > 0,
+    );
+    pet.dataset.role = "pet-button";
+    nameRow.append(pet);
+  }
+  portrait.append(catImage, nameRow);
+
+  const badges = document.createElement("div");
+  badges.className = "cat-badges";
+  for (const label of [
+    `阶段 · ${CAT_PHASE_LABELS[phase] || "未知"}`,
+    `位置 · ${CAT_LOCATION_LABELS[location] || "未知"}`,
+  ]) {
+    const badge = document.createElement("span");
+    badge.className = "badge";
+    badge.textContent = label;
+    badges.append(badge);
+  }
+  portrait.append(badges);
+
+  const hint = document.createElement("p");
+  hint.className = "cat-phase-hint";
+  if (phase === "visitor") {
+    hint.textContent = "猫咪会先来花园做客，愿意留下后再正式收养。";
+  } else if (phase === "stayed_waiting_name") {
+    hint.textContent = "猫咪愿意留下了，正在等一个正式的名字。";
+  }
+  if (isAdopted) {
+    hint.textContent = "猫咪已经在家安顿下来，可以慢慢照料它。";
+  }
+  portrait.append(hint);
+
+  const details = document.createElement("div");
+  details.className = "cat-details";
+
+  const statsGroup = document.createElement("div");
+  statsGroup.className = "cat-section-block";
+  const statsTitle = document.createElement("h4");
+  statsTitle.textContent = "猫咪状态";
+  statsGroup.append(
+    statsTitle,
+    statRow("饱食", stats.satiety, "hunger"),
+    statRow("水分", stats.hydration, "thirst"),
+    statRow("心情", stats.mood, "mood"),
+    statRow("亲密", stats.affection, "affection"),
+  );
+
+  const careGroup = document.createElement("div");
+  careGroup.className = "cat-section-block";
+  const careTitle = document.createElement("h4");
+  careTitle.textContent = "猫屋设施";
+  const careGrid = document.createElement("div");
+  careGrid.className = "cat-info-grid";
+  careGrid.append(
+    makeCatInfoCard("当前猫窝", getCatBedLabel(bed), bed?.is_default ? "默认设施" : ""),
+    makeCatInfoCard(
+      "粮碗",
+      `${Number(foodBowl.remaining_portions || 0)} / ${Number(foodBowl.capacity || 0)}`,
+      getCatFoodLabel(foodBowl.food_type),
+    ),
+    makeCatInfoCard(
+      "水碗",
+      `${Number(waterBowl.remaining_portions || 0)} / ${Number(waterBowl.capacity || 0)}`,
+      "清水份数",
+    ),
+    makeCatInfoCard("当前猫粮", getCatFoodLabel(foodBowl.food_type)),
+  );
+  careGroup.append(careTitle, careGrid);
+  details.append(statsGroup, careGroup);
+
+  const canManageCare = isAdopted || phase === "visitor" || phase === "stayed_waiting_name";
+  if (canManageCare) {
+    const actionGroup = document.createElement("div");
+    actionGroup.className = "cat-section-block";
+    const actionTitle = document.createElement("h4");
+    actionTitle.textContent = "日常照料";
+    const actions = document.createElement("div");
+    actions.className = "cat-actions cat-care-actions";
+    actions.append(
+      makeButton("补普通猫粮", "refill_food basic"),
+      makeButton("补高级猫粮", "refill_food premium", "mini-btn gold"),
+      makeButton("补水", "refill_water"),
+      makeButton("切换普通猫粮", "switch_food basic"),
+      makeButton("切换高级猫粮", "switch_food premium", "mini-btn gold"),
+      makeButton("给零食", "give_treat", "mini-btn rose"),
+    );
+    actionGroup.append(actionTitle, actions);
+    details.append(actionGroup);
+  }
+  if (phase === "stayed_waiting_name") {
+    const actionGroup = document.createElement("div");
+    actionGroup.className = "cat-section-block";
+    const actionTitle = document.createElement("h4");
+    actionTitle.textContent = phase === "stayed_waiting_name" ? "正式收养" : "来访状态";
+    const actions = document.createElement("div");
+    actions.className = "cat-actions";
+    const adoptButton = makeButton(
+      phase === "stayed_waiting_name" ? "正式收养（默认名）" : "正式收养",
+      null,
+      "primary-btn",
+    );
+    actionTitle.textContent = "正式收养";
+    adoptButton.textContent = "给猫咪取名并正式收养";
+    adoptButton.addEventListener("click", showAdoptCatModal);
+    actions.append(adoptButton);
+    actionGroup.append(actionTitle, actions);
+    details.append(actionGroup);
+  }
+
+  layout.append(portrait, details);
+  root.append(layout);
+}
+
+function getCatBedLabel(bed) {
+  const facilityId = String(bed?.facility_id || "");
+  if (!facilityId) return "未知";
+  if (facilityId === "basic_cat_bed" || facilityId.includes("basic")) return "普通猫窝";
+  if (facilityId === "cat_bed" || facilityId.includes("premium") || facilityId.includes("deluxe")) return "高级猫窝";
+  return "未知猫窝";
+}
+
+function getCatBowlLabel(kind, facility) {
+  const facilityId = String(facility?.facility_id || "");
+  const basicLabel = kind === "food" ? "普通粮碗" : "普通水碗";
+  const premiumLabel = kind === "food" ? "高级粮碗" : "高级水碗";
+  if (!facilityId) return "未知";
+  if (facilityId === "premium_food_bowl" || facilityId === "water_bowl" || facilityId.includes("premium") || facilityId.includes("deluxe")) {
+    return premiumLabel;
+  }
+  if (facilityId.includes("basic")) return basicLabel;
+  return kind === "food" ? "未知粮碗" : "未知水碗";
+}
+
+function getCatFoodLabel(foodType) {
+  if (foodType === "premium_food") return "高级猫粮";
+  if (foodType === "basic_food") return "普通猫粮";
+  return "未知猫粮";
+}
+
+function renderCatHouseV5() {
+  const root = $("#catContent");
+  root.innerHTML = "";
+
+  const cat = currentState.cat || {};
+  const phase = getCatLifePhase();
+  const location = getCatLocation();
+  const stats = getCatDisplayStats();
+  const care = currentState.cat_care || {};
+  const bed = care.bed || {};
+  const foodBowl = care.food_bowl || {};
+  const waterBowl = care.water_bowl || {};
+  const isAdopted = phase === "adopted";
+  const adoptName = currentState?.cat?.name || "小猫";
+
+  const layout = document.createElement("div");
+  layout.className = "cat-layout";
+
+  const portrait = document.createElement("div");
+  portrait.className = "cat-portrait";
+  const catImage = document.createElement("img");
+  catImage.src = CUSTOM_ASSETS.cat;
+  catImage.alt = "猫屋里的猫咪";
+  catImage.className = "cat-image";
+
+  const nameRow = document.createElement("div");
+  nameRow.className = "cat-name-row";
+  const catName = document.createElement("h3");
+  catName.textContent = cat.name || (isAdopted ? "小猫" : "来访猫咪");
+  nameRow.append(catName);
+  if (isAdopted) {
+    const pet = makeButton(
+      cat.pet_cooldown_remaining_seconds > 0
+        ? `抚摸 · ${formatDuration(cat.pet_cooldown_remaining_seconds)}`
+        : "抚摸",
+      "pet",
+      "mini-btn cat-pet-btn",
+      cat.pet_cooldown_remaining_seconds > 0,
+    );
+    pet.dataset.role = "pet-button";
+    nameRow.append(pet);
+  }
+  portrait.append(catImage, nameRow);
+
+  const badges = document.createElement("div");
+  badges.className = "cat-badges";
+  for (const label of [
+    `阶段 · ${CAT_PHASE_LABELS[phase] || "未知"}`,
+    `位置 · ${CAT_LOCATION_LABELS[location] || "未知"}`,
+  ]) {
+    const badge = document.createElement("span");
+    badge.className = "badge";
+    badge.textContent = label;
+    badges.append(badge);
+  }
+  portrait.append(badges);
+
+  const utilities = document.createElement("div");
+  utilities.className = "cat-utilities";
+  const facilityCards = [
+    { asset: getCatBedAssetKey(bed), label: getCatBedLabel(bed), note: bed?.is_default ? "默认设施" : "当前使用" },
+    { asset: getCatBowlAssetKey("water", waterBowl), label: getCatBowlLabel("water", waterBowl), note: waterBowl?.is_default ? "默认设施" : "当前使用" },
+    { asset: getCatBowlAssetKey("food", foodBowl), label: getCatBowlLabel("food", foodBowl), note: foodBowl?.is_default ? "默认设施" : "当前使用" },
+    { asset: getCatFoodAssetKey(foodBowl?.food_type), label: getCatFoodLabel(foodBowl?.food_type), note: "当前猫粮" },
+  ];
+  for (const entry of facilityCards) {
+    const card = document.createElement("div");
+    card.className = "utility-card";
+    const image = document.createElement("img");
+    image.src = CUSTOM_ASSETS[entry.asset] || CUSTOM_ASSETS.cat;
+    image.alt = entry.label;
+    const strong = document.createElement("strong");
+    strong.textContent = entry.label;
+    card.append(image, strong);
+    if (entry.note) {
+      const note = document.createElement("small");
+      note.textContent = entry.note;
+      card.append(note);
+    }
+    utilities.append(card);
+  }
+  portrait.append(utilities);
+
+  const hint = document.createElement("p");
+  hint.className = "cat-phase-hint";
+  if (phase === "visitor") {
+    hint.textContent = "猫咪会先来花园做客，愿意留下后再正式收养。";
+  } else if (phase === "stayed_waiting_name") {
+    hint.textContent = "猫咪愿意留下来了，正在等一个正式的名字。";
+  }
+  if (isAdopted) {
+    hint.textContent = "猫咪已经在家安顿下来，可以慢慢照料它。";
+  }
+  portrait.append(hint);
+
+  const details = document.createElement("div");
+  details.className = "cat-details";
+
+  const statsGroup = document.createElement("div");
+  statsGroup.className = "cat-section-block";
+  const statsTitle = document.createElement("h4");
+  statsTitle.textContent = "猫咪状态";
+  statsGroup.append(
+    statsTitle,
+    statRow("饱食", stats.satiety, "hunger"),
+    statRow("水分", stats.hydration, "thirst"),
+    statRow("心情", stats.mood, "mood"),
+    statRow("亲密", stats.affection, "affection"),
+  );
+
+  const careGroup = document.createElement("div");
+  careGroup.className = "cat-section-block";
+  const careTitle = document.createElement("h4");
+  careTitle.textContent = "猫屋设施";
+  const careGrid = document.createElement("div");
+  careGrid.className = "cat-info-grid";
+  careGrid.append(
+    makeCatInfoCard("当前猫窝", getCatBedLabel(bed), bed?.is_default ? "默认设施" : "已升级"),
+    makeCatInfoCard("当前粮碗", getCatBowlLabel("food", foodBowl), foodBowl?.is_default ? "默认设施" : "已升级"),
+    makeCatInfoCard("当前水碗", getCatBowlLabel("water", waterBowl), waterBowl?.is_default ? "默认设施" : "已升级"),
+    makeCatInfoCard(
+      "粮碗存量",
+      `${Number(foodBowl.remaining_portions || 0)} / ${Number(foodBowl.capacity || 0)}`,
+      getCatFoodLabel(foodBowl.food_type),
+    ),
+    makeCatInfoCard(
+      "水碗存量",
+      `${Number(waterBowl.remaining_portions || 0)} / ${Number(waterBowl.capacity || 0)}`,
+      "清水份数",
+    ),
+    makeCatInfoCard("当前猫粮", getCatFoodLabel(foodBowl.food_type)),
+  );
+  careGroup.append(careTitle, careGrid);
+  details.append(statsGroup, careGroup);
+
+  const canManageCare = isAdopted || phase === "visitor" || phase === "stayed_waiting_name";
+  if (canManageCare) {
+    const actionGroup = document.createElement("div");
+    actionGroup.className = "cat-section-block";
+    const actionTitle = document.createElement("h4");
+    actionTitle.textContent = "日常照料";
+    const actions = document.createElement("div");
+    actions.className = "cat-actions cat-care-actions";
+    actions.append(
+      makeButton("补普通猫粮", "refill_food basic"),
+      makeButton("补高级猫粮", "refill_food premium", "mini-btn gold"),
+      makeButton("补水", "refill_water"),
+      makeButton("切换普通猫粮", "switch_food basic"),
+      makeButton("切换高级猫粮", "switch_food premium", "mini-btn gold"),
+      makeButton("给零食", "give_treat", "mini-btn rose"),
+    );
+    actionGroup.append(actionTitle, actions);
+    details.append(actionGroup);
+  }
+  if (phase === "stayed_waiting_name") {
+    const actionGroup = document.createElement("div");
+    actionGroup.className = "cat-section-block";
+    const actionTitle = document.createElement("h4");
+    actionTitle.textContent = phase === "stayed_waiting_name" ? "正式收养" : "来访状态";
+    const actions = document.createElement("div");
+    actions.className = "cat-actions";
+    const adoptButton = makeButton(
+      phase === "stayed_waiting_name" ? "正式收养（默认名）" : "正式收养",
+      null,
+      "primary-btn",
+    );
+    actionTitle.textContent = "正式收养";
+    adoptButton.textContent = "给猫咪取名并正式收养";
+    adoptButton.addEventListener("click", showAdoptCatModal);
+    actions.append(adoptButton);
+    actionGroup.append(actionTitle, actions);
+    details.append(actionGroup);
+  }
+
+  layout.append(portrait, details);
+  root.append(layout);
+}
+
 function makeBackpackActionButton(label, command, className = "mini-btn", disabled = false) {
   const button = makeButton(label, null, className, disabled);
   if (!disabled) {
@@ -637,7 +1371,81 @@ function makeBackpackActionButton(label, command, className = "mini-btn", disabl
   return button;
 }
 
+function resetModalPresentation() {
+  activeModalKind = null;
+  $("#modal").classList.remove("modal-encyclopedia");
+  $(".modal-card").classList.remove("modal-card-wide");
+  $("#modalBody").className = "";
+}
+
+function showAdoptCatModal() {
+  if (!currentState || getCatLifePhase() !== "stayed_waiting_name") {
+    showToast("当前还不能正式收养猫咪。");
+    return;
+  }
+
+  resetModalPresentation();
+  $("#modalTitle").textContent = "给猫咪取名并正式收养";
+  const body = $("#modalBody");
+  body.innerHTML = "";
+  body.className = "cat-adopt-modal";
+
+  const intro = document.createElement("p");
+  intro.className = "modal-copy";
+  intro.textContent = "猫咪已经愿意留下来了，给它一个正式名字吧。";
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "danger-confirm-input";
+  input.autocomplete = "off";
+  input.maxLength = 12;
+  input.placeholder = "请输入猫咪名字";
+  input.setAttribute("aria-label", "猫咪名字");
+
+  const hint = document.createElement("small");
+  hint.className = "danger-confirm-hint";
+  hint.textContent = "名字不能为空，确认后就会完成正式收养。";
+
+  const actions = document.createElement("div");
+  actions.className = "modal-actions";
+
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "secondary-btn";
+  cancel.textContent = "取消";
+  cancel.addEventListener("click", closeModal);
+
+  const submit = document.createElement("button");
+  submit.type = "button";
+  submit.className = "primary-btn";
+  submit.textContent = "确认收养";
+
+  const submitAdoption = async () => {
+    const catName = input.value.trim();
+    if (!catName) {
+      showToast("请先输入猫咪名字");
+      input.focus();
+      return;
+    }
+    const ok = await runCommand(`adopt ${catName}`, submit);
+    if (ok) closeModal();
+  };
+
+  submit.addEventListener("click", submitAdoption);
+  input.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    submitAdoption();
+  });
+
+  actions.append(cancel, submit);
+  body.append(intro, input, hint, actions);
+  $("#modal").classList.remove("hidden");
+  input.focus();
+}
+
 function showBackpackModal() {
+  resetModalPresentation();
   $("#modalTitle").textContent = "背包";
   const body = $("#modalBody");
   body.innerHTML = "";
@@ -681,7 +1489,8 @@ function showBackpackModal() {
       row.className = "backpack-item";
       const icon = document.createElement("div");
       if (kind === "items") setItemIcon(icon, id);
-      else setFlowerIcon(icon, id, "🌱");
+      else if (kind === "seeds") setFlowerIcon(icon, getSeedAssetKey(id), "🌱");
+      else setFlowerIcon(icon, id, "🌸");
 
       const meta = document.createElement("div");
       meta.className = "backpack-meta";
@@ -707,8 +1516,8 @@ function showBackpackModal() {
           ),
         );
       } else if (kind === "items") {
-        if (id === "basic_food") actions.append(makeBackpackActionButton("喂食", "feed basic", "mini-btn"));
-        if (id === "premium_food") actions.append(makeBackpackActionButton("喂食", "feed premium", "mini-btn gold"));
+        if (id === "basic_food") actions.append(makeBackpackActionButton("放入普通猫粮", "refill_food basic", "mini-btn"));
+        if (id === "premium_food") actions.append(makeBackpackActionButton("放入高级猫粮", "refill_food premium", "mini-btn gold"));
         if (id === "ball") actions.append(makeBackpackActionButton("使用", "play ball", "mini-btn"));
         if (id === "feather_wand") actions.append(makeBackpackActionButton("使用", "play feather", "mini-btn"));
       }
@@ -744,6 +1553,129 @@ function showBackpackModal() {
   $("#modal").classList.remove("hidden");
 }
 
+function showBackpackModal() {
+  resetModalPresentation();
+  $("#modalTitle").textContent = "背包";
+  const body = $("#modalBody");
+  body.innerHTML = "";
+  const wrap = document.createElement("div");
+  wrap.className = "backpack-modal-grid";
+
+  const groups = [
+    ["种子", currentState.inventory.seeds || {}, "seeds"],
+    ["鲜花", currentState.inventory.flowers || {}, "flowers"],
+    ["猫咪用品", currentState.inventory.items || {}, "items"],
+  ];
+
+  for (const [title, data, kind] of groups) {
+    const group = document.createElement("section");
+    group.className = "backpack-group";
+    const entries = Object.entries(data).filter(([, qty]) => qty > 0);
+
+    const heading = document.createElement("div");
+    heading.className = "backpack-group-heading";
+    const h = document.createElement("h3");
+    h.textContent = title;
+    heading.append(h);
+    if (kind === "flowers" && entries.length) {
+      heading.append(
+        makeBackpackActionButton("一键卖出", "sell all", "mini-btn gold backpack-sell-all"),
+      );
+    }
+    group.append(heading);
+
+    const list = document.createElement("div");
+    list.className = "backpack-list";
+    if (!entries.length) {
+      const empty = document.createElement("div");
+      empty.className = "empty-note";
+      empty.textContent = "这一栏还是空的。";
+      list.append(empty);
+    }
+
+    for (const [id, qty] of entries) {
+      const row = document.createElement("div");
+      row.className = "backpack-item";
+      const icon = document.createElement("div");
+      if (kind === "items") setItemIcon(icon, id);
+      else if (kind === "seeds") setFlowerIcon(icon, getSeedAssetKey(id), "🌱");
+      else setFlowerIcon(icon, id, "🪴");
+
+      const meta = document.createElement("div");
+      meta.className = "backpack-meta";
+      const name = kind === "items" ? catalog.items[id]?.name : catalog.flowers[id]?.name;
+      const effect = kind === "items"
+        ? (ITEM_EFFECT_TEXT[id] || []).join(" · ")
+        : kind === "flowers"
+          ? `售价 ${catalog.flowers[id]?.sell_price || 0} 块`
+          : "可种进空花盆";
+      meta.innerHTML = `<strong>${escapeText(name || id)}</strong><small>数量 ×${qty}${effect ? ` · ${escapeText(effect)}` : ""}</small>`;
+
+      const actions = document.createElement("div");
+      actions.className = "backpack-actions";
+      if (kind === "flowers") {
+        actions.append(
+          makeBackpackActionButton("卖 1 朵", `sell ${id} 1`, "mini-btn gold"),
+          makeBackpackActionButton("卖全部", `sell ${id} ${qty}`, "mini-btn gold"),
+          makeBackpackActionButton(
+            "插花",
+            `arrange ${id}`,
+            "mini-btn",
+            (currentState.vase?.flowers?.length || 0) >= (currentState.vase?.capacity || 3),
+          ),
+        );
+      } else if (kind === "items") {
+        if (id === "basic_food") actions.append(makeBackpackActionButton("放入普通猫粮", "refill_food basic", "mini-btn"));
+        if (id === "premium_food") actions.append(makeBackpackActionButton("放入高级猫粮", "refill_food premium", "mini-btn gold"));
+        if (id === "ball") actions.append(makeBackpackActionButton("使用", "play ball", "mini-btn"));
+        if (id === "feather_wand") actions.append(makeBackpackActionButton("使用", "play feather", "mini-btn"));
+      }
+
+      row.append(icon, meta, actions);
+      list.append(row);
+    }
+    group.append(list);
+    wrap.append(group);
+  }
+
+  const care = currentState.cat_care || {};
+  const facilityAssetKeys = [
+    getCatBedAssetKey(care.bed),
+    getCatBowlAssetKey("water", care.water_bowl),
+    getCatBowlAssetKey("food", care.food_bowl),
+  ];
+  const facilityRows = [
+    ["cat_bed", getCatBedLabel(care.bed), care.bed?.is_default ? "默认设施" : "已升级"],
+    ["water_bowl", getCatBowlLabel("water", care.water_bowl), care.water_bowl?.is_default ? "默认设施" : "已升级"],
+    ["premium_food_bowl", getCatBowlLabel("food", care.food_bowl), care.food_bowl?.is_default ? "默认设施" : "已升级"],
+  ];
+  const facilities = document.createElement("section");
+  facilities.className = "backpack-group";
+  facilities.innerHTML = '<div class="backpack-group-heading"><h3>猫咪设施</h3></div>';
+  const facilityList = document.createElement("div");
+  facilityList.className = "backpack-list";
+  for (const [index, [id, label, status]] of facilityRows.entries()) {
+    const row = document.createElement("div");
+    row.className = "backpack-item";
+    const icon = document.createElement("div");
+    if (setAssetIcon(icon, facilityAssetKeys[index], label)) {
+      // Prefer the same resolved v5 facility asset keys used in the cat house.
+    } else
+    if (id === "premium_food_bowl") icon.textContent = "🍽️";
+    else setItemIcon(icon, id);
+    const meta = document.createElement("div");
+    meta.className = "backpack-meta";
+    meta.innerHTML = `<strong>${escapeText(label)}</strong><small>${escapeText(status)}</small>`;
+    row.append(icon, meta);
+    facilityList.append(row);
+  }
+  facilities.append(facilityList);
+  wrap.append(facilities);
+
+  body.append(wrap);
+  $("#modal").classList.remove("hidden");
+}
+
 function startPetCooldownTimer() {
   clearInterval(petCooldownTimer);
   if (!currentState?.cat || !(currentState.cat.pet_cooldown_remaining_seconds > 0)) return;
@@ -753,7 +1685,7 @@ function startPetCooldownTimer() {
     currentState.cat.pet_cooldown_remaining_seconds = remaining;
     if (remaining <= 0) {
       clearInterval(petCooldownTimer);
-      renderCat();
+      renderCatHouseV5();
       return;
     }
     const petButton = document.querySelector('[data-role="pet-button"]');
@@ -793,6 +1725,51 @@ function createShopCard({ iconText, iconId, title, metaLines, buttonLabel, comma
   return item;
 }
 
+createShopCard = function({ iconText, iconId, title, metaLines, buttonLabel, command, disabled, locked = false }) {
+  const item = document.createElement("div");
+  item.className = `shop-square-card ${locked ? "locked" : ""}`;
+
+  const icon = document.createElement("div");
+  icon.className = "shop-square-icon";
+  if (iconId) setFlowerIcon(icon, iconId);
+  else if (iconText && CUSTOM_ASSETS[iconText]) setAssetIcon(icon, iconText, title);
+  else setTextIconFallback(icon, getCompactItemIconLabel(iconText, title));
+
+  const name = document.createElement("strong");
+  name.className = "shop-square-name";
+  name.textContent = title;
+
+  const note = document.createElement("small");
+  note.className = "shop-square-note";
+  note.innerHTML = metaLines.map((line) => escapeText(line)).join("<br>");
+
+  const button = makeButton(
+    buttonLabel,
+    command,
+    "mini-btn shop-buy-btn",
+    disabled
+  );
+
+  item.append(icon, name, note, button);
+  return item;
+};
+
+const SHOP_ITEM_DISPLAY_NAMES = {
+  cat_treat: "猫零食",
+};
+
+const SHOP_ITEM_ICON_TEXT = {
+  cat_treat: "🍪",
+};
+
+function getShopItemDisplayName(id, itemData) {
+  return SHOP_ITEM_DISPLAY_NAMES[id] || itemData.display_name || itemData.name || id;
+}
+
+function getShopItemIconText(id) {
+  return SHOP_ITEM_ICON_TEXT[id] || id;
+}
+
 function renderSeedShop() {
   const root = $("#seedShopGrid");
   root.innerHTML = "";
@@ -804,10 +1781,14 @@ function renderSeedShop() {
       ? [`${flower.seed_price}块`, `约${Math.round(flower.grow_time / 60)}分钟成熟`]
       : [`图鉴${flower.unlock_requirement}种后解锁`];
 
+    if (!isUnlocked) {
+      metaLines.splice(0, metaLines.length, getFlowerUnlockText(flower));
+    }
+
     root.append(
       createShopCard({
         iconText: isUnlocked ? "" : "🔒",
-        iconId: isUnlocked ? id : "",
+        iconId: isUnlocked ? getSeedAssetKey(id) : "",
         title: flower.name,
         metaLines,
         buttonLabel: isUnlocked ? "购买" : "未解锁",
@@ -820,13 +1801,28 @@ function renderSeedShop() {
 }
 
 const ITEM_EFFECT_TEXT = {
-  basic_food: ["消耗品", "饱食 +30"],
-  premium_food: ["消耗品", "饱食 +60 · 心情 +10"],
-  water_bowl: ["永久用品", "口渴下降速度减半"],
-  cat_bed: ["永久用品", "心情自然下降降低40%"],
-  ball: ["一次性玩具", "心情 +15 · 亲密 +5"],
-  feather_wand: ["一次性玩具", "心情 +20 · 亲密 +8"],
+  basic_food: ["消耗品", "每包 5 份", "单份实际吃下：饱食 +20 · 亲密 +1"],
+  premium_food: ["消耗品", "每包 5 份", "单份实际吃下：饱食 +25 · 心情 +1 · 亲密 +1"],
+  water_bowl: ["永久用品", "容量 5", "只增加容量，不改变喝水效果"],
+  cat_bed: ["永久用品", "降低心情自然下降速度"],
+  ball: ["一次性玩具", "心情 +12 · 亲密 +1 · 成功后消耗"],
+  feather_wand: ["一次性玩具", "心情 +20 · 亲密 +2 · 成功后消耗"],
 };
+
+function applyShopIconTextOverrides() {
+Object.assign(SHOP_ITEM_ICON_TEXT, {
+  cat_treat: "零食",
+});
+
+Object.assign(CAT_SHOP_ICON_TEXT, {
+  basic_food: "猫粮",
+  premium_food: "高粮",
+  cat_treat: "零食",
+  ball: "球",
+  feather_wand: "棒",
+  premium_food_bowl: "粮碗",
+});
+}
 
 function renderCatShop() {
   const root = $("#catShopGrid");
@@ -845,8 +1841,72 @@ function renderCatShop() {
 
     root.append(
       createShopCard({
-        iconText: id,
-        title: itemData.name,
+        iconText: getShopItemIconText(id),
+        title: getShopItemDisplayName(id, itemData),
+        metaLines: [`${itemData.price}块`, ...effectLines],
+        buttonLabel: ownedPermanent ? "已拥有" : "购买",
+        command: `buy ${id} 1`,
+        disabled: ownedPermanent || currentState.money < itemData.price,
+      })
+    );
+  }
+}
+
+const CAT_SHOP_ITEM_ORDER = [
+  "basic_food",
+  "premium_food",
+  "cat_treat",
+  "ball",
+  "feather_wand",
+  "cat_bed",
+  "water_bowl",
+  "premium_food_bowl",
+];
+
+const CAT_SHOP_EFFECT_TEXT = {
+  basic_food: ["消耗品", "每包 5 份", "单份实际吃下：饱食 +20 · 亲密 +1"],
+  premium_food: ["消耗品", "每包 5 份", "单份实际吃下：饱食 +25 · 心情 +1 · 亲密 +1"],
+  cat_treat: ["消耗品", "每包 2 份", "成功后：饱食 +5 · 心情 +8 · 亲密 +2", "被拒绝不消耗"],
+  ball: ["玩具", "心情 +12 · 亲密 +1 · 成功后消耗"],
+  feather_wand: ["玩具", "心情 +20 · 亲密 +2 · 成功后消耗"],
+  cat_bed: ["猫咪设施", "降低心情自然下降速度"],
+  water_bowl: ["猫咪设施", "容量 5", "只增加容量，不改变喝水效果"],
+  premium_food_bowl: ["猫咪设施", "容量 5", "只增加容量，不改变吃粮概率或单份效果"],
+};
+
+const CAT_SHOP_ICON_TEXT = {
+  basic_food: "馃ィ",
+  premium_food: "馃崡",
+  cat_treat: "馃崻",
+  ball: "馃Ф",
+  feather_wand: "馃",
+  cat_bed: "cat_bed",
+  water_bowl: "water_bowl",
+  premium_food_bowl: "🍽️",
+};
+
+applyShopIconTextOverrides();
+
+function renderCatShop() {
+  const root = $("#catShopGrid");
+  root.innerHTML = "";
+  const care = currentState.cat_care || {};
+  const ownedFacilities = new Set([
+    care.bed?.is_default ? "" : care.bed?.facility_id,
+    care.food_bowl?.is_default ? "" : care.food_bowl?.facility_id,
+    care.water_bowl?.is_default ? "" : care.water_bowl?.facility_id,
+  ]);
+
+  for (const id of CAT_SHOP_ITEM_ORDER) {
+    const itemData = catalog.items[id];
+    if (!itemData) continue;
+    const ownedPermanent = itemData.type === "permanent" && ownedFacilities.has(id);
+    const effectLines = CAT_SHOP_EFFECT_TEXT[id] || ["猫咪用品"];
+
+    root.append(
+      createShopCard({
+        iconText: getCatShopAssetKey(id) || CAT_SHOP_ICON_TEXT[id] || "🎁",
+        title: getShopItemDisplayName(id, itemData),
         metaLines: [`${itemData.price}块`, ...effectLines],
         buttonLabel: ownedPermanent ? "已拥有" : "购买",
         command: `buy ${id} 1`,
@@ -884,7 +1944,8 @@ function renderInventory() {
       const icon = document.createElement("div");
       icon.className = "item-icon";
       if (kind === "items") setItemIcon(icon, id);
-      else setFlowerIcon(icon, id, "🌱");
+      else if (kind === "seeds") setFlowerIcon(icon, getSeedAssetKey(id), "🌱");
+      else setFlowerIcon(icon, id, "🌸");
       const meta = document.createElement("div");
       meta.className = "item-meta";
       const name = kind === "items" ? catalog.items[id]?.name : catalog.flowers[id]?.name;
@@ -929,25 +1990,25 @@ function renderCatCollectibles(root){
 }
 
 function renderCatLetters(root){
-  root.innerHTML=""; const letterCatalog=currentState.letter_catalog||[]; const received=currentState.letters||[]; const total=currentState.letters_capacity||catalog.letters_capacity||12; const count=currentState.letters_received?.length??received.length; const heading=document.createElement("h3"); heading.className="subheading"; heading.textContent=`猫咪信箱 · ${count}/${total}`; root.append(heading); const grid=document.createElement("div"); grid.className="cat-letter-grid";
+  root.innerHTML=""; const letterCatalog=currentState.letter_catalog||[]; const received=currentState.letters||[]; const total=currentState.letters_capacity||catalog.letters_capacity||12; const count=currentState.letters_count??currentState.letters_received?.length??received.length; const heading=document.createElement("h3"); heading.className="subheading"; heading.textContent=`猫咪来信 · ${count}/${total}`; root.append(heading); const grid=document.createElement("div"); grid.className="cat-letter-grid";
   let letters=letterCatalog.length?[...letterCatalog]:received.map(x=>({...x,received:true})); const existing=new Set(letters.map(x=>Number(x.index))); for(let i=1;i<=total;i++)if(!existing.has(i))letters.push({index:i,received:false,title:"",text:""}); letters.sort((a,b)=>Number(a.index)-Number(b.index));
   for(const letter of letters.slice(0,total)){const button=document.createElement("button"); button.type="button"; button.className=`cat-letter-card ${letter.received?"":"locked"}`; const image=document.createElement("img"); image.src=letter.received?CUSTOM_ASSETS.letter:CUSTOM_ASSETS.lock; image.alt=letter.received?"已收到的信":"尚未收到"; const meta=document.createElement("div"); const title=document.createElement("strong"); title.textContent=letter.received?(letter.title||`第 ${letter.index} 封信`):`第 ${letter.index} 封信`; const sub=document.createElement("small"); sub.textContent=letter.received?"点击拆开查看":"尚未收到"; meta.append(title,sub); button.append(image,meta); if(letter.received)button.addEventListener("click",()=>showLetterModal(letter)); else button.disabled=true; grid.append(button);} root.append(grid);
 }
 
 function showEncyclopediaModal() {
+  resetModalPresentation();
+  $("#modal").classList.add("modal-encyclopedia");
+  $(".modal-card").classList.add("modal-card-wide");
   $("#modalTitle").textContent = `花卉图鉴 · ${currentState.encyclopedia_count}/${Object.keys(catalog.flowers || {}).length}`;
   const body = $("#modalBody");
+  body.className = "modal-body-encyclopedia";
   body.innerHTML = "";
   const grid = document.createElement("div");
-  grid.className = "collection-grid";
+  grid.className = "encyclopedia-grid";
   const known = new Set(currentState.encyclopedia || []);
   const harvestCounts = currentState.flower_harvest_counts || {};
   const rarityRank = { common: 0, uncommon: 1, rare: 2, legendary: 3 };
-  const flowerDisplayOrder = [
-    "daisy", "tulip", "sunflower", "rose",
-    "lavender", "lily", "cherry", "moonflower",
-  ];
-  const displayRank = new Map(flowerDisplayOrder.map((id, index) => [id, index]));
+  const displayRank = new Map(FLOWER_DISPLAY_ORDER.map((id, index) => [id, index]));
   const flowers = Object.entries(catalog.flowers || {})
     .map(([id, flower], originalIndex) => ({ id, flower, originalIndex }))
     .sort((left, right) => {
@@ -959,14 +2020,14 @@ function showEncyclopediaModal() {
   for (const { id, flower } of flowers) {
     const isKnown = known.has(id);
     const item = document.createElement("div");
-    item.className = `collection-item ${isKnown ? "" : "unknown"}`;
+    item.className = `encyclopedia-item ${isKnown ? "" : "unknown"}`;
     const icon = document.createElement("div");
-    icon.className = "item-icon";
+    icon.className = "encyclopedia-item-icon";
     if (isKnown) setFlowerIcon(icon, id);
     else setAssetIcon(icon, "unknown", "尚未发现");
 
     const meta = document.createElement("div");
-    meta.className = "item-meta";
+    meta.className = "encyclopedia-item-meta";
     const name = document.createElement("strong");
     name.textContent = isKnown ? flower.name : "尚未发现";
     const rarity = document.createElement("small");
@@ -986,6 +2047,66 @@ function showEncyclopediaModal() {
   $("#modal").classList.remove("hidden");
 }
 
+showEncyclopediaModal = function() {
+  resetModalPresentation();
+  $("#modal").classList.add("modal-encyclopedia");
+  $(".modal-card").classList.add("modal-card-wide");
+
+  const body = $("#modalBody");
+  body.className = "modal-body-encyclopedia";
+  body.innerHTML = "";
+
+  const grid = document.createElement("div");
+  grid.className = "encyclopedia-grid";
+  const known = new Set(currentState.encyclopedia || []);
+  const harvestCounts = currentState.flower_harvest_counts || {};
+  const rarityRank = { common: 0, uncommon: 1, rare: 2, legendary: 3 };
+  const displayRank = new Map(FLOWER_DISPLAY_ORDER.map((id, index) => [id, index]));
+  const flowers = Object.entries(catalog.flowers || {})
+    .map(([id, flower], originalIndex) => ({ id, flower, originalIndex }))
+    .sort((left, right) => {
+      const rarityDifference = (rarityRank[left.flower.rarity] ?? 99) - (rarityRank[right.flower.rarity] ?? 99);
+      const orderDifference = (displayRank.get(left.id) ?? 99) - (displayRank.get(right.id) ?? 99);
+      return rarityDifference || orderDifference || left.originalIndex - right.originalIndex;
+    })
+    .slice(0, 12);
+
+  const knownCount = flowers.filter(({ id }) => known.has(id)).length;
+  $("#modalTitle").textContent = `花卉图鉴 · ${knownCount}/${flowers.length}`;
+
+  for (const { id, flower } of flowers) {
+    const isKnown = known.has(id);
+    const item = document.createElement("div");
+    item.className = `encyclopedia-item ${isKnown ? "" : "unknown"}`;
+
+    const icon = document.createElement("div");
+    icon.className = "encyclopedia-item-icon";
+    if (isKnown) setFlowerIcon(icon, id);
+    else setAssetIcon(icon, "unknown", "尚未发现");
+
+    const meta = document.createElement("div");
+    meta.className = "encyclopedia-item-meta";
+    const name = document.createElement("strong");
+    name.textContent = isKnown ? flower.name : "尚未发现";
+    const rarity = document.createElement("small");
+    rarity.textContent = isKnown ? flower.rarity_name : "???";
+    meta.append(name, rarity);
+
+    if (isKnown) {
+      const count = document.createElement("small");
+      count.className = "collection-harvest-count";
+      count.textContent = `累计收获 ${Number(harvestCounts[id] || 0)} 朵`;
+      meta.append(count);
+    }
+
+    item.append(icon, meta);
+    grid.append(item);
+  }
+
+  body.append(grid);
+  $("#modal").classList.remove("hidden");
+};
+
 function renderEvents() {
   const root = $("#eventsList");
   root.innerHTML = "";
@@ -1003,7 +2124,8 @@ function renderEvents() {
 }
 
 function showLetterModal(letter) {
-  $("#modalTitle").textContent = `第 ${letter.index} 封猫咪来信`;
+  resetModalPresentation();
+  $("#modalTitle").textContent = `猫咪来信 · 《${letter.title || `第 ${letter.index} 封`}》`;
   const body = $("#modalBody");
   body.innerHTML = "";
   const paper = document.createElement("div");
@@ -1209,6 +2331,7 @@ function renderNotesModal(payload) {
 
 async function showNotesModal(page = 1) {
   if (!credentials) return;
+  resetModalPresentation();
   $("#modalTitle").textContent = "花园便签";
   const body = $("#modalBody");
   body.innerHTML = '<div class="notes-loading">正在翻开便签册……</div>';
@@ -1228,6 +2351,7 @@ async function showNotesModal(page = 1) {
 }
 
 function showKeyModal() {
+  resetModalPresentation();
   const keyText = JSON.stringify(credentials, null, 2);
   $("#modalTitle").textContent = "你的花园存档码";
   const body = $("#modalBody");
@@ -1252,8 +2376,264 @@ function showKeyModal() {
   $("#modal").classList.remove("hidden");
 }
 
+function hasSeenUpdateAnnouncement() {
+  return localStorage.getItem(UPDATE_ANNOUNCEMENT_SEEN_KEY) === "1";
+}
+
+function markUpdateAnnouncementSeen() {
+  localStorage.setItem(UPDATE_ANNOUNCEMENT_SEEN_KEY, "1");
+}
+
+function maybeAutoShowUpdateAnnouncement() {
+  if (hasTriedAutoUpdateAnnouncement || hasSeenUpdateAnnouncement()) return;
+  if (!currentState || $("#app").classList.contains("hidden")) return;
+  hasTriedAutoUpdateAnnouncement = true;
+  showUpdateAnnouncementModal({ auto: true });
+}
+
+function appendUpdateSection(body, title, paragraphs, options = {}) {
+  const section = document.createElement("section");
+  section.className = "update-section";
+  const heading = document.createElement("h3");
+  heading.textContent = title;
+  section.append(heading);
+
+  if (options.listItems?.length) {
+    const list = document.createElement("ul");
+    list.className = options.listClassName || "";
+    for (const text of options.listItems) {
+      const item = document.createElement("li");
+      item.textContent = text;
+      list.append(item);
+    }
+    section.append(list);
+  } else {
+    for (const text of paragraphs) {
+      const paragraph = document.createElement("p");
+      paragraph.textContent = text;
+      section.append(paragraph);
+    }
+  }
+
+  body.append(section);
+}
+
+function showUpdateAnnouncementModal({ auto = false } = {}) {
+  resetModalPresentation();
+  activeModalKind = "update-announcement";
+  $("#modalTitle").textContent = "花园与猫 v5.0 更新公告 🌸";
+  $(".modal-card").classList.add("modal-card-wide");
+
+  const body = $("#modalBody");
+  body.className = "update-modal-body";
+  body.innerHTML = "";
+
+  const intro = document.createElement("p");
+  intro.className = "update-intro";
+  intro.textContent =
+    "欢迎回到花园。v5.0 重新整理了游戏时间、猫咪生活和花园成长，在游玩体验、游戏机制上做了优化。旧花园可以继续游玩；是否开启全新花园，可以根据下面的变化决定。";
+  body.append(intro);
+
+  appendUpdateSection(body, "【时间与离线】", [
+    "所有花园统一使用北京时间，昼夜与现实时间同步。",
+    "花朵成长、天气变化、猫咪生活和离线进度，都按照真实经过时间推进。",
+    "离线最多结算 72 小时；超过后会进入暂停保护，避免长时间未登录造成过多损失。",
+  ]);
+  appendUpdateSection(body, "【猫咪生活】", [
+    "猫咪会经历来访、停留等待取名和正式收养。",
+    "正式收养不再需要支付旧版的收养费用。",
+    "收养后的猫咪会在家生活，也可能外出后再回到花园。",
+    "新增猫窝、粮碗、水碗、普通猫粮、高级猫粮、零食和玩具等照料内容。",
+    "猫咪会根据自己的状态吃饭、喝水和回应互动，也可能带回属于它的小收藏。",
+  ]);
+  appendUpdateSection(body, "【花园变化】", [
+    "花卉扩充至 12 种，并补充了对应的花朵和种子素材。",
+    "商店、背包、花盆和花卉图鉴的展示进行了整理。",
+    "加入持续变化的天气，以及彩虹、蝴蝶等花园小事件。",
+    "虫害改为更温和的机制，不会再因为旧版倒计时突然让花朵死亡。",
+    "花朵在离线期间仍会成长，成熟后等待你亲自回来收获。",
+  ]);
+  appendUpdateSection(body, "【继续旧花园】", [
+    "继续旧档，可以保留现有的花园、金币、物品、花盆、猫咪和已有进度，并在之后的游玩中逐渐体验大部分新版内容。",
+    "如果猫咪已经被正式收养，它不会重新经历第一次来访和收养过程。",
+    "旧档不会自动补发新档专属的初始物资。",
+  ]);
+  appendUpdateSection(body, "【开启全新花园】", [
+    "开启全新花园后，可以从头体验猫咪第一次来访、停留、取名和正式收养的完整过程。",
+  ]);
+  appendUpdateSection(body, "新版初始物资为：", [], {
+    listItems: ["金币 50", "花盆 3 个", "雏菊种子 3 颗", "普通猫粮 15 份"],
+    listClassName: "update-resource-list",
+  });
+  appendUpdateSection(body, "【开启全新花园说明】", [
+    "开启全新花园会覆盖当前花园，旧档不能与新档同时保留。执行时必须输入完整中文“确认”。",
+  ]);
+  appendUpdateSection(body, "【带猫搬家】", [
+    "如果旧花园已经正式收养猫咪，也可以选择带猫搬家。",
+    "猫咪的名字和已收养状态会保留，其他花园进度、物品、收藏和猫咪状态将重新开始。执行时同样需要输入完整中文“确认”。",
+  ]);
+  appendUpdateSection(body, "【如何选择】", [
+    "如果舍不得现在的花园和已有进度，可以放心继续旧档。",
+    "如果想从头体验完整的新版开局和猫咪生命周期，可以开启全新花园。",
+    "如果想开始一座新花园，又不愿意和已经收养的猫咪分别，可以选择带猫搬家。",
+  ]);
+
+  const actions = document.createElement("div");
+  actions.className = "modal-actions update-modal-actions";
+  const confirm = document.createElement("button");
+  confirm.type = "button";
+  confirm.className = "primary-btn";
+  confirm.textContent = "知道啦";
+  confirm.addEventListener("click", () => {
+    markUpdateAnnouncementSeen();
+    closeModal();
+  });
+  actions.append(confirm);
+  body.append(actions);
+
+  $("#modal").classList.remove("hidden");
+  if (auto) body.scrollTop = 0;
+}
+
+function showNewGameModal() {
+  if (!credentials || !currentState) return;
+  resetModalPresentation();
+  $("#modalTitle").textContent = "新花园操作";
+  const body = $("#modalBody");
+  body.className = "danger-modal-body";
+  body.innerHTML = "";
+
+  const canMoveWithCat =
+    currentState?.cat_state?.phase === "adopted" && Boolean(currentState?.cat?.name);
+  let selectedMode = "new_game";
+
+  const chooser = document.createElement("div");
+  chooser.className = "danger-choice-grid";
+  const newGameOption = document.createElement("button");
+  newGameOption.type = "button";
+  newGameOption.className = "danger-choice-btn active";
+  newGameOption.innerHTML = "<strong>开启全新花园</strong><span>当前花园全部覆盖，从头开始新版开局。</span>";
+  const moveWithCatOption = document.createElement("button");
+  moveWithCatOption.type = "button";
+  moveWithCatOption.className = "danger-choice-btn";
+  moveWithCatOption.innerHTML = "<strong>带猫搬家</strong><span>只保留猫咪名字和已收养状态，其余进度重置。</span>";
+  moveWithCatOption.disabled = !canMoveWithCat;
+  chooser.append(newGameOption, moveWithCatOption);
+
+  const disabledHint = document.createElement("p");
+  disabledHint.className = "danger-disabled-hint";
+  disabledHint.textContent = canMoveWithCat ? "" : "只有已经正式收养的猫咪可以一起搬家。";
+
+  const warning = document.createElement("div");
+  warning.className = "danger-warning-box";
+  const warningTitle = document.createElement("strong");
+  const warningList = document.createElement("ul");
+  warningList.className = "danger-warning-list";
+  warning.append(warningTitle, warningList);
+
+  const prompt = document.createElement("p");
+  prompt.className = "danger-confirm-copy";
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "danger-confirm-input";
+  input.autocomplete = "off";
+  input.placeholder = "请输入：确认";
+  input.setAttribute("aria-label", "请输入确认文字");
+
+  const hint = document.createElement("small");
+  hint.className = "danger-confirm-hint";
+  hint.textContent = "只有完整输入“确认”时才可执行。";
+
+  const actions = document.createElement("div");
+  actions.className = "modal-actions";
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "secondary-btn";
+  cancel.textContent = "取消";
+  cancel.addEventListener("click", closeModal);
+  const submit = document.createElement("button");
+  submit.type = "button";
+  submit.className = "primary-btn danger-primary-btn";
+  submit.disabled = true;
+  submit.addEventListener("click", () => {
+    if (input.value !== REQUIRED_CONFIRM_TEXT) return;
+    if (selectedMode === "move_with_cat") {
+      startMoveWithCat(submit);
+      return;
+    }
+    startFreshGarden(submit);
+  });
+  actions.append(cancel, submit);
+
+  function renderDangerMode() {
+    newGameOption.classList.toggle("active", selectedMode === "new_game");
+    moveWithCatOption.classList.toggle("active", selectedMode === "move_with_cat");
+    warningList.innerHTML = "";
+
+    if (selectedMode === "move_with_cat") {
+      warningTitle.textContent = "这是不可撤销的搬家操作";
+      for (const text of [
+        "只保留猫咪名字和已收养状态。",
+        "其余花园进度、物品、收藏和猫咪状态都会重置。",
+        "操作不可撤销。",
+      ]) {
+        const item = document.createElement("li");
+        item.textContent = text;
+        warningList.append(item);
+      }
+      prompt.textContent = `请输入“${REQUIRED_CONFIRM_TEXT}”后，才可以带猫搬家。`;
+      hint.textContent = `只有完整输入“${REQUIRED_CONFIRM_TEXT}”时才可执行。`;
+      submit.textContent = "确认带猫搬家";
+    } else {
+      warningTitle.textContent = "这是不可撤销的覆盖操作";
+      for (const text of [
+        "当前花园全部内容会被覆盖。",
+        "操作不可撤销。",
+        "新花园不能与旧花园同时保留。",
+      ]) {
+        const item = document.createElement("li");
+        item.textContent = text;
+        warningList.append(item);
+      }
+      prompt.textContent = `请输入“${REQUIRED_CONFIRM_TEXT}”后，才可以开启全新花园。`;
+      hint.textContent = `只有完整输入“${REQUIRED_CONFIRM_TEXT}”时才可执行。`;
+      submit.textContent = "确认开启全新花园";
+    }
+    submit.disabled = input.value !== REQUIRED_CONFIRM_TEXT;
+  }
+
+  newGameOption.addEventListener("click", () => {
+    selectedMode = "new_game";
+    renderDangerMode();
+  });
+  if (canMoveWithCat) {
+    moveWithCatOption.addEventListener("click", () => {
+      selectedMode = "move_with_cat";
+      renderDangerMode();
+    });
+  }
+
+  input.placeholder = `请输入：${REQUIRED_CONFIRM_TEXT}`;
+  input.setAttribute("aria-label", "请输入确认文字");
+
+  input.addEventListener("input", () => {
+    submit.disabled = input.value !== REQUIRED_CONFIRM_TEXT;
+  });
+
+  renderDangerMode();
+  body.append(chooser, disabledHint, warning, prompt, input, hint, actions);
+  $("#modal").classList.remove("hidden");
+  input.focus();
+}
+
 function closeModal() {
+  const closingModalKind = activeModalKind;
   stopNotesCooldownTimer();
+  resetModalPresentation();
+  if (closingModalKind === "update-announcement") {
+    markUpdateAnnouncementSeen();
+  }
   $("#modal").classList.add("hidden");
 }
 
@@ -1312,6 +2692,8 @@ $("#encyclopediaCard").addEventListener("keydown", (event) => {
     openCollectionShortcut();
   }
 });
+$("#updateAnnouncementBtn").addEventListener("click", () => showUpdateAnnouncementModal());
+$("#newGameBtn").addEventListener("click", showNewGameModal);
 $("#keyBtn").addEventListener("click", showKeyModal);
 $("#modalClose").addEventListener("click", closeModal);
 $("#modal").addEventListener("click", (event) => { if (event.target.id === "modal") closeModal(); });
