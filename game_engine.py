@@ -1420,6 +1420,7 @@ def get_default_state():
         "garden_frozen_until": 0,
         "frozen_reason": "",
         "vase": [],
+        "ai_v5_update_notice_seen": True,
     }
 
 
@@ -2308,10 +2309,13 @@ def normalize_state(data, now=None):
     had_harvest_counts = "flower_harvest_counts" in data
     had_cat_state = isinstance(data.get("cat_state"), dict)
     had_last_active_at = "last_active_at" in data
+    had_ai_v5_update_notice_seen = "ai_v5_update_notice_seen" in data
     defaults = get_default_state()
     for key, value in defaults.items():
         if key not in data:
             data[key] = value
+    if not had_ai_v5_update_notice_seen:
+        data["ai_v5_update_notice_seen"] = False
 
     try:
         data["money"] = max(0, int(data.get("money", 0)))
@@ -2452,6 +2456,7 @@ def normalize_state(data, now=None):
     data["is_frozen"] = bool(data.get("is_frozen", False))
     data["garden_frozen_until"] = _safe_nonnegative_int(data.get("garden_frozen_until", 0), 0)
     data["frozen_reason"] = str(data.get("frozen_reason", "") or "")
+    data["ai_v5_update_notice_seen"] = bool(data.get("ai_v5_update_notice_seen", False))
 
     if not isinstance(data.get("permanent_items"), list):
         data["permanent_items"] = []

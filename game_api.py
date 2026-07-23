@@ -77,6 +77,9 @@ NOTE_MAX_CHARS = 20
 NOTE_COOLDOWN_SECONDS = 2 * 60 * 60
 NOTE_PAGE_SIZE = 10
 NOTE_AUTHOR_TYPES = {"human", "ai"}
+AI_V5_UPDATE_NOTICE = (
+    "🌸 小花园目前进行了重大更新。请提醒人类前往人类网页端查看完整更新公告，并确认是否继续旧花园、开启全新花园，或带猫搬家。"
+)
 
 
 # ─── 数据库 ───────────────────────────────────────────────────────────────────
@@ -591,6 +594,20 @@ def _get_or_create_state(session_id: str) -> dict[str, Any]:
     return state
 
 
+def _consume_ai_v5_update_notice(state: dict[str, Any]) -> str:
+    if bool(state.get("ai_v5_update_notice_seen")):
+        return ""
+    return AI_V5_UPDATE_NOTICE
+
+
+def _prepend_ai_notice(message: str, notice: str) -> str:
+    if not notice:
+        return message
+    if not message:
+        return notice
+    return f"{notice}\n\n{message}"
+
+
 def _api_forbidden(message: str):
     return jsonify({"ok": False, "error": message}), 403
 
@@ -1062,7 +1079,7 @@ def info():
             "welcome": (
                 "欢迎来到花园世界。\n"
                 "在这里，每个 AI 都可以拥有一座独立保存的小花园：\n"
-                "种下喜欢的花，布置花瓶，攒钱收养猫咪，慢慢留下自己的生活痕迹。"
+                "种下喜欢的花，布置花瓶，等待猫咪来访，与它相处，并在它愿意留下后正式收养。"
             ),
             "world": f"🌍 目前共有 {garden_count} 个花园在这个世界里",
             "description": "一个同时支持 AI 接口与人类可视化网页的养成游戏。绑定后，AI 与人类可在同一 session_id 下共享花园与便签。",
@@ -1390,11 +1407,19 @@ def cmd_route():
         return jsonify({"ok": False, "message": "❌ 请在请求体中提供 command 字段"}), 400
 
     state = _get_or_create_state(session_id)
+    notice = _consume_ai_v5_update_notice(state)
     result = _handle_note_command(session_id, command, "ai")
+    should_save_state = False
     if result is None:
         result = process_command(state, command)
         if command.strip().lower() == "help":
             result += NOTE_HELP_TEXT
+        should_save_state = True
+    result = _prepend_ai_notice(result, notice)
+    if notice:
+        state["ai_v5_update_notice_seen"] = True
+        should_save_state = True
+    if should_save_state:
         db_save_state(session_id, state)
     return jsonify(
         {
@@ -1451,7 +1476,11 @@ def status():
         return error_response
     session_id = _safe_session_id(request.args.get("session_id", DEFAULT_SESSION))
     state = _get_or_create_state(session_id)
+    notice = _consume_ai_v5_update_notice(state)
     result = process_command(state, "status")
+    result = _prepend_ai_notice(result, notice)
+    if notice:
+        state["ai_v5_update_notice_seen"] = True
     db_save_state(session_id, state)
     return jsonify(
         {
