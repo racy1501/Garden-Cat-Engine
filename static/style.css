@@ -1577,9 +1577,11 @@ footer { padding: 22px 4px 34px; display: flex; justify-content: space-between; 
 .bouquet-shelf-card { min-height: 116px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; padding: 10px 6px; border: 1px solid var(--line); border-radius: 16px; color: var(--green-dark); background: #fffaf2; }
 .bouquet-shelf-card.received { cursor: pointer; }
 .bouquet-shelf-card.locked { color: #a59d90; background: #f0ece5; cursor: default; }
-.bouquet-flower-strip { display: flex; justify-content: center; gap: 2px; min-height: 30px; }
-.bouquet-flower-icon { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; }
-.bouquet-flower-icon .asset-img { width: 28px; height: 28px; object-fit: contain; }
+.bouquet-card-artwork { width: 100%; height: 72px; display: flex; align-items: center; justify-content: center; }
+.bouquet-artwork { display: block; width: min(100%, 148px); height: 72px; object-fit: contain; object-position: center; }
+.bouquet-artwork-silhouette { background: #c8c8c0; opacity: .78; mask-repeat: no-repeat; mask-position: center; mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; -webkit-mask-size: contain; }
+.bouquet-detail-artwork { display: flex; justify-content: center; margin: 2px 0 12px; }
+.bouquet-detail-artwork .bouquet-artwork { width: min(100%, 220px); height: 128px; }
 .bouquet-shelf-card small { color: var(--muted); }
 .bouquet-empty { padding: 28px 12px; color: var(--muted); text-align: center; }
 .bouquet-card-list, .bouquet-history-list { display: grid; gap: 10px; }

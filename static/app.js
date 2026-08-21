@@ -848,17 +848,26 @@ function formatBouquetTimestamp(timestamp) {
   }).format(date);
 }
 
-function renderBouquetFlowerStrip(parent, components) {
-  const strip = document.createElement("div");
-  strip.className = "bouquet-flower-strip";
-  for (const [flowerId, quantity] of Object.entries(components || {})) {
-    const icon = document.createElement("span");
-    icon.className = "bouquet-flower-icon";
-    setFlowerIcon(icon, flowerId, "🌸");
-    icon.title = `${catalog?.flowers?.[flowerId]?.name || flowerId} ×${quantity}`;
-    strip.append(icon);
+function getBouquetImageUrl(bouquetId) {
+  return `/static/assets/v5/bouquets/${encodeURIComponent(bouquetId)}.png`;
+}
+
+function renderBouquetArtwork(parent, bouquetId, unlocked, label) {
+  const imageUrl = getBouquetImageUrl(bouquetId);
+  if (unlocked) {
+    const image = document.createElement("img");
+    image.className = "bouquet-artwork bouquet-artwork-color";
+    image.src = imageUrl;
+    image.alt = label;
+    parent.append(image);
+    return;
   }
-  parent.append(strip);
+  const silhouette = document.createElement("span");
+  silhouette.className = "bouquet-artwork bouquet-artwork-silhouette";
+  silhouette.setAttribute("aria-hidden", "true");
+  silhouette.style.maskImage = `url("${imageUrl}")`;
+  silhouette.style.webkitMaskImage = `url("${imageUrl}")`;
+  parent.append(silhouette);
 }
 
 function renderBouquetTabs(activeTab) {
@@ -896,6 +905,9 @@ function showBouquetDetails(bouquetId) {
   components.textContent = Object.entries(gifts[0].components || {})
     .map(([flowerId, quantity]) => `${catalog.flowers?.[flowerId]?.name || flowerId} ×${quantity}`)
     .join(" · ");
+  const artwork = document.createElement("div");
+  artwork.className = "bouquet-detail-artwork";
+  renderBouquetArtwork(artwork, bouquetId, true, bouquet.name);
   const first = document.createElement("p");
   first.className = "bouquet-detail-first";
   first.textContent = `首次收到：${formatBouquetTimestamp(gifts[gifts.length - 1].sent_at)}`;
@@ -911,7 +923,7 @@ function showBouquetDetails(bouquetId) {
     row.append(time, message);
     history.append(row);
   }
-  body.append(back, components, first, history);
+  body.append(back, artwork, components, first, history);
 }
 
 function renderBouquetCollectionModal(activeTab = "bouquets") {
@@ -961,7 +973,10 @@ function renderBouquetCollectionModal(activeTab = "bouquets") {
       const count = document.createElement("small");
       count.textContent = records.length ? `×${records.length}` : "花束收藏";
       card.append(name);
-      if (records.length) renderBouquetFlowerStrip(card, records[0].components);
+      const artwork = document.createElement("span");
+      artwork.className = "bouquet-card-artwork";
+      renderBouquetArtwork(artwork, bouquetId, Boolean(records.length), bouquet.name);
+      card.append(artwork);
       card.append(count);
       if (records.length) card.addEventListener("click", () => showBouquetDetails(bouquetId));
       else card.disabled = true;
