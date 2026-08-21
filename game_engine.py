@@ -4047,8 +4047,7 @@ def process_command(state, command):
                         "message": message,
                     }
                 )
-                sender_name = str(state.get("garden_name", "") or "AI")
-                event_text = f"💐 {sender_name}送给你一束「{bouquet['name']}」。"
+                event_text = f"💐 小机送给你一束「{bouquet['name']}」。"
                 if message:
                     event_text = event_text[:-1] + "，还附了一张小卡片。"
                 add_event(state, event_text)
