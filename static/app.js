@@ -836,6 +836,142 @@ function renderVase() {
   }
 }
 
+function formatBouquetTimestamp(timestamp) {
+  const date = new Date(Number(timestamp || 0) * 1000);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function renderBouquetFlowerStrip(parent, components) {
+  const strip = document.createElement("div");
+  strip.className = "bouquet-flower-strip";
+  for (const [flowerId, quantity] of Object.entries(components || {})) {
+    const icon = document.createElement("span");
+    icon.className = "bouquet-flower-icon";
+    setFlowerIcon(icon, flowerId, "🌸");
+    icon.title = `${catalog?.flowers?.[flowerId]?.name || flowerId} ×${quantity}`;
+    strip.append(icon);
+  }
+  parent.append(strip);
+}
+
+function renderBouquetTabs(activeTab) {
+  const tabs = document.createElement("div");
+  tabs.className = "bouquet-collection-tabs";
+  for (const [tab, label] of [["bouquets", "花束"], ["cards", "卡片"]]) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `bouquet-collection-tab ${activeTab === tab ? "active" : ""}`;
+    button.textContent = label;
+    button.addEventListener("click", () => renderBouquetCollectionModal(tab));
+    tabs.append(button);
+  }
+  return tabs;
+}
+
+function showBouquetDetails(bouquetId) {
+  const bouquet = catalog?.bouquets?.[bouquetId];
+  const gifts = (currentState?.bouquet_gifts || [])
+    .filter((gift) => gift.bouquet_id === bouquetId)
+    .sort((left, right) => Number(right.sent_at) - Number(left.sent_at));
+  if (!bouquet || !gifts.length) return;
+  resetModalPresentation();
+  $(".modal-card").classList.add("modal-card-wide");
+  $("#modalTitle").textContent = `${bouquet.name} · 花束收藏`;
+  const body = $("#modalBody");
+  body.innerHTML = "";
+  const back = document.createElement("button");
+  back.type = "button";
+  back.className = "mini-btn bouquet-back-btn";
+  back.textContent = "返回花束";
+  back.addEventListener("click", () => renderBouquetCollectionModal("bouquets"));
+  const components = document.createElement("p");
+  components.className = "bouquet-detail-components";
+  components.textContent = Object.entries(gifts[0].components || {})
+    .map(([flowerId, quantity]) => `${catalog.flowers?.[flowerId]?.name || flowerId} ×${quantity}`)
+    .join(" · ");
+  const first = document.createElement("p");
+  first.className = "bouquet-detail-first";
+  first.textContent = `首次收到：${formatBouquetTimestamp(gifts[gifts.length - 1].sent_at)}`;
+  const history = document.createElement("div");
+  history.className = "bouquet-history-list";
+  for (const gift of gifts) {
+    const row = document.createElement("div");
+    row.className = "bouquet-history-row";
+    const time = document.createElement("time");
+    time.textContent = formatBouquetTimestamp(gift.sent_at);
+    const message = document.createElement("span");
+    message.textContent = gift.message || "只送了花束";
+    row.append(time, message);
+    history.append(row);
+  }
+  body.append(back, components, first, history);
+}
+
+function renderBouquetCollectionModal(activeTab = "bouquets") {
+  resetModalPresentation();
+  $(".modal-card").classList.add("modal-card-wide");
+  $("#modalTitle").textContent = "花束收藏";
+  const body = $("#modalBody");
+  body.innerHTML = "";
+  body.append(renderBouquetTabs(activeTab));
+  const gifts = Array.isArray(currentState?.bouquet_gifts) ? currentState.bouquet_gifts : [];
+  if (activeTab === "cards") {
+    const cards = gifts
+      .filter((gift) => String(gift.message || "").trim())
+      .sort((left, right) => Number(right.sent_at) - Number(left.sent_at));
+    if (!cards.length) {
+      const empty = document.createElement("div");
+      empty.className = "bouquet-empty";
+      empty.textContent = "还没有收到卡片。花束会先在这里安静等候。";
+      body.append(empty);
+    } else {
+      const list = document.createElement("div");
+      list.className = "bouquet-card-list";
+      for (const gift of cards) {
+        const card = document.createElement("article");
+        card.className = "bouquet-message-card";
+        const title = document.createElement("strong");
+        title.textContent = catalog.bouquets?.[gift.bouquet_id]?.name || gift.bouquet_id;
+        const date = document.createElement("time");
+        date.textContent = formatBouquetTimestamp(gift.sent_at);
+        const message = document.createElement("p");
+        message.textContent = gift.message;
+        card.append(title, date, message);
+        list.append(card);
+      }
+      body.append(list);
+    }
+  } else {
+    const grid = document.createElement("div");
+    grid.className = "bouquet-shelf-grid";
+    for (const [bouquetId, bouquet] of Object.entries(catalog?.bouquets || {})) {
+      const records = gifts.filter((gift) => gift.bouquet_id === bouquetId);
+      const card = document.createElement("button");
+      card.type = "button";
+      card.className = `bouquet-shelf-card ${records.length ? "received" : "locked"}`;
+      const name = document.createElement("strong");
+      name.textContent = records.length ? bouquet.name : "尚未收到";
+      const count = document.createElement("small");
+      count.textContent = records.length ? `×${records.length}` : "花束收藏";
+      card.append(name);
+      if (records.length) renderBouquetFlowerStrip(card, records[0].components);
+      card.append(count);
+      if (records.length) card.addEventListener("click", () => showBouquetDetails(bouquetId));
+      else card.disabled = true;
+      grid.append(card);
+    }
+    body.append(grid);
+  }
+  $("#modal").classList.remove("hidden");
+}
+
 function statRow(label, value, assetKey="") {
   const row=document.createElement("div"); row.className="stat-row";
   const icon=document.createElement("span"); icon.className="stat-mini-icon"; if(assetKey) setAssetIcon(icon,assetKey,label);
@@ -2745,6 +2881,7 @@ $("#backpackBtn").addEventListener("click", showBackpackModal);
 $("#catBackpackBtn").addEventListener("click", showBackpackModal);
 $("#harvestAllBtn").addEventListener("click", (event) => runCommand("harvest all", event.currentTarget));
 $("#notesBtn").addEventListener("click", () => showNotesModal(1));
+$("#bouquetCollectionBtn").addEventListener("click", () => renderBouquetCollectionModal());
 
 $("#commandForm").addEventListener("submit", (event) => {
   event.preventDefault();

@@ -25,6 +25,7 @@ from game_engine import (
     CAT_COLLECTIBLES,
     CAT_LETTERS,
     CAT_PHASE_ADOPTED,
+    BOUQUETS,
     DISPLAY_TIMEZONE,
     DISPLAY_TIMEZONE_NAME,
     FLOWERS,
@@ -37,6 +38,7 @@ from game_engine import (
     apply_move_with_cat_reset,
     apply_offline_progress,
     get_actual_grow_speed,
+    get_bouquet_options,
     get_current_cat_name,
     get_cat_max_affection,
     get_collectible_boost_hint,
@@ -941,6 +943,7 @@ def _ai_summary(state: dict[str, Any]) -> dict[str, Any]:
         },
         "offline_summary": _build_offline_summary_for_ai(state),
         "inventory_counts": _build_inventory_counts_for_ai(state),
+        "bouquet_options": get_bouquet_options(state),
         "latest_event": latest_event,
     }
 
@@ -1099,6 +1102,13 @@ def _summary(state: dict[str, Any]) -> dict[str, Any]:
         "permanent_items": state.get("permanent_items", []),
         "pots": pots,
         "vase": {"capacity": VASE_CAPACITY, "flowers": vase},
+        "bouquet_gifts": [
+            {
+                **gift,
+                "components": dict(gift.get("components", {})),
+            }
+            for gift in state.get("bouquet_gifts", [])
+        ],
         "inventory": {
             "seeds": state.get("inventory", {}).get("seeds", {}),
             "flowers": state.get("inventory", {}).get("flowers", {}),
@@ -1260,6 +1270,13 @@ def catalog():
                     "rarity_name": rarity_names.get(flower.get("rarity", ""), ""),
                 }
                 for flower_id, flower in FLOWERS.items()
+            },
+            "bouquets": {
+                bouquet_id: {
+                    "name": bouquet["name"],
+                    "components": dict(bouquet["components"]),
+                }
+                for bouquet_id, bouquet in BOUQUETS.items()
             },
             "items": ITEMS,
             "collectibles": [

@@ -255,3 +255,34 @@ def test_summary_recognizes_pest_active(api):
     assert summary["pots"][0]["has_pest"] is True
     assert summary["garden_events"]["has_pests"] is True
     assert summary["garden_events"]["pest_pots"] == [1]
+
+
+def test_ai_bouquet_command_and_web_collection_state(api):
+    module, client = api
+    session_id, human_headers = create_human_garden(client)
+    state = module.db_load_state(session_id)
+    state["inventory"]["flowers"] = {"tulip": 2, "rose": 2}
+    module.db_save_state(session_id, state)
+    ai_headers = {"X-API-Key": "test-key"}
+
+    created = client.post(
+        "/api/cmd",
+        headers=ai_headers,
+        json={
+            "session_id": session_id,
+            "command": "make_bouquet bouquet_id=first_meeting message=给你的春天",
+        },
+    )
+    assert created.status_code == 200
+    assert created.get_json()["ok"] is True
+    assert len(created.get_json()["state"]["bouquet_options"]) == 8
+
+    web_state = client.get(
+        f"/web/status?session_id={session_id}", headers=human_headers
+    ).get_json()["state"]
+    assert len(web_state["bouquet_gifts"]) == 1
+    assert web_state["bouquet_gifts"][0]["message"] == "给你的春天"
+    assert web_state["bouquet_gifts"][0]["components"] == {"tulip": 2, "rose": 2}
+
+    catalog = client.get("/api/catalog").get_json()
+    assert len(catalog["bouquets"]) == 8

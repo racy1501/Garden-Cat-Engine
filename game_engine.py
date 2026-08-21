@@ -110,6 +110,17 @@ FLOWERS = {
     "moonflower": {"name": "月光花", "rarity": "legendary", "seed_price": 36, "sell_price": 44, "grow_time": 900},
 }
 
+BOUQUETS = {
+    "first_meeting": {"name": "初见", "components": {"tulip": 2, "rose": 2}},
+    "warm_sun": {"name": "暖阳", "components": {"sunflower": 1, "rose": 2, "lily": 1}},
+    "soft_cloud": {"name": "柔云", "components": {"rose": 2, "hydrangea": 1, "lily": 1}},
+    "purple_mist": {"name": "紫雾", "components": {"daisy": 2, "lavender": 1, "lily": 1}},
+    "blue_letter": {"name": "蓝信", "components": {"iris": 1, "rose": 2, "lily": 1}},
+    "spring_banquet": {"name": "春宴", "components": {"peony": 1, "hydrangea": 1, "rose": 2}},
+    "little_garden": {"name": "小花园", "components": {"daisy": 2, "rose": 2}},
+    "cherry_branch": {"name": "樱枝", "components": {"cherry_blossom": 3}},
+}
+
 
 # 图鉴数量和累计收获数达到要求后开放购买和种植；已收录过的花始终保持解锁，兼容旧存档。
 FLOWER_UNLOCK_REQUIREMENTS = {
@@ -1423,6 +1434,7 @@ def get_default_state():
         "garden_collectibles": {},
         "garden_collectible_first_found": {},
         "garden_collection_log": [],
+        "bouquet_gifts": [],
         "cat_state": _default_v5_cat_state(now),
         "cat_care": _default_v5_cat_care(),
         "cat_max_affection": 0.0,
@@ -2463,6 +2475,43 @@ def normalize_state(data, now=None):
                 harvest_counts[flower_id] = quantity
     data["flower_harvest_counts"] = harvest_counts
 
+    bouquet_gifts = []
+    raw_bouquet_gifts = data.get("bouquet_gifts", [])
+    if isinstance(raw_bouquet_gifts, list):
+        for entry in raw_bouquet_gifts:
+            if not isinstance(entry, dict):
+                continue
+            bouquet_id = str(entry.get("bouquet_id", "") or "")
+            components = entry.get("components", {})
+            if not bouquet_id or not isinstance(components, dict):
+                continue
+            snapshot = {}
+            for flower_id, quantity in components.items():
+                try:
+                    quantity = int(quantity)
+                except (TypeError, ValueError):
+                    continue
+                if quantity > 0:
+                    snapshot[str(flower_id)] = quantity
+            if not snapshot:
+                continue
+            try:
+                sent_at = int(entry.get("sent_at", 0))
+            except (TypeError, ValueError):
+                continue
+            if sent_at <= 0:
+                continue
+            message = entry.get("message")
+            bouquet_gifts.append(
+                {
+                    "bouquet_id": bouquet_id,
+                    "components": snapshot,
+                    "sent_at": sent_at,
+                    "message": str(message) if message else None,
+                }
+            )
+    data["bouquet_gifts"] = bouquet_gifts
+
     if data.get("weather") not in WEATHER:
         data["weather"] = "sunny"
     weather_data = WEATHER[data["weather"]]
@@ -2874,6 +2923,46 @@ def get_flower_unlock_requirement(flower_id):
         }
     value = int(requirement or 0)
     return {"encyclopedia": value, "harvests": 0}
+
+
+def get_bouquet_options(state):
+    inventory = state.get("inventory", {}).get("flowers", {})
+    options = []
+    for bouquet_id, bouquet in BOUQUETS.items():
+        missing = {}
+        for flower_id, required in bouquet["components"].items():
+            available = int(inventory.get(flower_id, 0) or 0)
+            if available < required:
+                missing[flower_id] = required - available
+        options.append(
+            {
+                "bouquet_id": bouquet_id,
+                "name": bouquet["name"],
+                "components": dict(bouquet["components"]),
+                "can_make": not missing,
+                "missing": missing,
+            }
+        )
+    return options
+
+
+def _format_bouquet_options(options):
+    lines = ["💐 花束配方"]
+    for option in options:
+        components = "、".join(
+            f"{FLOWERS[flower_id]['name']}×{quantity}"
+            for flower_id, quantity in option["components"].items()
+        )
+        if option["can_make"]:
+            status = "可以制作"
+        else:
+            missing = "、".join(
+                f"{FLOWERS.get(flower_id, {'name': flower_id})['name']}×{quantity}"
+                for flower_id, quantity in option["missing"].items()
+            )
+            status = f"缺少：{missing}"
+        lines.append(f"  {option['bouquet_id']}｜{option['name']}｜{components}｜{status}")
+    return "\n".join(lines)
 
 
 def is_flower_unlocked(state, flower_id):
@@ -3904,6 +3993,50 @@ def process_command(state, command):
                         result = f"🧹 清理了盆{pot_idx + 1}枯萎的{flower_name}，花盆重新空出来了。"
                     add_event(state, f"清理枯萎的{flower_name}（盆{pot_idx + 1}）")
 
+    elif action == "make_bouquet":
+        bouquet_id = ""
+        message_parts = []
+        for part in parts[1:]:
+            if part.startswith("bouquet_id="):
+                bouquet_id = part.split("=", 1)[1].strip().lower()
+            elif part.startswith("message="):
+                message_parts.append(part.split("=", 1)[1])
+            elif not bouquet_id:
+                bouquet_id = part.lower()
+            else:
+                message_parts.append(part)
+        if not bouquet_id:
+            result = _format_bouquet_options(get_bouquet_options(state))
+        elif bouquet_id not in BOUQUETS:
+            result = "❌ 没有这款花束，请先使用 make_bouquet 查看配方。"
+        else:
+            bouquet = BOUQUETS[bouquet_id]
+            options = {item["bouquet_id"]: item for item in get_bouquet_options(state)}
+            option = options[bouquet_id]
+            if not option["can_make"]:
+                missing = "、".join(
+                    f"{FLOWERS.get(flower_id, {'name': flower_id})['name']}×{quantity}"
+                    for flower_id, quantity in option["missing"].items()
+                )
+                result = f"❌ 鲜花不够，无法制作{bouquet['name']}。缺少：{missing}"
+            else:
+                for flower_id, quantity in bouquet["components"].items():
+                    state["inventory"]["flowers"][flower_id] -= quantity
+                    if state["inventory"]["flowers"][flower_id] <= 0:
+                        del state["inventory"]["flowers"][flower_id]
+                message = " ".join(message_parts).strip() or None
+                state.setdefault("bouquet_gifts", []).append(
+                    {
+                        "bouquet_id": bouquet_id,
+                        "components": dict(bouquet["components"]),
+                        "sent_at": now,
+                        "message": message,
+                    }
+                )
+                result = f"💐 已将{bouquet['name']}送给人类！"
+                if message:
+                    result += " 已附上小卡片。"
+
     elif action == "arrange":
         if len(parts) != 2:
             result = "❌ 用法：arrange <花>"
@@ -4355,6 +4488,7 @@ buy <物品> [数量] - 买东西（数量必须大于0）
 plant <花> <盆号> - 种花（雨天自动浇水，否则需手动浇水才能生长）
 water <盆号|all> - 给花浇水（浇一次永久有效，直到收获）
 harvest <盆号|all> - 收获一盆，或一键收获全部成熟花朵
+make_bouquet [bouquet_id=...] [message=...] - 查看或制作花束并送给人类
 sell <花> [数量] - 卖花，或 sell all
 treat <盆号> - 治疗害虫({PEST_TREATMENT_COST}块，本轮不再长虫)
 clear <盆号> - 清理枯萎花（50%概率获得少量金币）

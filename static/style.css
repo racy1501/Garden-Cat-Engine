@@ -1568,6 +1568,29 @@ footer { padding: 22px 4px 34px; display: flex; justify-content: space-between; 
   font-size: 10px;
   line-height: 1;
 }
+.vase-heading-actions { display: flex; align-items: center; gap: 8px; }
+.bouquet-collection-btn { color: var(--green-dark); background: #f7eee1; }
+.bouquet-collection-tabs { display: flex; gap: 6px; margin-bottom: 16px; padding: 4px; border-radius: 14px; background: #f3ecdf; }
+.bouquet-collection-tab { flex: 1; border: 0; border-radius: 10px; padding: 8px; color: var(--muted); background: transparent; font-weight: 800; }
+.bouquet-collection-tab.active { color: var(--green-dark); background: #fffaf2; box-shadow: 0 3px 8px rgba(72,63,47,.08); }
+.bouquet-shelf-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.bouquet-shelf-card { min-height: 116px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; padding: 10px 6px; border: 1px solid var(--line); border-radius: 16px; color: var(--green-dark); background: #fffaf2; }
+.bouquet-shelf-card.received { cursor: pointer; }
+.bouquet-shelf-card.locked { color: #a59d90; background: #f0ece5; cursor: default; }
+.bouquet-flower-strip { display: flex; justify-content: center; gap: 2px; min-height: 30px; }
+.bouquet-flower-icon { width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; }
+.bouquet-flower-icon .asset-img { width: 28px; height: 28px; object-fit: contain; }
+.bouquet-shelf-card small { color: var(--muted); }
+.bouquet-empty { padding: 28px 12px; color: var(--muted); text-align: center; }
+.bouquet-card-list, .bouquet-history-list { display: grid; gap: 10px; }
+.bouquet-message-card { padding: 14px 16px; border: 1px solid var(--line); border-radius: 16px; background: #fffaf2; }
+.bouquet-message-card strong, .bouquet-message-card time { display: block; }
+.bouquet-message-card time, .bouquet-history-row time { margin-top: 4px; color: var(--muted); font-size: 12px; }
+.bouquet-message-card p { margin: 10px 0 0; line-height: 1.7; white-space: pre-wrap; }
+.bouquet-back-btn { margin-bottom: 12px; }
+.bouquet-detail-components, .bouquet-detail-first { color: var(--muted); line-height: 1.7; }
+.bouquet-history-row { display: flex; justify-content: space-between; gap: 12px; padding: 10px 12px; border-radius: 12px; background: #f7eee1; }
+.bouquet-history-row span { line-height: 1.6; text-align: right; }
 .notes-intro { margin: 0 0 14px; color: var(--muted); line-height: 1.7; }
 .notes-composer {
   padding: 15px;

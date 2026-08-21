@@ -2,11 +2,13 @@ import time
 from unittest.mock import patch
 
 from game_engine import (
+    BOUQUETS,
     FLOWERS,
     VASE_LIFESPAN_SECONDS,
     WEATHER,
     get_default_state,
     get_vase_flower_status,
+    normalize_state,
     process_command,
 )
 
@@ -73,6 +75,44 @@ def test_vase_uses_twelve_real_hours_and_remove_returns_nothing():
     assert state["vase"] == []
     assert state["money"] == before_money
     assert state["inventory"]["flowers"].get("rose", 0) == 0
+
+
+def test_make_bouquet_is_atomic_and_records_each_gift():
+    state = fresh_state()
+    state.pop("bouquet_gifts")
+    normalize_state(state)
+    assert state["bouquet_gifts"] == []
+
+    state["inventory"]["flowers"] = {"tulip": 2, "rose": 2}
+    listing = process_command(state, "make_bouquet")
+    assert "first_meeting" in listing
+    assert "可以制作" in listing
+    assert "warm_sun" in listing and "缺少" in listing
+
+    before = dict(state["inventory"]["flowers"])
+    failed = process_command(state, "make_bouquet bouquet_id=warm_sun")
+    assert failed.startswith("❌")
+    assert state["inventory"]["flowers"] == before
+    assert state["bouquet_gifts"] == []
+
+    result = process_command(
+        state,
+        "make_bouquet bouquet_id=first_meeting message=给你的春天",
+    )
+    assert "初见" in result
+    assert state["inventory"]["flowers"] == {}
+    assert len(state["bouquet_gifts"]) == 1
+    assert state["bouquet_gifts"][0] == {
+        "bouquet_id": "first_meeting",
+        "components": dict(BOUQUETS["first_meeting"]["components"]),
+        "sent_at": state["bouquet_gifts"][0]["sent_at"],
+        "message": "给你的春天",
+    }
+
+    state["inventory"]["flowers"] = {"tulip": 2, "rose": 2}
+    process_command(state, "make_bouquet bouquet_id=first_meeting")
+    assert len(state["bouquet_gifts"]) == 2
+    assert all(gift["bouquet_id"] == "first_meeting" for gift in state["bouquet_gifts"])
 
 
 def test_unlock_tiers():

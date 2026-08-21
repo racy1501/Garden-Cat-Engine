@@ -20,6 +20,15 @@ def test_home_serves_visual_frontend(tmp_path):
     assert "/static/app.js" in response.get_data(as_text=True)
 
 
+def test_bouquet_collection_entry_is_next_to_vase():
+    root = Path(__file__).resolve().parents[1]
+    html = (root / "templates" / "index.html").read_text(encoding="utf-8")
+    js = (root / "static" / "app.js").read_text(encoding="utf-8")
+    assert 'id="bouquetCollectionBtn"' in html
+    assert "renderBouquetCollectionModal" in js
+    assert "bouquet_gifts" in js
+
+
 def test_web_garden_uses_private_per_garden_token(tmp_path):
     game_api = load_app(tmp_path)
     client = game_api.app.test_client()
