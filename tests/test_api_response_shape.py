@@ -283,6 +283,85 @@ def test_ai_bouquet_command_and_web_collection_state(api):
     assert len(web_state["bouquet_gifts"]) == 1
     assert web_state["bouquet_gifts"][0]["message"] == "给你的春天"
     assert web_state["bouquet_gifts"][0]["components"] == {"tulip": 2, "rose": 2}
+    gift_events = [
+        event["text"]
+        for event in module.db_load_state(session_id)["events"]
+        if "送给你一束「初见」" in event.get("text", "")
+    ]
+    assert gift_events == ["💐 返回面测试花园送给你一束「初见」，还附了一张小卡片。"]
 
     catalog = client.get("/api/catalog").get_json()
     assert len(catalog["bouquets"]) == 8
+
+
+def test_bouquet_unread_cursor_is_durable_and_legacy_gifts_are_read(api):
+    module, client = api
+    session_id, human_headers = create_human_garden(client)
+    ai_headers = {"X-API-Key": "test-key"}
+    state = module.db_load_state(session_id)
+    state["bouquet_gifts"] = [
+        {
+            "bouquet_id": "first_meeting",
+            "components": {"tulip": 2, "rose": 2},
+            "sent_at": 1_700_000_000,
+            "message": None,
+        }
+    ]
+    state.pop("human_last_read_bouquet_gift_count", None)
+    write_raw_state(module, session_id, state)
+
+    legacy = client.get(
+        f"/web/status?session_id={session_id}", headers=human_headers
+    ).get_json()["state"]
+    assert legacy["has_unread_bouquet_gifts"] is False
+
+    state = module.db_load_state(session_id)
+    state["inventory"]["flowers"] = {"tulip": 2, "rose": 2}
+    module.db_save_state(session_id, state)
+    created = client.post(
+        "/api/cmd",
+        headers=ai_headers,
+        json={"session_id": session_id, "command": "make_bouquet bouquet_id=first_meeting"},
+    )
+    assert created.get_json()["state"]["bouquet_options"]
+    first_gift_events = [
+        event["text"]
+        for event in module.db_load_state(session_id)["events"]
+        if "送给你一束「初见」" in event.get("text", "")
+    ]
+    assert first_gift_events == ["💐 返回面测试花园送给你一束「初见」。"]
+    assert client.get(
+        f"/web/status?session_id={session_id}", headers=human_headers
+    ).get_json()["state"]["has_unread_bouquet_gifts"] is True
+
+    viewed = client.post(
+        "/web/bouquets/read",
+        headers=human_headers,
+        json={"session_id": session_id},
+    )
+    assert viewed.status_code == 200
+    assert viewed.get_json()["state"]["has_unread_bouquet_gifts"] is False
+    assert client.get(
+        f"/web/status?session_id={session_id}", headers=human_headers
+    ).get_json()["state"]["has_unread_bouquet_gifts"] is False
+
+    state = module.db_load_state(session_id)
+    state["inventory"]["flowers"] = {"tulip": 2, "rose": 2}
+    module.db_save_state(session_id, state)
+    client.post(
+        "/api/cmd",
+        headers=ai_headers,
+        json={"session_id": session_id, "command": "make_bouquet bouquet_id=first_meeting"},
+    )
+    all_gift_events = [
+        event["text"]
+        for event in module.db_load_state(session_id)["events"]
+        if "送给你一束「初见」" in event.get("text", "")
+    ]
+    assert all_gift_events == [
+        "💐 返回面测试花园送给你一束「初见」。",
+        "💐 返回面测试花园送给你一束「初见」。",
+    ]
+    assert client.get(
+        f"/web/status?session_id={session_id}", headers=human_headers
+    ).get_json()["state"]["has_unread_bouquet_gifts"] is True

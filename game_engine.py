@@ -1435,6 +1435,7 @@ def get_default_state():
         "garden_collectible_first_found": {},
         "garden_collection_log": [],
         "bouquet_gifts": [],
+        "human_last_read_bouquet_gift_count": 0,
         "cat_state": _default_v5_cat_state(now),
         "cat_care": _default_v5_cat_care(),
         "cat_max_affection": 0.0,
@@ -2422,6 +2423,7 @@ def normalize_state(data, now=None):
     had_cat_state = isinstance(data.get("cat_state"), dict)
     had_last_active_at = "last_active_at" in data
     had_ai_v5_update_notice_seen = "ai_v5_update_notice_seen" in data
+    had_bouquet_read_count = "human_last_read_bouquet_gift_count" in data
     defaults = get_default_state()
     for key, value in defaults.items():
         if key not in data:
@@ -2511,6 +2513,18 @@ def normalize_state(data, now=None):
                 }
             )
     data["bouquet_gifts"] = bouquet_gifts
+    raw_bouquet_read_count = data.get("human_last_read_bouquet_gift_count")
+    if not had_bouquet_read_count:
+        # 花束功能上线前已有的赠送记录，在首次升级时默认已查看。
+        bouquet_read_count = len(bouquet_gifts)
+    else:
+        try:
+            bouquet_read_count = int(raw_bouquet_read_count)
+        except (TypeError, ValueError):
+            bouquet_read_count = len(bouquet_gifts)
+    data["human_last_read_bouquet_gift_count"] = max(
+        0, min(bouquet_read_count, len(bouquet_gifts))
+    )
 
     if data.get("weather") not in WEATHER:
         data["weather"] = "sunny"
@@ -4033,6 +4047,11 @@ def process_command(state, command):
                         "message": message,
                     }
                 )
+                sender_name = str(state.get("garden_name", "") or "AI")
+                event_text = f"💐 {sender_name}送给你一束「{bouquet['name']}」。"
+                if message:
+                    event_text = event_text[:-1] + "，还附了一张小卡片。"
+                add_event(state, event_text)
                 result = f"💐 已将{bouquet['name']}送给人类！"
                 if message:
                     result += " 已附上小卡片。"

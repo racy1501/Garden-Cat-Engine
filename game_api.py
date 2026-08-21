@@ -408,6 +408,18 @@ def db_note_read_status(session_id: str, mark_read: bool = False) -> dict[str, A
     }
 
 
+def _bouquet_read_status(state: dict[str, Any], mark_read: bool = False) -> dict[str, bool]:
+    """Derive bouquet unread state from the durable human read cursor."""
+    gifts = state.get("bouquet_gifts", [])
+    gift_count = len(gifts) if isinstance(gifts, list) else 0
+    last_read_count = int(state.get("human_last_read_bouquet_gift_count", gift_count) or 0)
+    last_read_count = max(0, min(last_read_count, gift_count))
+    if mark_read:
+        last_read_count = gift_count
+        state["human_last_read_bouquet_gift_count"] = last_read_count
+    return {"has_unread_bouquet_gifts": gift_count > last_read_count}
+
+
 def db_list_notes(
     session_id: str,
     author_type: str,
@@ -1109,6 +1121,7 @@ def _summary(state: dict[str, Any]) -> dict[str, Any]:
             }
             for gift in state.get("bouquet_gifts", [])
         ],
+        **_bouquet_read_status(state),
         "inventory": {
             "seeds": state.get("inventory", {}).get("seeds", {}),
             "flowers": state.get("inventory", {}).get("flowers", {}),
@@ -1408,6 +1421,19 @@ def web_notes():
         return jsonify({"ok": False, "message": "页码必须是正整数。"}), 400
     db_note_read_status(session_id, mark_read=True)
     return jsonify({"ok": True, **db_list_notes(session_id, "human", page=page)})
+
+
+@app.route("/web/bouquets/read", methods=["POST"])
+def web_bouquets_read():
+    data = request.get_json(silent=True) or {}
+    session_id = _safe_session_id(data.get("session_id", ""))
+    token = request.headers.get("X-Garden-Token", "")
+    state = _load_authorized_web_state(session_id, token)
+    if state is None:
+        return _web_auth_error()
+    _bouquet_read_status(state, mark_read=True)
+    db_save_state(session_id, state)
+    return jsonify({"ok": True, "state": _summary(state)})
 
 
 @app.route("/web/new_game", methods=["POST"])

@@ -20,13 +20,30 @@ def test_home_serves_visual_frontend(tmp_path):
     assert "/static/app.js" in response.get_data(as_text=True)
 
 
-def test_bouquet_collection_entry_is_next_to_vase():
+def test_bouquet_collection_is_a_main_page_not_a_vase_modal():
     root = Path(__file__).resolve().parents[1]
     html = (root / "templates" / "index.html").read_text(encoding="utf-8")
     js = (root / "static" / "app.js").read_text(encoding="utf-8")
-    assert 'id="bouquetCollectionBtn"' in html
-    assert "renderBouquetCollectionModal" in js
+    assert 'data-main-pane="garden"' in html
+    assert 'data-main-pane="store"' in html
+    assert 'data-main-pane="bouquet"' in html
+    assert 'id="bouquetPageContent"' in html
+    assert 'id="bouquetCollectionBtn"' not in html
+    assert "renderBouquetCollectionModal" not in js
+    assert "renderBouquetPage" in js
     assert "bouquet_gifts" in js
+
+
+def test_bouquet_main_page_keeps_tabs_and_unread_badge():
+    root = Path(__file__).resolve().parents[1]
+    js = (root / "static" / "app.js").read_text(encoding="utf-8")
+    css = (root / "static" / "style.css").read_text(encoding="utf-8")
+    assert '[["bouquets", "花束"], ["cards", "卡片"]]' in js
+    assert "markBouquetGiftsRead" in js
+    assert "/web/bouquets/read" in js
+    assert 'name.textContent = bouquet.name' in js
+    assert 'count.textContent = records.length ? `×${records.length}` : "尚未收到"' in js
+    assert ".bouquet-main-tab.has-unread::after" in css
 
 
 def test_bouquet_artwork_uses_id_derived_assets_and_mask():

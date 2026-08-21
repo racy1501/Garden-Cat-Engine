@@ -42,6 +42,7 @@ let liveRefreshQueued = false;
 let notesCooldownTimer = null;
 let currentNotesPage = 1;
 let hasUnreadNotes = false;
+let hasUnreadBouquetGifts = false;
 
 Object.assign(CUSTOM_ASSETS, {
   basic_cat_bed: "static/assets/v5/cat_care/basic_cat_bed.png",
@@ -548,6 +549,10 @@ async function runCommand(command, sourceButton = null) {
 
 function updateFromResponse(data, quiet = false) {
   currentState = data.state;
+  if (typeof currentState?.has_unread_bouquet_gifts === "boolean") {
+    hasUnreadBouquetGifts = currentState.has_unread_bouquet_gifts;
+    renderBouquetMainButton();
+  }
   if (data.notes && typeof data.notes.has_unread_ai_notes === "boolean") {
     hasUnreadNotes = data.notes.has_unread_ai_notes;
     renderNotesButton();
@@ -568,6 +573,13 @@ function renderNotesButton() {
   if (!button) return;
   button.classList.toggle("has-unread", hasUnreadNotes);
   button.setAttribute("aria-label", hasUnreadNotes ? "便签（有新内容）" : "便签");
+}
+
+function renderBouquetMainButton() {
+  const button = document.querySelector('[data-main-pane="bouquet"]');
+  if (!button) return;
+  button.classList.toggle("has-unread", hasUnreadBouquetGifts);
+  button.setAttribute("aria-label", hasUnreadBouquetGifts ? "花束（有新内容）" : "花束");
 }
 
 function renderAll() {
@@ -878,7 +890,7 @@ function renderBouquetTabs(activeTab) {
     button.type = "button";
     button.className = `bouquet-collection-tab ${activeTab === tab ? "active" : ""}`;
     button.textContent = label;
-    button.addEventListener("click", () => renderBouquetCollectionModal(tab));
+    button.addEventListener("click", () => renderBouquetPage(tab));
     tabs.append(button);
   }
   return tabs;
@@ -899,7 +911,10 @@ function showBouquetDetails(bouquetId) {
   back.type = "button";
   back.className = "mini-btn bouquet-back-btn";
   back.textContent = "返回花束";
-  back.addEventListener("click", () => renderBouquetCollectionModal("bouquets"));
+  back.addEventListener("click", () => {
+    closeModal();
+    renderBouquetPage("bouquets");
+  });
   const components = document.createElement("p");
   components.className = "bouquet-detail-components";
   components.textContent = Object.entries(gifts[0].components || {})
@@ -926,11 +941,8 @@ function showBouquetDetails(bouquetId) {
   body.append(back, artwork, components, first, history);
 }
 
-function renderBouquetCollectionModal(activeTab = "bouquets") {
-  resetModalPresentation();
-  $(".modal-card").classList.add("modal-card-wide");
-  $("#modalTitle").textContent = "花束收藏";
-  const body = $("#modalBody");
+function renderBouquetPage(activeTab = "bouquets") {
+  const body = $("#bouquetPageContent");
   body.innerHTML = "";
   body.append(renderBouquetTabs(activeTab));
   const gifts = Array.isArray(currentState?.bouquet_gifts) ? currentState.bouquet_gifts : [];
@@ -969,9 +981,9 @@ function renderBouquetCollectionModal(activeTab = "bouquets") {
       card.type = "button";
       card.className = `bouquet-shelf-card ${records.length ? "received" : "locked"}`;
       const name = document.createElement("strong");
-      name.textContent = records.length ? bouquet.name : "尚未收到";
+      name.textContent = bouquet.name;
       const count = document.createElement("small");
-      count.textContent = records.length ? `×${records.length}` : "花束收藏";
+      count.textContent = records.length ? `×${records.length}` : "尚未收到";
       card.append(name);
       const artwork = document.createElement("span");
       artwork.className = "bouquet-card-artwork";
@@ -984,7 +996,22 @@ function renderBouquetCollectionModal(activeTab = "bouquets") {
     }
     body.append(grid);
   }
-  $("#modal").classList.remove("hidden");
+}
+
+async function markBouquetGiftsRead() {
+  if (!credentials || !hasUnreadBouquetGifts) return;
+  try {
+    const data = await requestJson("/web/bouquets/read", {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ session_id: credentials.session_id }),
+    });
+    currentState = data.state;
+    hasUnreadBouquetGifts = Boolean(currentState?.has_unread_bouquet_gifts);
+    renderBouquetMainButton();
+  } catch (error) {
+    showToast(error.message || "花束查看状态暂时无法保存");
+  }
 }
 
 function statRow(label, value, assetKey="") {
@@ -2896,7 +2923,6 @@ $("#backpackBtn").addEventListener("click", showBackpackModal);
 $("#catBackpackBtn").addEventListener("click", showBackpackModal);
 $("#harvestAllBtn").addEventListener("click", (event) => runCommand("harvest all", event.currentTarget));
 $("#notesBtn").addEventListener("click", () => showNotesModal(1));
-$("#bouquetCollectionBtn").addEventListener("click", () => renderBouquetCollectionModal());
 
 $("#commandForm").addEventListener("submit", (event) => {
   event.preventDefault();
@@ -2959,8 +2985,11 @@ setInterval(() => {
 for(const button of document.querySelectorAll('.sticky-tab')){
   button.addEventListener('click',()=>{
     document.querySelectorAll('.sticky-tab').forEach(b=>b.classList.toggle('active',b===button));
-    document.querySelector('.garden-panel').classList.toggle('active',button.dataset.mainPane==='garden');
-    document.querySelector('.store-panel').classList.toggle('active',button.dataset.mainPane==='store');
+    document.querySelectorAll('.main-switch-pane').forEach(pane=>pane.classList.toggle('active',pane.classList.contains(`${button.dataset.mainPane}-panel`)));
+    if (button.dataset.mainPane === 'bouquet') {
+      renderBouquetPage();
+      markBouquetGiftsRead();
+    }
   });
 }
 for(const button of document.querySelectorAll('.cat-sticky-tab')){
