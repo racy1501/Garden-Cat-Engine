@@ -1553,6 +1553,21 @@ footer { padding: 22px 4px 34px; display: flex; justify-content: space-between; 
   box-shadow: 0 5px 12px rgba(72,63,47,.06);
 }
 .notes-open-btn:hover { transform: translateY(-1px); }
+.notes-open-btn.has-unread::after {
+  content: "新";
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  margin-left: 5px;
+  padding: 0 3px;
+  border-radius: 8px;
+  color: #fffaf1;
+  background: #d47d62;
+  font-size: 10px;
+  line-height: 1;
+}
 .notes-intro { margin: 0 0 14px; color: var(--muted); line-height: 1.7; }
 .notes-composer {
   padding: 15px;

@@ -22,3 +22,9 @@ CREATE INDEX IF NOT EXISTS idx_garden_notes_timeline
 
 CREATE INDEX IF NOT EXISTS idx_garden_notes_cooldown
     ON garden_notes (session_id, author_type, created_at DESC, id DESC);
+
+-- 人类网页最后查看到的便签游标；首次建立时将已有便签视为已读。
+CREATE TABLE IF NOT EXISTS garden_note_reads (
+    session_id TEXT PRIMARY KEY,
+    human_last_read_note_id BIGINT NOT NULL DEFAULT 0
+);

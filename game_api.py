@@ -125,6 +125,14 @@ def ensure_schema() -> None:
                 )
                 """
             )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS garden_note_reads (
+                    session_id TEXT PRIMARY KEY,
+                    human_last_read_note_id BIGINT NOT NULL DEFAULT 0
+                )
+                """
+            )
         else:
             cur.execute(
                 """
@@ -143,6 +151,14 @@ def ensure_schema() -> None:
                     author_type TEXT NOT NULL CHECK (author_type IN ('human', 'ai')),
                     content TEXT NOT NULL,
                     created_at INTEGER NOT NULL
+                )
+                """
+            )
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS garden_note_reads (
+                    session_id TEXT PRIMARY KEY,
+                    human_last_read_note_id INTEGER NOT NULL DEFAULT 0
                 )
                 """
             )
@@ -310,6 +326,86 @@ def _note_row_to_dict(row: Any) -> dict[str, Any]:
     }
 
 
+def _latest_note_id(conn: Any, session_id: str) -> int:
+    cur = conn.cursor()
+    if USE_POSTGRES:
+        cur.execute("SELECT MAX(id) FROM garden_notes WHERE session_id = %s", (session_id,))
+    else:
+        cur.execute("SELECT MAX(id) FROM garden_notes WHERE session_id = ?", (session_id,))
+    return int(cur.fetchone()[0] or 0)
+
+
+def _ensure_note_read_state(conn: Any, session_id: str, baseline_note_id: int) -> int:
+    cur = conn.cursor()
+    if USE_POSTGRES:
+        cur.execute(
+            "SELECT human_last_read_note_id FROM garden_note_reads WHERE session_id = %s",
+            (session_id,),
+        )
+    else:
+        cur.execute(
+            "SELECT human_last_read_note_id FROM garden_note_reads WHERE session_id = ?",
+            (session_id,),
+        )
+    row = cur.fetchone()
+    if row:
+        return int(row[0])
+    if USE_POSTGRES:
+        cur.execute(
+            """
+            INSERT INTO garden_note_reads (session_id, human_last_read_note_id)
+            VALUES (%s, %s)
+            ON CONFLICT (session_id) DO NOTHING
+            """,
+            (session_id, baseline_note_id),
+        )
+    else:
+        cur.execute(
+            """
+            INSERT OR IGNORE INTO garden_note_reads (session_id, human_last_read_note_id)
+            VALUES (?, ?)
+            """,
+            (session_id, baseline_note_id),
+        )
+    conn.commit()
+    return int(baseline_note_id)
+
+
+def db_note_read_status(session_id: str, mark_read: bool = False) -> dict[str, Any]:
+    """Return and optionally advance the durable human note-read cursor."""
+    ensure_schema()
+    with _get_conn() as conn:
+        latest_note_id = _latest_note_id(conn, session_id)
+        last_read_note_id = _ensure_note_read_state(conn, session_id, latest_note_id)
+        if mark_read and latest_note_id > last_read_note_id:
+            cur = conn.cursor()
+            if USE_POSTGRES:
+                cur.execute(
+                    """
+                    UPDATE garden_note_reads
+                    SET human_last_read_note_id = %s
+                    WHERE session_id = %s
+                    """,
+                    (latest_note_id, session_id),
+                )
+            else:
+                cur.execute(
+                    """
+                    UPDATE garden_note_reads
+                    SET human_last_read_note_id = ?
+                    WHERE session_id = ?
+                    """,
+                    (latest_note_id, session_id),
+                )
+            conn.commit()
+            last_read_note_id = latest_note_id
+    return {
+        "has_unread_ai_notes": latest_note_id > last_read_note_id,
+        "latest_note_id": latest_note_id,
+        "human_last_read_note_id": last_read_note_id,
+    }
+
+
 def db_list_notes(
     session_id: str,
     author_type: str,
@@ -400,6 +496,7 @@ def db_list_notes(
         "cooldown_remaining_seconds": cooldown_remaining,
         "max_chars": NOTE_MAX_CHARS,
         "cooldown_seconds": NOTE_COOLDOWN_SECONDS,
+        **db_note_read_status(session_id),
     }
 
 
@@ -423,6 +520,8 @@ def db_add_note(
 
     with _get_conn() as conn:
         cur = conn.cursor()
+        latest_note_id = _latest_note_id(conn, session_id)
+        _ensure_note_read_state(conn, session_id, latest_note_id)
         if USE_POSTGRES:
             cur.execute(
                 """
@@ -1221,12 +1320,14 @@ def web_status():
         return _web_auth_error()
     result = process_command(state, "status")
     db_save_state(session_id, state)
+    notes = db_note_read_status(session_id)
     return jsonify(
         {
             "ok": True,
             "session_id": session_id,
             "message": result,
             "state": _summary(state),
+            "notes": notes,
         }
     )
 
@@ -1281,12 +1382,14 @@ def web_notes():
                     "cooldown_remaining_seconds": remaining,
                 }
             ), 429
+        db_note_read_status(session_id, mark_read=True)
         payload = db_list_notes(session_id, "human", page=1)
         return jsonify({"ok": True, "message": "便签已经贴好了。", "note": note, **payload})
 
     page = _parse_positive_page(request.args.get("page", 1))
     if page is None:
         return jsonify({"ok": False, "message": "页码必须是正整数。"}), 400
+    db_note_read_status(session_id, mark_read=True)
     return jsonify({"ok": True, **db_list_notes(session_id, "human", page=page)})
 
 

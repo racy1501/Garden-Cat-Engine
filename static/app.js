@@ -41,6 +41,7 @@ let stateSnapshotAtMs = 0;
 let liveRefreshQueued = false;
 let notesCooldownTimer = null;
 let currentNotesPage = 1;
+let hasUnreadNotes = false;
 
 Object.assign(CUSTOM_ASSETS, {
   basic_cat_bed: "static/assets/v5/cat_care/basic_cat_bed.png",
@@ -547,6 +548,10 @@ async function runCommand(command, sourceButton = null) {
 
 function updateFromResponse(data, quiet = false) {
   currentState = data.state;
+  if (data.notes && typeof data.notes.has_unread_ai_notes === "boolean") {
+    hasUnreadNotes = data.notes.has_unread_ai_notes;
+    renderNotesButton();
+  }
   stateSnapshotAtMs = Date.now();
   liveRefreshQueued = false;
   if (!quiet && data.message) latestGardenNotice = data.message;
@@ -556,6 +561,13 @@ function updateFromResponse(data, quiet = false) {
   if (!quiet && data.message) {
     $("#messageBox").textContent = data.message;
   }
+}
+
+function renderNotesButton() {
+  const button = $("#notesBtn");
+  if (!button) return;
+  button.classList.toggle("has-unread", hasUnreadNotes);
+  button.setAttribute("aria-label", hasUnreadNotes ? "便签（有新内容）" : "便签");
 }
 
 function renderAll() {
@@ -2208,6 +2220,10 @@ async function fetchNotesPage(page = 1) {
 }
 
 function renderNotesModal(payload) {
+  if (typeof payload.has_unread_ai_notes === "boolean") {
+    hasUnreadNotes = payload.has_unread_ai_notes;
+    renderNotesButton();
+  }
   currentNotesPage = payload.page || 1;
   const maxChars = Number(payload.max_chars || catalog?.notes?.max_chars || 20);
   const body = $("#modalBody");

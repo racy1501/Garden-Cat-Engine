@@ -1,6 +1,7 @@
 import importlib
 import os
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -150,3 +151,66 @@ def test_ui_command_help_and_pet_cooldown_regression(api):
 
     # 本次功能不能碰坏摸猫的现实 10 分钟冷却。
     assert module.PET_COOLDOWN_REAL_MINUTES == 10
+
+
+def test_ai_note_unread_cursor_is_durable_and_legacy_notes_are_read(api, monkeypatch):
+    module, client = api
+    session_id, human_headers = create_human_garden(client)
+    ai_headers = {"X-API-Key": "test-key"}
+
+    old_note, _, error = module.db_add_note(
+        session_id,
+        "ai",
+        "升级前的旧便签",
+        now=1_700_000_000,
+    )
+    assert error is None and old_note is not None
+    with module._get_conn() as conn:
+        conn.execute("DELETE FROM garden_note_reads")
+        conn.commit()
+    assert module.db_note_read_status(session_id)["has_unread_ai_notes"] is False
+
+    first_ai = client.post(
+        "/api/notes",
+        headers=ai_headers,
+        json={"session_id": session_id, "content": "AI刚写的新便签"},
+    )
+    assert first_ai.status_code == 200
+    assert first_ai.get_json()["has_unread_ai_notes"] is True
+    assert client.get(
+        f"/web/status?session_id={session_id}", headers=human_headers
+    ).get_json()["notes"]["has_unread_ai_notes"] is True
+
+    viewed = client.get(
+        f"/web/notes?session_id={session_id}&page=1", headers=human_headers
+    )
+    assert viewed.status_code == 200
+    assert viewed.get_json()["has_unread_ai_notes"] is False
+    assert client.get(
+        f"/web/status?session_id={session_id}", headers=human_headers
+    ).get_json()["notes"]["has_unread_ai_notes"] is False
+
+    now = int(time.time())
+    monkeypatch.setattr(
+        module.time,
+        "time",
+        lambda: now + module.NOTE_COOLDOWN_SECONDS + 1,
+    )
+    second_ai = client.post(
+        "/api/notes",
+        headers=ai_headers,
+        json={"session_id": session_id, "content": "AI再次写的新便签"},
+    )
+    assert second_ai.status_code == 200
+    assert client.get(
+        f"/web/status?session_id={session_id}", headers=human_headers
+    ).get_json()["notes"]["has_unread_ai_notes"] is True
+
+    human = client.post(
+        "/web/notes",
+        headers=human_headers,
+        json={"session_id": session_id, "content": "人类也能继续写便签"},
+    )
+    assert human.status_code == 200
+    assert human.get_json()["note"]["author_type"] == "human"
+    assert human.get_json()["has_unread_ai_notes"] is False
