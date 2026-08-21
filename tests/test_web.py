@@ -46,6 +46,29 @@ def test_bouquet_main_page_keeps_tabs_and_unread_badge():
     assert ".bouquet-main-tab.has-unread::after" in css
 
 
+def test_bouquet_detail_uses_its_latest_nonempty_card_and_compact_modal():
+    root = Path(__file__).resolve().parents[1]
+    js = (root / "static" / "app.js").read_text(encoding="utf-8")
+    css = (root / "static" / "style.css").read_text(encoding="utf-8")
+    assert "function getLatestBouquetCard(gifts)" in js
+    assert 'gifts.find((gift) => String(gift.message || "").trim())' in js
+    assert "const latestCard = getLatestBouquetCard(gifts);" in js
+    assert "最近的卡片" in js
+    assert "累计收到 ×${gifts.length}" in js
+    assert "modal-card-bouquet-detail" in js
+    assert ".modal-card-bouquet-detail" in css
+    assert ".bouquet-detail-card" in css
+
+
+def test_garden_notice_uses_latest_important_recent_event_before_offline_summary():
+    root = Path(__file__).resolve().parents[1]
+    js = (root / "static" / "app.js").read_text(encoding="utf-8")
+    assert "function extractImportantGardenNotice(message)" in js
+    assert "recentImportantNotice = extractImportantGardenNotice(recentEvents.at(-1))" in js
+    assert "let notice = latestNotice || recentImportantNotice;" in js
+    assert "!latestNotice && !recentImportantNotice" in js
+
+
 def test_bouquet_artwork_uses_id_derived_assets_and_mask():
     root = Path(__file__).resolve().parents[1]
     asset_dir = root / "static" / "assets" / "v5" / "bouquets"

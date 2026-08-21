@@ -283,6 +283,7 @@ def test_ai_bouquet_command_and_web_collection_state(api):
     assert len(web_state["bouquet_gifts"]) == 1
     assert web_state["bouquet_gifts"][0]["message"] == "给你的春天"
     assert web_state["bouquet_gifts"][0]["components"] == {"tulip": 2, "rose": 2}
+    assert web_state["recent_events"][-1] == "💐 小机送给你一束「初见」，还附了一张小卡片。"
     gift_events = [
         event["text"]
         for event in module.db_load_state(session_id)["events"]
@@ -308,6 +309,8 @@ def test_bouquet_unread_cursor_is_durable_and_legacy_gifts_are_read(api):
             "message": None,
         }
     ]
+    old_event_text = "💐 我的小花园送给你一束「小花园」，还附了一张小卡片。"
+    state["events"] = [{"time": 1_700_000_000, "text": old_event_text}]
     state.pop("human_last_read_bouquet_gift_count", None)
     write_raw_state(module, session_id, state)
 
@@ -315,6 +318,7 @@ def test_bouquet_unread_cursor_is_durable_and_legacy_gifts_are_read(api):
         f"/web/status?session_id={session_id}", headers=human_headers
     ).get_json()["state"]
     assert legacy["has_unread_bouquet_gifts"] is False
+    assert old_event_text in legacy["recent_events"]
 
     state = module.db_load_state(session_id)
     state["inventory"]["flowers"] = {"tulip": 2, "rose": 2}
@@ -332,6 +336,7 @@ def test_bouquet_unread_cursor_is_durable_and_legacy_gifts_are_read(api):
     ]
     assert first_gift_events == ["💐 小机送给你一束「初见」。"]
     assert all("返回面测试花园" not in event for event in first_gift_events)
+    assert old_event_text in [event["text"] for event in module.db_load_state(session_id)["events"]]
     assert client.get(
         f"/web/status?session_id={session_id}", headers=human_headers
     ).get_json()["state"]["has_unread_bouquet_gifts"] is True

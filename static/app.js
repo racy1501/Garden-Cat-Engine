@@ -646,16 +646,25 @@ function seedOptions(select) {
 }
 
 
-function extractGardenNotice(message) {
+function extractImportantGardenNotice(message) {
   const lines = String(message || "")
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean)
     .filter((line) => !line.startsWith("📊"));
 
-  const important = lines.filter((line) =>
+  return lines.filter((line) =>
     /^(🌈|🦋|🎁|✉️|🐛|💀|🌤️|🌧️|🎉|🌸|🧺|🧹|💐)/.test(line)
   );
+}
+
+function extractGardenNotice(message) {
+  const lines = String(message || "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !line.startsWith("📊"));
+  const important = extractImportantGardenNotice(message);
   if (important.length) return important.slice(0, 4).join("\n");
   return lines[0] || "";
 }
@@ -682,19 +691,21 @@ function buildGardenNoticeSupplements() {
 
 function renderGardenNotice() {
   const root = $("#gardenNoticeText");
-  let notice = extractGardenNotice(latestGardenNotice);
+  const latestNotice = extractGardenNotice(latestGardenNotice);
+  const recentEvents = currentState?.recent_events || [];
+  const recentImportantNotice = extractImportantGardenNotice(recentEvents.at(-1)).join("\n");
+  let notice = latestNotice || recentImportantNotice;
   const offline = currentState?.offline_summary || {};
   const supplements = buildGardenNoticeSupplements();
   if (!notice && Number(offline.offline_seconds || 0) > 0) {
     notice = offline.message || "花园在你离开时暂停在安全状态。";
   }
   if (!notice) {
-    const events = currentState.recent_events || [];
-    notice = events.length
-      ? events[events.length - 1]
+    notice = recentEvents.length
+      ? recentEvents[recentEvents.length - 1]
       : "花园很安静，风从花叶间穿过去。";
   }
-  if (!extractGardenNotice(latestGardenNotice) && Number(offline.offline_seconds || 0) > 0) {
+  if (!latestNotice && !recentImportantNotice && Number(offline.offline_seconds || 0) > 0) {
     notice = supplements.shift() || notice;
   }
   if (supplements.length) {
@@ -896,6 +907,10 @@ function renderBouquetTabs(activeTab) {
   return tabs;
 }
 
+function getLatestBouquetCard(gifts) {
+  return gifts.find((gift) => String(gift.message || "").trim()) || null;
+}
+
 function showBouquetDetails(bouquetId) {
   const bouquet = catalog?.bouquets?.[bouquetId];
   const gifts = (currentState?.bouquet_gifts || [])
@@ -903,8 +918,8 @@ function showBouquetDetails(bouquetId) {
     .sort((left, right) => Number(right.sent_at) - Number(left.sent_at));
   if (!bouquet || !gifts.length) return;
   resetModalPresentation();
-  $(".modal-card").classList.add("modal-card-wide");
-  $("#modalTitle").textContent = `${bouquet.name} · 花束收藏`;
+  $(".modal-card").classList.add("modal-card-bouquet-detail");
+  $("#modalTitle").textContent = "花束详情";
   const body = $("#modalBody");
   body.innerHTML = "";
   const back = document.createElement("button");
@@ -923,9 +938,30 @@ function showBouquetDetails(bouquetId) {
   const artwork = document.createElement("div");
   artwork.className = "bouquet-detail-artwork";
   renderBouquetArtwork(artwork, bouquetId, true, bouquet.name);
+  const summary = document.createElement("div");
+  summary.className = "bouquet-detail-summary";
+  const name = document.createElement("h3");
+  name.className = "bouquet-detail-name";
+  name.textContent = bouquet.name;
+  const count = document.createElement("p");
+  count.className = "bouquet-detail-count";
+  count.textContent = `累计收到 ×${gifts.length}`;
+  summary.append(artwork, name, count);
   const first = document.createElement("p");
   first.className = "bouquet-detail-first";
   first.textContent = `首次收到：${formatBouquetTimestamp(gifts[gifts.length - 1].sent_at)}`;
+  const latestCard = getLatestBouquetCard(gifts);
+  const cardSection = document.createElement("section");
+  if (latestCard) {
+    cardSection.className = "bouquet-detail-card";
+    const cardTitle = document.createElement("strong");
+    cardTitle.textContent = "最近的卡片";
+    const cardMessage = document.createElement("p");
+    cardMessage.textContent = latestCard.message;
+    const cardTime = document.createElement("time");
+    cardTime.textContent = formatBouquetTimestamp(latestCard.sent_at);
+    cardSection.append(cardTitle, cardMessage, cardTime);
+  }
   const history = document.createElement("div");
   history.className = "bouquet-history-list";
   for (const gift of gifts) {
@@ -938,7 +974,9 @@ function showBouquetDetails(bouquetId) {
     row.append(time, message);
     history.append(row);
   }
-  body.append(back, artwork, components, first, history);
+  body.append(back, summary, components, first);
+  if (latestCard) body.append(cardSection);
+  body.append(history);
 }
 
 function renderBouquetPage(activeTab = "bouquets") {
@@ -1565,6 +1603,7 @@ function resetModalPresentation() {
   activeModalKind = null;
   $("#modal").classList.remove("modal-encyclopedia");
   $(".modal-card").classList.remove("modal-card-wide");
+  $(".modal-card").classList.remove("modal-card-bouquet-detail");
   $("#modalBody").className = "";
 }
 

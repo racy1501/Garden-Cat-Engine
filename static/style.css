@@ -1594,8 +1594,12 @@ footer { padding: 22px 4px 34px; display: flex; justify-content: space-between; 
 .bouquet-card-artwork { width: 100%; height: 72px; display: flex; align-items: center; justify-content: center; }
 .bouquet-artwork { display: block; width: min(100%, 148px); height: 72px; object-fit: contain; object-position: center; }
 .bouquet-artwork-silhouette { background: #c8c8c0; opacity: .78; mask-repeat: no-repeat; mask-position: center; mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; -webkit-mask-size: contain; }
-.bouquet-detail-artwork { display: flex; justify-content: center; margin: 2px 0 12px; }
-.bouquet-detail-artwork .bouquet-artwork { width: min(100%, 220px); height: 128px; }
+.modal-card-bouquet-detail { width: min(440px, calc(100vw - 36px)); max-height: calc(100vh - 36px); }
+.bouquet-detail-summary { display: grid; justify-items: center; margin: 0 0 10px; text-align: center; }
+.bouquet-detail-artwork { display: flex; justify-content: center; margin: 0 0 3px; }
+.bouquet-detail-artwork .bouquet-artwork { width: min(100%, 190px); height: 108px; }
+.bouquet-detail-name { margin: 0; color: var(--green-dark); font-size: 19px; }
+.bouquet-detail-count { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
 .bouquet-shelf-card small { color: var(--muted); }
 .bouquet-empty { padding: 28px 12px; color: var(--muted); text-align: center; }
 .bouquet-card-list, .bouquet-history-list { display: grid; gap: 10px; }
@@ -1605,8 +1609,15 @@ footer { padding: 22px 4px 34px; display: flex; justify-content: space-between; 
 .bouquet-message-card p { margin: 10px 0 0; line-height: 1.7; white-space: pre-wrap; }
 .bouquet-back-btn { margin-bottom: 12px; }
 .bouquet-detail-components, .bouquet-detail-first { color: var(--muted); line-height: 1.7; }
+.bouquet-detail-components { margin: 0; }
+.bouquet-detail-first { margin: 4px 0 0; }
+.bouquet-detail-card { margin: 12px 0; padding: 12px 14px; border: 1px solid #e4d5be; border-radius: 15px; background: #fff7ea; }
+.bouquet-detail-card strong, .bouquet-detail-card time { display: block; }
+.bouquet-detail-card time { margin-top: 5px; color: var(--muted); font-size: 12px; }
+.bouquet-detail-card p { margin: 7px 0 0; color: var(--green-dark); line-height: 1.65; white-space: pre-wrap; }
 .bouquet-history-row { display: flex; justify-content: space-between; gap: 12px; padding: 10px 12px; border-radius: 12px; background: #f7eee1; }
 .bouquet-history-row span { line-height: 1.6; text-align: right; }
+.bouquet-history-list { max-height: 132px; overflow: auto; padding-right: 2px; }
 .notes-intro { margin: 0 0 14px; color: var(--muted); line-height: 1.7; }
 .notes-composer {
   padding: 15px;
