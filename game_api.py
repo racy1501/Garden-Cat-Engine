@@ -408,7 +408,7 @@ def db_note_read_status(session_id: str, mark_read: bool = False) -> dict[str, A
     }
 
 
-def _bouquet_read_status(state: dict[str, Any], mark_read: bool = False) -> dict[str, bool]:
+def _bouquet_read_status(state: dict[str, Any], mark_read: bool = False) -> dict[str, Any]:
     """Derive bouquet unread state from the durable human read cursor."""
     gifts = state.get("bouquet_gifts", [])
     gift_count = len(gifts) if isinstance(gifts, list) else 0
@@ -417,7 +417,10 @@ def _bouquet_read_status(state: dict[str, Any], mark_read: bool = False) -> dict
     if mark_read:
         last_read_count = gift_count
         state["human_last_read_bouquet_gift_count"] = last_read_count
-    return {"has_unread_bouquet_gifts": gift_count > last_read_count}
+    return {
+        "has_unread_bouquet_gifts": gift_count > last_read_count,
+        "unread_bouquet_gift_count": gift_count - last_read_count,
+    }
 
 
 def db_list_notes(

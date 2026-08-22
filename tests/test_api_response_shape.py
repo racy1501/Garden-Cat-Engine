@@ -318,6 +318,7 @@ def test_bouquet_unread_cursor_is_durable_and_legacy_gifts_are_read(api):
         f"/web/status?session_id={session_id}", headers=human_headers
     ).get_json()["state"]
     assert legacy["has_unread_bouquet_gifts"] is False
+    assert legacy["unread_bouquet_gift_count"] == 0
     assert old_event_text in legacy["recent_events"]
 
     state = module.db_load_state(session_id)
@@ -337,9 +338,11 @@ def test_bouquet_unread_cursor_is_durable_and_legacy_gifts_are_read(api):
     assert first_gift_events == ["💐 小机送给你一束「初见」。"]
     assert all("返回面测试花园" not in event for event in first_gift_events)
     assert old_event_text in [event["text"] for event in module.db_load_state(session_id)["events"]]
-    assert client.get(
+    unread = client.get(
         f"/web/status?session_id={session_id}", headers=human_headers
-    ).get_json()["state"]["has_unread_bouquet_gifts"] is True
+    ).get_json()["state"]
+    assert unread["has_unread_bouquet_gifts"] is True
+    assert unread["unread_bouquet_gift_count"] == 1
 
     viewed = client.post(
         "/web/bouquets/read",
@@ -348,6 +351,7 @@ def test_bouquet_unread_cursor_is_durable_and_legacy_gifts_are_read(api):
     )
     assert viewed.status_code == 200
     assert viewed.get_json()["state"]["has_unread_bouquet_gifts"] is False
+    assert viewed.get_json()["state"]["unread_bouquet_gift_count"] == 0
     assert client.get(
         f"/web/status?session_id={session_id}", headers=human_headers
     ).get_json()["state"]["has_unread_bouquet_gifts"] is False
@@ -370,6 +374,8 @@ def test_bouquet_unread_cursor_is_durable_and_legacy_gifts_are_read(api):
         "💐 小机送给你一束「初见」。",
     ]
     assert all("返回面测试花园" not in event for event in all_gift_events)
-    assert client.get(
+    unread_again = client.get(
         f"/web/status?session_id={session_id}", headers=human_headers
-    ).get_json()["state"]["has_unread_bouquet_gifts"] is True
+    ).get_json()["state"]
+    assert unread_again["has_unread_bouquet_gifts"] is True
+    assert unread_again["unread_bouquet_gift_count"] == 1

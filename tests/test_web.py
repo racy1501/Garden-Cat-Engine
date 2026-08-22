@@ -46,6 +46,23 @@ def test_bouquet_main_page_keeps_tabs_and_unread_badge():
     assert ".bouquet-main-tab.has-unread::after" in css
 
 
+def test_bouquet_new_badges_use_only_the_current_visit_snapshot():
+    root = Path(__file__).resolve().parents[1]
+    js = (root / "static" / "app.js").read_text(encoding="utf-8")
+    css = (root / "static" / "style.css").read_text(encoding="utf-8")
+
+    assert "let bouquetVisitNewGiftIndexes = new Set();" in js
+    assert "function captureUnreadBouquetGiftIndexes()" in js
+    assert "currentState?.unread_bouquet_gift_count" in js
+    assert "for (let index = gifts.length - unreadGiftCount; index < gifts.length; index += 1)" in js
+    assert "bouquetVisitNewGiftIndexes.add(index);" in js
+    assert 'badge.textContent = "新";' in js
+    assert "if (hasNewGift) card.append(createBouquetNewBadge());" in js
+    assert "if (bouquetVisitNewGiftIndexes.has(index)) card.append(createBouquetNewBadge());" in js
+    assert js.index("captureUnreadBouquetGiftIndexes();") < js.index("markBouquetGiftsRead();")
+    assert ".bouquet-new-badge" in css
+
+
 def test_bouquet_detail_uses_its_latest_nonempty_card_and_compact_modal():
     root = Path(__file__).resolve().parents[1]
     js = (root / "static" / "app.js").read_text(encoding="utf-8")

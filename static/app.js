@@ -43,6 +43,7 @@ let notesCooldownTimer = null;
 let currentNotesPage = 1;
 let hasUnreadNotes = false;
 let hasUnreadBouquetGifts = false;
+let bouquetVisitNewGiftIndexes = new Set();
 
 Object.assign(CUSTOM_ASSETS, {
   basic_cat_bed: "static/assets/v5/cat_care/basic_cat_bed.png",
@@ -911,6 +912,26 @@ function getLatestBouquetCard(gifts) {
   return gifts.find((gift) => String(gift.message || "").trim()) || null;
 }
 
+function captureUnreadBouquetGiftIndexes() {
+  bouquetVisitNewGiftIndexes = new Set();
+  if (!hasUnreadBouquetGifts) return;
+  const gifts = Array.isArray(currentState?.bouquet_gifts) ? currentState.bouquet_gifts : [];
+  const unreadGiftCount = Math.max(
+    0,
+    Math.min(Number(currentState?.unread_bouquet_gift_count) || 0, gifts.length),
+  );
+  for (let index = gifts.length - unreadGiftCount; index < gifts.length; index += 1) {
+    bouquetVisitNewGiftIndexes.add(index);
+  }
+}
+
+function createBouquetNewBadge() {
+  const badge = document.createElement("span");
+  badge.className = "bouquet-new-badge";
+  badge.textContent = "新";
+  return badge;
+}
+
 function showBouquetDetails(bouquetId) {
   const bouquet = catalog?.bouquets?.[bouquetId];
   const gifts = (currentState?.bouquet_gifts || [])
@@ -987,8 +1008,9 @@ function renderBouquetPage(activeTab = "bouquets") {
   const gifts = Array.isArray(currentState?.bouquet_gifts) ? currentState.bouquet_gifts : [];
   if (activeTab === "cards") {
     const cards = gifts
-      .filter((gift) => String(gift.message || "").trim())
-      .sort((left, right) => Number(right.sent_at) - Number(left.sent_at));
+      .map((gift, index) => ({ gift, index }))
+      .filter(({ gift }) => String(gift.message || "").trim())
+      .sort((left, right) => Number(right.gift.sent_at) - Number(left.gift.sent_at));
     if (!cards.length) {
       const empty = document.createElement("div");
       empty.className = "bouquet-empty";
@@ -997,7 +1019,7 @@ function renderBouquetPage(activeTab = "bouquets") {
     } else {
       const list = document.createElement("div");
       list.className = "bouquet-card-list";
-      for (const gift of cards) {
+      for (const { gift, index } of cards) {
         const card = document.createElement("article");
         card.className = "bouquet-message-card";
         const title = document.createElement("strong");
@@ -1007,6 +1029,7 @@ function renderBouquetPage(activeTab = "bouquets") {
         const message = document.createElement("p");
         message.textContent = gift.message;
         card.append(title, date, message);
+        if (bouquetVisitNewGiftIndexes.has(index)) card.append(createBouquetNewBadge());
         list.append(card);
       }
       body.append(list);
@@ -1016,6 +1039,9 @@ function renderBouquetPage(activeTab = "bouquets") {
     grid.className = "bouquet-shelf-grid";
     for (const [bouquetId, bouquet] of Object.entries(catalog?.bouquets || {})) {
       const records = gifts.filter((gift) => gift.bouquet_id === bouquetId);
+      const hasNewGift = gifts.some(
+        (gift, index) => gift.bouquet_id === bouquetId && bouquetVisitNewGiftIndexes.has(index),
+      );
       const card = document.createElement("button");
       card.type = "button";
       card.className = `bouquet-shelf-card ${records.length ? "received" : "locked"}`;
@@ -1029,6 +1055,7 @@ function renderBouquetPage(activeTab = "bouquets") {
       renderBouquetArtwork(artwork, bouquetId, Boolean(records.length), bouquet.name);
       card.append(artwork);
       card.append(count);
+      if (hasNewGift) card.append(createBouquetNewBadge());
       if (records.length) card.addEventListener("click", () => showBouquetDetails(bouquetId));
       else card.disabled = true;
       grid.append(card);
@@ -3027,6 +3054,7 @@ for(const button of document.querySelectorAll('.sticky-tab')){
     document.querySelectorAll('.sticky-tab').forEach(b=>b.classList.toggle('active',b===button));
     document.querySelectorAll('.main-switch-pane').forEach(pane=>pane.classList.toggle('active',pane.classList.contains(`${button.dataset.mainPane}-panel`)));
     if (button.dataset.mainPane === 'bouquet') {
+      captureUnreadBouquetGiftIndexes();
       renderBouquetPage();
       markBouquetGiftsRead();
     }
