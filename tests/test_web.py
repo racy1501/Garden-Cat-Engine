@@ -60,6 +60,25 @@ def test_bouquet_detail_uses_its_latest_nonempty_card_and_compact_modal():
     assert ".bouquet-detail-card" in css
 
 
+def test_unlocked_bouquet_card_opens_existing_detail_modal():
+    root = Path(__file__).resolve().parents[1]
+    js = (root / "static" / "app.js").read_text(encoding="utf-8")
+    page_start = js.index("function renderBouquetPage")
+    page_end = js.index("function resetModalPresentation", page_start)
+    page_js = js[page_start:page_end]
+    detail_start = js.index("function showBouquetDetails")
+    detail_end = js.index("function renderBouquetPage", detail_start)
+    detail_js = js[detail_start:detail_end]
+
+    assert 'card.addEventListener("click", () => showBouquetDetails(bouquetId))' in page_js
+    assert "else card.disabled = true;" in page_js
+    assert '$("#modal").classList.remove("hidden");' in detail_js
+    assert detail_js.index("body.append(history);") < detail_js.index(
+        '$("#modal").classList.remove("hidden");'
+    )
+    assert '$("#modalClose").addEventListener("click", closeModal);' in js
+
+
 def test_garden_notice_uses_latest_important_recent_event_before_offline_summary():
     root = Path(__file__).resolve().parents[1]
     js = (root / "static" / "app.js").read_text(encoding="utf-8")

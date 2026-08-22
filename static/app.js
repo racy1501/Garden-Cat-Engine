@@ -977,6 +977,7 @@ function showBouquetDetails(bouquetId) {
   body.append(back, summary, components, first);
   if (latestCard) body.append(cardSection);
   body.append(history);
+  $("#modal").classList.remove("hidden");
 }
 
 function renderBouquetPage(activeTab = "bouquets") {
