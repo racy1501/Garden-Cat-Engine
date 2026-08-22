@@ -147,28 +147,27 @@ tests/               游戏、API、网页与便签测试
 正式部署需要：
 
 - `GARDEN_API_KEY`：AI API 使用的全局密钥
-- `DATABASE_URL`：PostgreSQL 连接地址
-- `PORT`：通常由 Render 自动提供
+- `DATABASE_URL`：PostgreSQL 连接地址；不配置时使用项目内本地 SQLite
+- `PORT`：服务监听端口，默认 8080
 
 人类网页不会读取或展示 `GARDEN_API_KEY`。
 
-## Render 部署
+## 部署说明
 
-Build Command：
+本仓库（GitHub）是项目的正式源码与交付源；除本地运行外，项目也支持任何人自行部署，部署平台不限。
+
+基础安装与启动：
 
 ```text
 pip install -r requirements.txt
-```
-
-Start Command：
-
-```text
 gunicorn game_api:app
 ```
 
-把新版文件上传到原 GitHub 仓库后，Render 会自动重新部署。Neon 数据库独立存在，普通代码更新不会清空已有花园存档；程序启动时会自动创建新的 `garden_notes` 表。
+- 数据库通过 `DATABASE_URL` 配置 PostgreSQL 连接即可，不绑定任何特定数据库服务。
+- 程序启动时会自动创建新的 `garden_notes` 表；数据库数据独立于代码更新，普通代码更新不会清空已有花园存档。
+- 部署完成后，直接打开部署地址（如 `https://你的域名/`）即可游玩。
 
-## 使用许可与当前部署
+## 使用许可与当前接入
 
 ### 许可定位
 
@@ -210,7 +209,7 @@ gunicorn game_api:app
 
 ### 当前正式接入
 
-《花园与猫》目前已接入南山老师维护的 MCP 游戏合集站，该站同步使用本仓库提供的网页前端。这是目前已确认的非商业接入，该接入不代表向其他平台或商业用途开放授权。
+《花园与猫》目前已接入南山老师维护的 MCP 游戏合集站。该站直接从本 GitHub 仓库拉取项目，并在自己的服务器上独立运行前端、后端与数据库，不依赖作者方的 Render 或 Neon 服务。这是目前已确认的非商业接入，该接入不代表向其他平台或商业用途开放授权。
 
 ### Star 礼貌请求
 
