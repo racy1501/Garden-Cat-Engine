@@ -3096,75 +3096,6 @@ def _auto_water_pots(state, now):
     return count
 
 
-def get_weather_info(state, now):
-    weather_id = state["weather"]
-    weather_data = WEATHER[weather_id]
-    messages = []
-
-    if now >= state["weather_change_time"]:
-        old_weather = weather_id
-        weathers = ["sunny", "rainy", "cloudy"]
-        weathers.remove(old_weather)
-        new_weather = random.choice(weathers)
-
-        state["weather"] = new_weather
-        state["weather_change_time"] = now + random.randint(WEATHER_CHANGE_MIN, WEATHER_CHANGE_MAX)
-        new_weather_data = WEATHER[new_weather]
-        messages.append(
-            f"\n🌤️ 天气变化：{weather_data['emoji']}{weather_data['name']} → "
-            f"{new_weather_data['emoji']}{new_weather_data['name']}"
-        )
-
-        if new_weather == "rainy":
-            auto_watered = _auto_water_pots(state, now)
-            if auto_watered > 0:
-                messages.append(f"🌧️ 雨水滋润了{auto_watered}盆花，它们开始生长了！")
-
-        if old_weather == "rainy" and new_weather == "sunny" and random.random() < 0.15:
-            reward = random.choice([
-                {"type": "money", "amount": random.randint(8, 12)},
-                {"type": "seeds", "flower": random.choice(["daisy", "tulip"]), "qty": 2},
-            ])
-            state["rainbow_until"] = now + GARDEN_EVENT_ACTIVE_SECONDS
-            state["last_rainbow_reward"] = dict(reward)
-            if reward["type"] == "money":
-                state["money"] += reward["amount"]
-                messages.append(f"🌈 彩虹出现！获得{reward['amount']}块奖励！")
-            else:
-                flower_id = reward["flower"]
-                state["inventory"]["seeds"][flower_id] = (
-                    state["inventory"]["seeds"].get(flower_id, 0) + reward["qty"]
-                )
-                messages.append(f"🌈 彩虹出现！获得{FLOWERS[flower_id]['name']}种子x{reward['qty']}！")
-            add_event(state, "彩虹出现")
-
-        weather_data = new_weather_data
-
-    # 兼容旧存档：只要当前正在下雨，就确保所有花已被雨水滋润。
-    if weather_data.get("auto_water"):
-        auto_watered = _auto_water_pots(state, now)
-        if auto_watered > 0:
-            messages.append(f"🌧️ 雨水滋润了{auto_watered}盆花，它们开始生长了！")
-
-    if now - state.get("last_butterfly_check", now) >= BUTTERFLY_CHECK_INTERVAL:
-        state["last_butterfly_check"] = now
-        if random.random() < 0.15:
-            state["butterfly_until"] = now + GARDEN_EVENT_ACTIVE_SECONDS
-            messages.append("🦋 一只蝴蝶飞过花园...")
-            if random.random() < 0.30:
-                gold = random.randint(3, 5)
-                state["money"] += gold
-                state["last_butterfly_reward"] = {"type": "money", "amount": gold}
-                messages.append(f"   💰 蝴蝶掉落了{gold}块金币！")
-                add_event(state, f"🦋 蝴蝶掉落了{gold}块金币")
-            else:
-                state["last_butterfly_reward"] = {"type": "text", "text": "just flew by"}
-                add_event(state, "🦋 一只蝴蝶飞过花园")
-
-    refresh_garden_events(state, now)
-    return weather_data, messages
-
-
 def add_event(state, event_text):
     state["events"].append({
         "time": int(time.time()),
@@ -3438,21 +3369,6 @@ def update_cat_stats(state, now, weather_data):
     state["last_update"] = now
 
 
-def _advance_offline_weather(state, now):
-    weather_id = state.get("weather", "sunny")
-    weather_data = WEATHER.get(weather_id, WEATHER["sunny"])
-    if now >= state.get("weather_change_time", now):
-        choices = [item for item in WEATHER if item != weather_id]
-        if choices:
-            weather_id = random.choice(choices)
-            state["weather"] = weather_id
-            weather_data = WEATHER[weather_id]
-        state["weather_change_time"] = now + random.randint(WEATHER_CHANGE_MIN, WEATHER_CHANGE_MAX)
-    if weather_data.get("auto_water"):
-        _auto_water_pots(state, now)
-    return weather_data
-
-
 def _consume_offline_cat_portions(state):
     used_food = _safe_nonnegative_int(state.pop("_auto_food_servings_used", 0), 0)
     used_water = _safe_nonnegative_int(state.pop("_auto_water_servings_used", 0), 0)
@@ -3460,64 +3376,39 @@ def _consume_offline_cat_portions(state):
     return used_food, used_water
 
 
-def apply_offline_progress(state, now=None):
-    if now is None:
-        now = int(time.time())
-    normalize_state(state, now)
+def _cheapest_unlocked_seed_price(state):
+    prices = [
+        flower_data["seed_price"]
+        for flower_id, flower_data in FLOWERS.items()
+        if is_flower_unlocked(state, flower_id)
+    ]
+    return min(prices) if prices else None
 
-    last_active_at = _safe_nonnegative_int(state.get("last_active_at", state.get("last_update", now)), now)
-    elapsed = max(0, now - last_active_at)
-    if elapsed <= 0:
-        state["last_active_at"] = now
+
+def _has_free_flower_recovery_path(state):
+    for pot_idx, pot in enumerate(state.get("pots", [])):
+        if not isinstance(pot, dict) or is_pot_withered(pot):
+            continue
+        if pot.get("flower_id") not in FLOWERS:
+            continue
+        if not _has_pest_blocker(state, pot_idx, pot):
+            return True
+        if state.get("money", 0) >= PEST_TREATMENT_COST:
+            return True
+    return False
+
+
+def apply_economic_softlock_safety_net(state):
+    """在没有确定经济恢复路径时，补发一颗雏菊种子。"""
+    cheapest_seed_price = _cheapest_unlocked_seed_price(state)
+    inventory = state["inventory"]
+    if cheapest_seed_price is None or state.get("money", 0) >= cheapest_seed_price:
         return False
-
-    settled_seconds = min(elapsed, OFFLINE_PROGRESS_MAX_SECONDS)
-    skipped_seconds = max(0, elapsed - settled_seconds)
-    settle_at = last_active_at + settled_seconds
-
-    weather_data = _advance_offline_weather(state, settle_at)
-    update_flower_growth(state, settle_at, weather_data)
-    check_pests(state, settle_at)
-    starting_mood = None
-    if state.get("cat") is not None and isinstance(state.get("cat_stats"), dict):
-        try:
-            starting_mood = float(state["cat_stats"].get("mood", 0.0))
-        except (TypeError, ValueError):
-            starting_mood = 0.0
-    update_cat_stats(state, settle_at, weather_data)
-    if starting_mood is not None:
-        state["cat_stats"]["mood"] = min(starting_mood, float(state["cat_stats"].get("mood", starting_mood)))
-        _sync_cat_stats_views(state)
-    settle_cat_lifecycle(state, settle_at)
-    used_food, used_water = _consume_offline_cat_portions(state)
-
-    for pot in state.get("pots", []):
-        if isinstance(pot, dict) and not is_pot_withered(pot):
-            pot["last_growth_update"] = now
-    state["last_pest_check_time"] = now
-    if state.get("weather_change_time", now) <= now:
-        state["weather_change_time"] = now + random.randint(WEATHER_CHANGE_MIN, WEATHER_CHANGE_MAX)
-
-    state["last_update"] = now
-    state["last_active_at"] = now
-    state["is_frozen"] = skipped_seconds > 0
-    state["garden_frozen_until"] = settle_at if skipped_seconds > 0 else 0
-    state["frozen_reason"] = "offline_cap_exceeded" if skipped_seconds > 0 else ""
-    state["offline_summary"] = {
-        "offline_seconds": elapsed,
-        "settled_seconds": settled_seconds,
-        "skipped_seconds": skipped_seconds,
-        "is_frozen": skipped_seconds > 0,
-        "message": (
-            f"离线{format_time(elapsed)}，已结算{format_time(settled_seconds)}。"
-            + (" 花园在安全状态下暂停等待你回来。" if skipped_seconds > 0 else "")
-        ),
-        "processed_at": now,
-        "auto_food_servings_used": used_food,
-        "auto_water_servings_used": used_water,
-    }
-
-    refresh_garden_events(state, now)
+    if inventory["seeds"] or inventory["flowers"]:
+        return False
+    if _has_free_flower_recovery_path(state):
+        return False
+    inventory["seeds"]["daisy"] = 1
     return True
 
 
@@ -3617,6 +3508,7 @@ def apply_offline_progress(state, now=None):
         "auto_water_servings_used": used_water,
     }
 
+    apply_economic_softlock_safety_net(state)
     refresh_garden_events(state, now)
     return True
 
@@ -3764,9 +3656,12 @@ def process_command(state, command):
     pest_messages = check_pests(state, now)
     lifecycle_messages = settle_cat_lifecycle(state, now, letter_context=letter_context)
     _consume_offline_cat_portions(state)
+    softlock_recovered = apply_economic_softlock_safety_net(state)
 
     result = ""
     all_event_messages = weather_messages + pest_messages + lifecycle_messages
+    if softlock_recovered:
+        all_event_messages.append("🌱 花园送来1颗雏菊种子。")
 
     if action == "shop":
         result = "🏪 商店\n\n【种子】\n"
