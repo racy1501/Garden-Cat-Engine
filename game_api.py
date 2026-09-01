@@ -64,7 +64,7 @@ except ImportError:  # 本地仅使用 SQLite 时允许不安装 PostgreSQL 驱�
     psycopg2 = None
 
 
-APP_VERSION = "v5.0"
+APP_VERSION = "v5.1.1"
 app = Flask(__name__)
 
 API_KEY = os.environ.get("GARDEN_API_KEY", "")

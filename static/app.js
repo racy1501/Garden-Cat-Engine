@@ -2709,7 +2709,7 @@ function appendUpdateSection(body, title, paragraphs, options = {}) {
 function showUpdateAnnouncementModal({ auto = false } = {}) {
   resetModalPresentation();
   activeModalKind = "update-announcement";
-  $("#modalTitle").textContent = "花园与猫 v5.0 更新公告 🌸";
+  $("#modalTitle").textContent = "花园与猫 v5.1.1 更新公告 🌸";
   $(".modal-card").classList.add("modal-card-wide");
 
   const body = $("#modalBody");
@@ -2721,6 +2721,11 @@ function showUpdateAnnouncementModal({ auto = false } = {}) {
   intro.textContent =
     "欢迎回到花园。v5.0 重新整理了游戏时间、猫咪生活和花园成长，在游玩体验、游戏机制上做了优化。旧花园可以继续游玩；是否开启全新花园，可以根据下面的变化决定。";
   body.append(intro);
+
+  appendUpdateSection(body, "v5.1.1 小更新", [
+    "修复极端情况下金币和种子全部耗尽后，花园无法继续经营的问题。",
+    "优化天气、彩虹与蝴蝶事件的结算逻辑。",
+  ]);
 
   appendUpdateSection(body, "【时间与离线】", [
     "所有花园统一使用北京时间，昼夜与现实时间同步。",
