@@ -22,8 +22,8 @@ def fresh_state():
 def test_negative_or_zero_quantities_are_rejected():
     state = fresh_state()
     money = state["money"]
-    assert process_command(state, "buy daisy -1").startswith("❌")
-    assert process_command(state, "buy daisy 0").startswith("❌")
+    assert "数量必须是正整数" in process_command(state, "buy daisy -1")
+    assert "数量必须是正整数" in process_command(state, "buy daisy 0")
     assert state["money"] == money
 
 

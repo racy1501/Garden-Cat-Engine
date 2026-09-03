@@ -1225,7 +1225,9 @@ def info():
             "quick_start_commands": [
                 "help                 - 查看所有命令",
                 "shop                 - 查看商店与解锁条件",
+                "buy 参数使用 /api/catalog 返回的 flowers/items 商品 ID（对象 key），不要使用中文商品名",
                 "buy daisy 2          - 买2包雏菊种子",
+                "buy basic_food 1     - 买1包普通猫粮",
                 "plant daisy 1        - 在1号盆种雏菊",
                 "water 1              - 给1号盆浇水",
                 "harvest 1            - 收获指定花盆",
@@ -1254,6 +1256,7 @@ def info():
             ],
             "endpoints": {
                 f"GET  {base}/info": "游戏说明（无需密钥）",
+                f"GET  {base}/catalog": "商品目录；flowers/items 对象的 key 即 buy 使用的商品ID",
                 f"POST {base}/register": "注册独立花园",
                 f"POST {base}/cmd": "执行游戏命令",
                 f"GET  {base}/status?session_id=xxx": "查看并结算状态",

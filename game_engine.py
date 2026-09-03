@@ -3670,15 +3670,15 @@ def process_command(state, command):
             emoji = "⚪" if rarity == "common" else "🟢" if rarity == "uncommon" else "🔵" if rarity == "rare" else "🟣"
             if is_flower_unlocked(state, flower_id):
                 result += (
-                    f"  {emoji} {flower_data['name']} - {flower_data['seed_price']}块 "
+                    f"  {emoji} {flower_data['name']}（{flower_id}） - {flower_data['seed_price']}块 "
                     f"({format_time(flower_data['grow_time'])}基础成熟时间, 卖{flower_data['sell_price']}块)\n"
                 )
             else:
-                result += f"  🔒 {flower_data['name']} - {get_unlock_message(flower_id)}\n"
+                result += f"  🔒 {flower_data['name']}（{flower_id}） - {get_unlock_message(flower_id)}\n"
         result += "\n【猫咪用品】\n"
         for item_id in SHOP_CAT_ITEM_IDS:
             item_data = ITEMS[item_id]
-            result += f"  {item_data['name']} - {item_data['price']}块\n"
+            result += f"  {item_data['name']}（{item_id}） - {item_data['price']}块\n"
 
     elif action == "buy":
         if len(parts) < 2:
@@ -3686,8 +3686,8 @@ def process_command(state, command):
         else:
             item_id = parts[1].lower()
             quantity = 1 if len(parts) < 3 else parse_positive_int(parts[2])
-            if False:
-                result = "❌ 购买数量必须是大于0的整数"
+            if quantity is None:
+                result = "❌ 数量必须是正整数"
             elif len(parts) > 3:
                 result = "❌ 用法：buy <物品> [数量]"
             elif item_id in FLOWERS:
@@ -4397,7 +4397,7 @@ def process_command(state, command):
     elif action == "help":
         result = f"""💡 命令帮助：
 shop - 查看商店
-buy <物品> [数量] - 买东西（数量必须大于0）
+buy <商品ID> [数量] - 买东西；商品ID必须使用catalog中flowers/items的key（如daisy、basic_food），数量必须是正整数
 plant <花> <盆号> - 种花（雨天自动浇水，否则需手动浇水才能生长）
 water <盆号|all> - 给花浇水（浇一次永久有效，直到收获）
 harvest <盆号|all> - 收获一盆，或一键收获全部成熟花朵
