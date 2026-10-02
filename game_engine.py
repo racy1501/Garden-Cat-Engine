@@ -661,7 +661,7 @@ def _resolve_letter_progress(state, now=None, letter_context=None):
             state["letter_affection_progress"] = progress
             delivered_messages = _build_letter_messages(state, next_letter)
             cat_name = get_current_cat_name(state)
-            add_event(state, f"✉️ 收到{cat_name}第{next_idx + 1}封信")
+            add_event(state, f"✉️ 收到{cat_name}第{next_idx + 1}封信", now=now)
             if letter_context is not None:
                 letter_context.setdefault("messages", []).extend(delivered_messages)
                 letter_context["remaining_deliveries"] = max(
@@ -952,7 +952,7 @@ def award_cat_collectible(state, collectible, now=None, source=None):
     if previous_count <= 0:
         state.setdefault("collectible_first_found", {})[collectible_id] = int(now)
     cat_name = get_current_cat_name(state)
-    add_event(state, f"🎁 {cat_name}带回了{collectible['emoji']}{collectible['name']}")
+    add_event(state, f"🎁 {cat_name}带回了{collectible['emoji']}{collectible['name']}", now=now)
     return f"🎁 {cat_name}带回了{collectible['emoji']}{collectible['name']}！"
 
 
@@ -1249,7 +1249,7 @@ def settle_cat_lifecycle(state, target_time, letter_context=None):
                         cat_state["first_visit_at"] = next_transition_at
                     _enter_waiting_name_phase(state, next_transition_at)
                     cat_name = get_current_cat_name(state)
-                    add_event(state, f"{cat_name}决定留下，正在等你正式取名。")
+                    add_event(state, f"{cat_name}决定留下，正在等你正式取名。", now=next_transition_at)
                     events.append(f"{cat_name}决定留下，正在等你正式取名。")
                     cat_state["last_lifecycle_settled_at"] = next_transition_at
                     continue
@@ -1267,7 +1267,7 @@ def settle_cat_lifecycle(state, target_time, letter_context=None):
                     letter_context=letter_context,
                 )
                 cat_name = get_current_cat_name(state)
-                add_event(state, f"{cat_name}来了，正在花园里停留。")
+                add_event(state, f"{cat_name}来了，正在花园里停留。", now=next_transition_at)
                 events.append(f"{cat_name}来了，正在花园里停留。")
                 cat_state["last_lifecycle_settled_at"] = next_transition_at
                 continue
@@ -1286,7 +1286,7 @@ def settle_cat_lifecycle(state, target_time, letter_context=None):
                 if max_affection >= 30 or (stay_deadline_at > 0 and next_transition_at >= stay_deadline_at):
                     _enter_waiting_name_phase(state, next_transition_at)
                     cat_name = get_current_cat_name(state)
-                    add_event(state, f"{cat_name}决定留下，正在等你正式取名。")
+                    add_event(state, f"{cat_name}决定留下，正在等你正式取名。", now=next_transition_at)
                     events.append(f"{cat_name}决定留下，正在等你正式取名。")
                     cat_state["last_lifecycle_settled_at"] = next_transition_at
                     continue
@@ -1304,14 +1304,14 @@ def settle_cat_lifecycle(state, target_time, letter_context=None):
                 )
                 if cat_state.get("phase") == CAT_PHASE_WAITING_NAME:
                     cat_name = get_current_cat_name(state)
-                    add_event(state, f"{cat_name}决定留下，正在等你正式取名。")
+                    add_event(state, f"{cat_name}决定留下，正在等你正式取名。", now=next_transition_at)
                     events.append(f"{cat_name}决定留下，正在等你正式取名。")
                     cat_state["last_lifecycle_settled_at"] = next_transition_at
                     continue
                 if letter_context is None and letter_messages:
                     events.extend(letter_messages)
                 cat_name = get_current_cat_name(state)
-                add_event(state, f"{cat_name}离开了花园，下次还会再来。")
+                add_event(state, f"{cat_name}离开了花园，下次还会再来。", now=next_transition_at)
                 events.append(f"{cat_name}离开了花园，下次还会再来。")
                 cat_state["last_lifecycle_settled_at"] = next_transition_at
                 continue
@@ -1345,7 +1345,7 @@ def settle_cat_lifecycle(state, target_time, letter_context=None):
                 cat_state["outing_return_at"] = next_outing_at + _roll_cat_outing_duration_seconds()
                 cat_state["next_outing_at"] = 0
                 cat_name = get_current_cat_name(state)
-                add_event(state, f"{cat_name}出门溜达了一会儿。")
+                add_event(state, f"{cat_name}出门溜达了一会儿。", now=next_outing_at)
                 events.append(f"{cat_name}出门溜达了一会儿。")
                 cat_state["last_lifecycle_settled_at"] = next_outing_at
                 continue
@@ -1364,7 +1364,7 @@ def settle_cat_lifecycle(state, target_time, letter_context=None):
                     letter_context=letter_context,
                 )
                 cat_name = get_current_cat_name(state)
-                add_event(state, f"{cat_name}回家了。")
+                add_event(state, f"{cat_name}回家了。", now=outing_return_at)
                 events.append(f"{cat_name}回家了。")
                 collectible_message = maybe_drop_cat_collectible(
                     state,
@@ -2168,10 +2168,10 @@ def _consume_water_serving(state, now=None, source=None, letter_context=None):
     )
 
 
-def _record_cat_care_event(state, event_text, *, source=None):
+def _record_cat_care_event(state, event_text, *, source=None, now=None):
     if source in {"offline_food", "offline_water"}:
         return
-    add_event(state, event_text)
+    add_event(state, event_text, now=now)
 
 
 def _trigger_food_bowl_roll(state, now=None, source=None, letter_context=None):
@@ -2203,7 +2203,7 @@ def _trigger_food_bowl_roll(state, now=None, source=None, letter_context=None):
         food_type = str(food_bowl.get("food_type", DEFAULT_CAT_FOOD_TYPE))
         food_name = ITEMS.get(food_type, ITEMS[DEFAULT_CAT_FOOD_TYPE]).get("name", ITEMS[DEFAULT_CAT_FOOD_TYPE]["name"])
         cat_name = get_current_cat_name(state)
-        _record_cat_care_event(state, f"{cat_name}吃了{servings_eaten}份{food_name}。", source=source)
+        _record_cat_care_event(state, f"{cat_name}吃了{servings_eaten}份{food_name}。", source=source, now=now)
     return servings_eaten, letter_messages
 
 
@@ -2232,7 +2232,7 @@ def _trigger_water_bowl_roll(state, now=None, source=None, letter_context=None):
         )
     if servings_drank > 0:
         cat_name = get_current_cat_name(state)
-        _record_cat_care_event(state, f"{cat_name}喝了{servings_drank}份水。", source=source)
+        _record_cat_care_event(state, f"{cat_name}喝了{servings_drank}份水。", source=source, now=now)
     return servings_drank, letter_messages
 
 
@@ -3096,9 +3096,9 @@ def _auto_water_pots(state, now):
     return count
 
 
-def add_event(state, event_text):
+def add_event(state, event_text, *, now=None):
     state["events"].append({
-        "time": int(time.time()),
+        "time": int(time.time() if now is None else now),
         "text": event_text,
     })
     if len(state["events"]) > 5:

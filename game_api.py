@@ -25,6 +25,8 @@ from game_engine import (
     CAT_COLLECTIBLES,
     CAT_LETTERS,
     CAT_PHASE_ADOPTED,
+    CAT_LOCATION_GARDEN,
+    CAT_LOCATION_HOME,
     BOUQUETS,
     DISPLAY_TIMEZONE,
     DISPLAY_TIMEZONE_NAME,
@@ -189,7 +191,7 @@ def _decode_state(value: Any) -> dict[str, Any] | None:
     return dict(value) if hasattr(value, "items") else None
 
 
-def db_load_state(session_id: str) -> dict[str, Any] | None:
+def db_load_state(session_id: str, *, events_before: list | None = None) -> dict[str, Any] | None:
     ensure_schema()
     with _get_conn() as conn:
         if USE_POSTGRES:
@@ -211,6 +213,8 @@ def db_load_state(session_id: str) -> dict[str, Any] | None:
     state = _decode_state(row["state"])
     if state is None:
         return None
+    if events_before is not None:
+        events_before.extend(state.get("events", []))
     normalized = normalize_state(state)
     if apply_offline_progress(normalized):
         db_save_state(session_id, normalized)
@@ -728,12 +732,12 @@ def _api_forbidden(message: str):
     return jsonify({"ok": False, "error": message}), 403
 
 
-def _load_existing_api_state(raw_session_id: Any) -> tuple[str | None, dict[str, Any] | None, Any | None]:
+def _load_existing_api_state(raw_session_id: Any, *, events_before: list | None = None) -> tuple[str | None, dict[str, Any] | None, Any | None]:
     raw_value = str(raw_session_id or "").strip()
     if not raw_value:
         return None, None, (jsonify({"ok": False, "error": "请提供有效的 session_id。"}), 400)
     session_id = _safe_session_id(raw_value)
-    state = db_load_state(session_id)
+    state = db_load_state(session_id, events_before=events_before)
     if state is None:
         return session_id, None, (jsonify({"ok": False, "error": "指定的 session_id 不存在。"}), 404)
     return session_id, state, None
@@ -888,17 +892,16 @@ def _build_inventory_counts_for_ai(state: dict[str, Any]) -> dict[str, int]:
 
 
 def _build_cat_summary_for_ai(state: dict[str, Any]) -> dict[str, Any] | None:
-    if state.get("cat") is None or not isinstance(state.get("cat_stats"), dict):
-        return None
-    cat = state["cat"]
-    stats = state["cat_stats"]
     cat_state = state.get("cat_state", {}) if isinstance(state.get("cat_state"), dict) else {}
+    if not cat_state:
+        return None
+    stats = state["cat_stats"] if isinstance(state.get("cat_stats"), dict) else cat_state.get("stats", {})
     return {
-        "has_cat": True,
+        "has_cat": state.get("cat") is not None,
         "name": get_current_cat_name(state),
-        "stage": cat_state.get("stage", ""),
+        "stage": cat_state.get("phase", ""),
         "location": cat_state.get("location", ""),
-        "is_present": bool(cat_state.get("is_present")),
+        "is_present": cat_state.get("location") in (CAT_LOCATION_GARDEN, CAT_LOCATION_HOME),
         "hunger": round(float(stats.get("hunger", 0.0) or 0.0), 1),
         "thirst": round(float(stats.get("thirst", 0.0) or 0.0), 1),
         "mood": round(float(stats.get("mood", 0.0) or 0.0), 1),
@@ -925,7 +928,10 @@ def _build_offline_summary_for_ai(state: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _ai_summary(state: dict[str, Any]) -> dict[str, Any]:
+def _ai_summary(state: dict[str, Any], *, events_before: list | None = None) -> dict[str, Any]:
+    # 请求入口在离线补算前保存旧事件引用；同秒同文的新事件也能区分。
+    if events_before is None:
+        events_before = list(state.get("events", []))
     now = int(time.time())
     normalize_state(state, now)
     apply_offline_progress(state, now)
@@ -936,8 +942,10 @@ def _ai_summary(state: dict[str, Any]) -> dict[str, Any]:
 
     latest_event = ""
     events = state.get("events", [])
-    if events and isinstance(events[-1], dict):
-        latest_event = str(events[-1].get("text", "") or "")
+    for event in reversed(events):
+        if isinstance(event, dict) and not any(event is old for old in events_before):
+            latest_event = str(event.get("text", "") or "")
+            break
 
     return {
         "garden_name": state.get("garden_name", ""),
@@ -1551,14 +1559,14 @@ def new_game():
 def cmd_route():
     data = request.get_json(silent=True) or {}
     command = str(data.get("command", "")).strip()
-    checked_session_id, _existing_state, error_response = _load_existing_api_state(data.get("session_id", ""))
+    events_before = []
+    checked_session_id, state, error_response = _load_existing_api_state(data.get("session_id", ""), events_before=events_before)
     if error_response is not None:
         return error_response
     session_id = _safe_session_id(data.get("session_id", DEFAULT_SESSION))
     if not command:
         return jsonify({"ok": False, "message": "❌ 请在请求体中提供 command 字段"}), 400
 
-    state = _get_or_create_state(session_id)
     notice = _consume_ai_v5_update_notice(state)
     result = _handle_note_command(session_id, command, "ai")
     should_save_state = False
@@ -1578,7 +1586,7 @@ def cmd_route():
             "ok": not result.lstrip().startswith("❌"),
             "session_id": session_id,
             "message": result,
-            "state": _ai_summary(state),
+            "state": _ai_summary(state, events_before=events_before),
         }
     )
 
@@ -1623,11 +1631,11 @@ def api_notes():
 @app.route("/api/status", methods=["GET"])
 @require_api_key
 def status():
-    checked_session_id, _existing_state, error_response = _load_existing_api_state(request.args.get("session_id", ""))
+    events_before = []
+    checked_session_id, state, error_response = _load_existing_api_state(request.args.get("session_id", ""), events_before=events_before)
     if error_response is not None:
         return error_response
     session_id = _safe_session_id(request.args.get("session_id", DEFAULT_SESSION))
-    state = _get_or_create_state(session_id)
     notice = _consume_ai_v5_update_notice(state)
     result = process_command(state, "status")
     result = _prepend_ai_notice(result, notice)
@@ -1639,7 +1647,7 @@ def status():
             "ok": True,
             "session_id": session_id,
             "message": result,
-            "state": _ai_summary(state),
+            "state": _ai_summary(state, events_before=events_before),
         }
     )
 

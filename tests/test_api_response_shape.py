@@ -5,6 +5,206 @@ from pathlib import Path
 
 import pytest
 
+import game_engine as ge
+
+
+@pytest.fixture()
+def cat_clock(monkeypatch):
+    clock = [1_790_985_600]
+    monkeypatch.setattr(ge.time, "time", lambda: clock[0])
+    monkeypatch.setattr(ge.random, "randint", lambda low, high: (low + high) // 2)
+    monkeypatch.setattr(ge.random, "random", lambda: 1.0)
+    return clock
+
+
+def adopted_cat_state():
+    state = ge.get_default_state()
+    state["cat"] = {"name": "栗子"}
+    state["cat_stats"] = ge._default_v5_cat_stats()
+    state["cat_state"].update(phase=ge.CAT_PHASE_WAITING_NAME, location=ge.CAT_LOCATION_GARDEN)
+    assert "成功收养" in ge.process_command(state, "adopt 栗子")
+    return state
+
+
+def test_cat_offline_events_use_transition_times(cat_clock, monkeypatch):
+    state = adopted_cat_state()
+    start = cat_clock[0]
+    recorded = []
+    original = ge.add_event
+
+    def record(state, text, *, now=None):
+        original(state, text, now=now)
+        if "出门" in text or "回家" in text:
+            recorded.append(dict(state["events"][-1]))
+
+    monkeypatch.setattr(ge, "add_event", record)
+    cat_clock[0] += 6 * 3600
+    ge.apply_offline_progress(state)
+    assert [event["time"] - start for event in recorded] == [5400, 6600, 12000, 13200, 18600, 19800]
+    assert state["cat_state"]["location"] == "home"
+    assert state["cat_state"]["next_outing_at"] == start + 25200
+    assert len(state["events"]) == 5  # 原有历史保留上限不变。
+    for delta in (0, 60, 180):
+        cat_clock[0] = start + 21600 + delta
+        ge.process_command(state, "status")
+        ge.apply_offline_progress(state)
+        assert len(recorded) == 6
+        assert state["cat_state"]["next_outing_at"] == start + 25200
+
+
+@pytest.mark.parametrize("phase,location", [
+    (ge.CAT_PHASE_VISITOR, ge.CAT_LOCATION_AWAY),
+    (ge.CAT_PHASE_VISITOR, ge.CAT_LOCATION_GARDEN),
+    (ge.CAT_PHASE_WAITING_NAME, ge.CAT_LOCATION_GARDEN),
+    (ge.CAT_PHASE_ADOPTED, ge.CAT_LOCATION_HOME),
+    (ge.CAT_PHASE_ADOPTED, ge.CAT_LOCATION_AWAY),
+])
+def test_ai_cat_summary_uses_phase_location(api, cat_clock, phase, location):
+    module, _ = api
+    state = ge.get_default_state()
+    state["cat_state"].update(phase=phase, location=location)
+    if phase != ge.CAT_PHASE_VISITOR:
+        state["cat"] = {"name": "栗子"}
+        state["cat_stats"] = ge._default_v5_cat_stats()
+    summary = module._ai_summary(state)["cat_summary"]
+    assert summary["stage"] == phase
+    assert summary["location"] == location
+    assert summary["is_present"] == (location in ("garden", "home"))
+    assert summary["has_cat"] == (state.get("cat") is not None)
+
+
+@pytest.mark.parametrize("endpoint", ["status", "cmd"])
+def test_api_latest_event_only_reports_request_events(api, cat_clock, endpoint):
+    module, client = api
+    state = adopted_cat_state()
+    state["events"] = [{"time": cat_clock[0], "text": "旧事件"}] * 5
+    module.db_save_state("cat-events", state)
+    start = cat_clock[0]
+
+    def query():
+        headers = {"X-API-Key": "test-key"}
+        if endpoint == "status":
+            response = client.get("/api/status?session_id=cat-events", headers=headers)
+        else:
+            response = client.post("/api/cmd", headers=headers,
+                                   json={"session_id": "cat-events", "command": "status"})
+        assert response.status_code == 200
+        return response.get_json()
+
+    assert query()["state"]["latest_event"] == ""
+    cat_clock[0] = start + 21600
+    assert query()["state"]["latest_event"] == "栗子回家了。"
+    for delta in (0, 60, 180):
+        cat_clock[0] = start + 21600 + delta
+        result = query()
+        assert result["state"]["latest_event"] == ""
+        assert "出门" not in result["message"] and "回家" not in result["message"]
+    loaded = module.db_load_state("cat-events")
+    assert loaded["cat_state"]["next_outing_at"] == start + 25200
+    assert loaded["events"][-1] == {"time": start + 19800, "text": "栗子回家了。"}
+    assert not any("events_before" in key for key in loaded)
+
+
+def test_new_event_with_same_time_and_text_is_not_suppressed(api, cat_clock):
+    module, client = api
+    state = adopted_cat_state()
+    state["inventory"]["flowers"]["rose"] = 1
+    state["events"] = [{"time": cat_clock[0], "text": "把玫瑰插进花瓶"}]
+    module.db_save_state("same-event", state)
+    response = client.post("/api/cmd", headers={"X-API-Key": "test-key"},
+                           json={"session_id": "same-event", "command": "arrange rose"})
+    assert response.status_code == 200
+    assert response.get_json()["state"]["latest_event"] == "把玫瑰插进花瓶"
+    assert module._ai_summary(module.db_load_state("same-event"))["latest_event"] == ""
+
+
+@pytest.mark.parametrize("storage", ["json", "sqlite"])
+def test_cat_boundaries_and_save_reload(api, cat_clock, tmp_path, monkeypatch, storage):
+    module, _ = api
+    monkeypatch.setattr(ge, "SAVE_FILE", str(tmp_path / "cat-test.json"))
+    state = adopted_cat_state()
+    start = cat_clock[0]
+    for delta in (0, 120, 5399, 5400, 5400, 5520, 6599, 6600, 6600, 6720):
+        cat_clock[0] = start + delta
+        ge.process_command(state, "status")
+        home = delta < 5400 or delta >= 6600
+        assert state["cat_state"]["location"] == ("home" if home else "away")
+        assert state["cat_state"]["next_outing_at"] == (start + 5400 if delta < 5400 else start + 12000 if delta >= 6600 else 0)
+        assert state["cat_state"]["outing_return_at"] == (0 if home else start + 6600)
+        assert state["cat_state"]["location_changed_at"] == (start if delta < 5400 else start + 5400 if delta < 6600 else start + 6600)
+        assert state["last_active_at"] == cat_clock[0]
+        assert state["cat_state"]["last_lifecycle_settled_at"] == cat_clock[0]
+        before = dict(state["cat_state"])
+        if storage == "json":
+            ge.save_game(state)
+            state = ge.load_game()
+        else:
+            module.db_save_state("cat-reload", state)
+            state = module.db_load_state("cat-reload")
+        assert state["cat_state"] == before
+        assert module._ai_summary(state)["latest_event"] == ""
+
+
+def test_regular_events_keep_current_time_and_history_limit(cat_clock):
+    state = ge.get_default_state()
+    for number in range(7):
+        ge.add_event(state, f"普通事件{number}")
+    assert len(state["events"]) == 5
+    assert all(event["time"] == cat_clock[0] for event in state["events"])
+
+
+@pytest.mark.parametrize("stay", [False, True])
+def test_visitor_lifecycle_events_use_historical_times(cat_clock, stay):
+    state = ge.get_default_state()
+    start = cat_clock[0]
+    ge.settle_cat_lifecycle(state, start)
+    leave_at = state["cat_state"]["current_visit_leave_at"]
+    if stay:
+        state["cat_stats"]["affection"] = 30
+        ge.update_cat_max_affection(state)
+    cat_clock[0] = leave_at + 60
+    ge.settle_cat_lifecycle(state, cat_clock[0])
+    assert state["events"][0]["time"] == start
+    assert state["events"][-1]["time"] == leave_at
+    assert ("决定留下" if stay else "离开了花园") in state["events"][-1]["text"]
+
+
+@pytest.mark.parametrize("home,away", [(3600, 600), (7200, 1800)])
+def test_cat_duration_endpoints_are_unchanged(cat_clock, monkeypatch, home, away):
+    monkeypatch.setattr(ge.random, "randint", lambda low, high: home if (low, high) == (3600, 7200) else away if (low, high) == (600, 1800) else (low + high) // 2)
+    state = adopted_cat_state()
+    start = cat_clock[0]
+    assert state["cat_state"]["next_outing_at"] == start + home
+    cat_clock[0] += home
+    ge.process_command(state, "status")
+    assert state["cat_state"]["location"] == "away"
+    assert state["cat_state"]["outing_return_at"] == start + home + away
+    cat_clock[0] += away
+    ge.process_command(state, "status")
+    assert state["cat_state"]["location"] == "home"
+    assert state["cat_state"]["next_outing_at"] == start + home + away + home
+
+
+def test_return_care_collectible_and_letter_events_keep_node_time(cat_clock, monkeypatch):
+    state = adopted_cat_state()
+    start = cat_clock[0]
+    state["cat_stats"].update(hunger=0, thirst=0)
+    state["cat_care"]["food_bowl"]["remaining_portions"] = 1
+    state["cat_care"]["water_bowl"]["remaining_portions"] = 1
+    monkeypatch.setattr(ge.random, "random", lambda: 0.0)
+    cat_clock[0] = start + 7200
+    ge.settle_cat_lifecycle(state, cat_clock[0])
+    care = [event for event in state["events"] if "吃了" in event["text"] or "喝了" in event["text"]]
+    assert len(care) == 2
+    assert all(event["time"] == start + 6600 for event in care)
+    ge.award_cat_collectible(state, ge.CAT_COLLECTIBLES[0], now=start + 6600)
+    assert state["events"][-1]["time"] == start + 6600
+    state["cat_stats"]["affection"] = 100
+    ge.update_cat_max_affection(state)
+    state["letter_affection_progress"] = ge.LETTER_PROGRESS_BATCH
+    assert ge._resolve_letter_progress(state, now=start + 6600)
+    assert state["events"][-1]["time"] == start + 6600
+
 
 @pytest.fixture()
 def api(tmp_path, monkeypatch):
