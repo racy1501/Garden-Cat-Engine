@@ -94,6 +94,23 @@ import os
 import random
 from datetime import datetime, timedelta, timezone
 
+# 事件来源是稳定的机器可读标识；展示名由调用方按需转换，未来可独立扩展昵称。
+EVENT_SOURCE_LABELS = {
+    "human": "人类",
+    "ai": "AI",
+    "system": "系统",
+}
+
+
+def normalize_event_source(source):
+    source_id = str(source or "system").strip().lower()
+    return source_id if source_id in EVENT_SOURCE_LABELS else "system"
+
+
+def get_event_source_label(source):
+    return EVENT_SOURCE_LABELS[normalize_event_source(source)]
+
+
 # 游戏数据
 FLOWERS = {
     "daisy": {"name": "雏菊", "rarity": "common", "seed_price": 3, "sell_price": 4, "grow_time": 120},
@@ -3096,10 +3113,11 @@ def _auto_water_pots(state, now):
     return count
 
 
-def add_event(state, event_text, *, now=None):
+def add_event(state, event_text, *, now=None, source="system"):
     state["events"].append({
         "time": int(time.time() if now is None else now),
         "text": event_text,
+        "source": normalize_event_source(source),
     })
     if len(state["events"]) > 5:
         state["events"].pop(0)
@@ -3637,7 +3655,7 @@ def _harvest_one_pot(state, pot_idx, now, weather_data):
 
 
 
-def process_command(state, command):
+def process_command(state, command, *, event_source="system"):
     """在传入的存档字典上执行命令，并原地更新状态。
 
     该入口供 Flask API / 数据库存档调用，不读取或写入本地 JSON 文件。
@@ -3650,6 +3668,7 @@ def process_command(state, command):
 
     parts = command.strip().split()
     action = parts[0].lower()
+    event_source = normalize_event_source(event_source)
     now = int(time.time())
     normalize_state(state, now)
     if state.get("is_frozen"):
@@ -4032,6 +4051,7 @@ def process_command(state, command):
                     state["money"] += total
                     state["total_earned"] += total
                     state["inventory"]["flowers"] = {}
+                    add_event(state, f"卖掉所有花，赚了{total}块", source=event_source)
                     result = f"💰 卖掉所有花，赚了{total}块！"
         else:
             flower_id = parts[1].lower()
@@ -4051,6 +4071,11 @@ def process_command(state, command):
                 state["inventory"]["flowers"][flower_id] -= quantity
                 if state["inventory"]["flowers"][flower_id] <= 0:
                     del state["inventory"]["flowers"][flower_id]
+                add_event(
+                    state,
+                    f"卖了{quantity}朵{FLOWERS[flower_id]['name']}，赚了{price}块",
+                    source=event_source,
+                )
                 result = f"💰 卖了{quantity}朵{FLOWERS[flower_id]['name']}，赚了{price}块！"
 
     elif action == "adopt":

@@ -41,6 +41,7 @@ from game_engine import (
     apply_offline_progress,
     get_actual_grow_speed,
     get_bouquet_options,
+    get_event_source_label,
     get_current_cat_name,
     get_cat_max_affection,
     get_collectible_boost_hint,
@@ -937,6 +938,17 @@ def _new_request_events(state: dict[str, Any], events_before: list) -> list[dict
             if isinstance(event, dict) and not any(event is old for old in events_before)]
 
 
+def _event_record_for_client(event: dict[str, Any]) -> dict[str, Any]:
+    record = {
+        "time": event.get("time", 0),
+        "text": event.get("text", ""),
+    }
+    if event.get("source"):
+        record["source"] = event["source"]
+        record["source_label"] = get_event_source_label(event["source"])
+    return record
+
+
 def _ai_summary(state: dict[str, Any], *, events_before: list | None = None) -> dict[str, Any]:
     now = int(time.time())
     summary_events_before = list(state.get("events", []))
@@ -1171,10 +1183,13 @@ def _summary(state: dict[str, Any], *, events_before: list | None = None) -> dic
         "letter_catalog": letter_catalog,
         "recent_events": [event.get("text", "") for event in state.get("events", [])[-5:]],
         "recent_event_records": sorted(
-            [{"time": event.get("time", 0), "text": event.get("text", "")}
+            [_event_record_for_client(event)
              for event in state.get("events", [])[-5:]], key=lambda event: event["time"],
         ),
-        "new_events": _new_request_events(state, events_before) if events_before is not None else [],
+        "new_events": [
+            _event_record_for_client(event)
+            for event in _new_request_events(state, events_before)
+        ] if events_before is not None else [],
     }
 
 
@@ -1410,7 +1425,7 @@ def web_cmd():
         return _web_auth_error()
     result = _handle_note_command(session_id, command, "human")
     if result is None:
-        result = process_command(state, command)
+        result = process_command(state, command, event_source="human")
         if command.strip().lower() == "help":
             result += NOTE_HELP_TEXT
         db_save_state(session_id, state)
@@ -1592,7 +1607,7 @@ def cmd_route():
     result = _handle_note_command(session_id, command, "ai")
     should_save_state = False
     if result is None:
-        result = process_command(state, command)
+        result = process_command(state, command, event_source="ai")
         if command.strip().lower() == "help":
             result += NOTE_HELP_TEXT
         should_save_state = True

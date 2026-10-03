@@ -33,7 +33,10 @@ def test_first_restore_keeps_history_without_live_messages(api, cat_clock, mode,
     else:
         assert payload["state"]["new_events"] == []
         records = payload["state"]["recent_event_records"]
-        assert records == sorted(saved["events"], key=lambda event: event["time"])
+        assert records == sorted(
+            [module._event_record_for_client(event) for event in saved["events"]],
+            key=lambda event: event["time"],
+        )
         assert len(records) == 5
         assert payload["state"]["recent_events"] == [event["text"] for event in saved["events"]]
     repeated = client.get(f"/{mode}/status?session_id={sid}", headers=headers).get_json()["state"]
@@ -52,7 +55,12 @@ def test_online_poll_delivers_once_and_resume_suppresses_history(api, cat_clock)
     cat_clock[0] = state["cat_state"]["next_outing_at"]
     live = {**headers, "X-Garden-Live": "1"}
     payload = client.get(url, headers=live).get_json()["state"]
-    assert payload["new_events"] == [{"time": cat_clock[0], "text": "栗子出门溜达了一会儿。"}]
+    assert payload["new_events"] == [{
+        "time": cat_clock[0],
+        "text": "栗子出门溜达了一会儿。",
+        "source": "system",
+        "source_label": "系统",
+    }]
     assert client.get(url, headers=live).get_json()["state"]["new_events"] == []
     cat_clock[0] += 6 * 3600
     resumed = client.get(url, headers=headers).get_json()["state"]
@@ -91,7 +99,12 @@ def test_web_operation_still_delivers_its_own_event_on_restore(api, cat_clock):
     cat_clock[0] += 6 * 3600
     payload = client.post("/web/cmd", headers=headers,
                           json={"session_id": sid, "command": "arrange rose"}).get_json()["state"]
-    assert payload["new_events"] == [{"time": cat_clock[0], "text": "把玫瑰插进花瓶"}]
+    assert payload["new_events"] == [{
+        "time": cat_clock[0],
+        "text": "把玫瑰插进花瓶",
+        "source": "system",
+        "source_label": "系统",
+    }]
 
 
 def test_ai_summary_cross_second_catchup_does_not_replace_operation(api, cat_clock):

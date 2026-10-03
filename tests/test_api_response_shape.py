@@ -101,7 +101,11 @@ def test_api_latest_event_excludes_offline_request_history(api, cat_clock, endpo
         assert "出门" not in result["message"] and "回家" not in result["message"]
     loaded = module.db_load_state("cat-events")
     assert loaded["cat_state"]["next_outing_at"] == start + 25200
-    assert loaded["events"][-1] == {"time": start + 19800, "text": "栗子回家了。"}
+    assert loaded["events"][-1] == {
+        "time": start + 19800,
+        "text": "栗子回家了。",
+        "source": "system",
+    }
     assert not any("events_before" in key for key in loaded)
 
 

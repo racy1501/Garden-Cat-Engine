@@ -2382,7 +2382,10 @@ function renderEvents() {
     const line = document.createElement("div");
     line.className = "event-line";
     const time = event.time ? new Date(event.time * 1000).toLocaleString("zh-CN", { hour12: false }) : "";
-    line.textContent = time ? `${time} · ${event.text}` : event.text;
+    const sourceLabels = { human: "人类", ai: "AI", system: "系统" };
+    const source = event.source_label || sourceLabels[event.source] || "";
+    const prefix = [time, source].filter(Boolean).join(" · ");
+    line.textContent = prefix ? `${prefix} · ${event.text}` : event.text;
     root.append(line);
   }
 }
