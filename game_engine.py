@@ -3478,6 +3478,17 @@ def apply_offline_progress(state, now=None):
         state["cat_stats"]["mood"] = min(starting_mood, float(state["cat_stats"].get("mood", starting_mood)))
         _sync_cat_stats_views(state)
     settle_cat_lifecycle(state, settle_at)
+    if skipped_seconds > 0:
+        # 超限时间不再执行：保留结算终点的状态和计划剩余等待。
+        # 只移动尚未到期的计划，已发生事件及状态变化时间保持原值。
+        cat_state = state["cat_state"]
+        for field in (
+            "next_visit_at", "current_visit_leave_at", "stay_deadline_at",
+            "next_outing_at", "outing_return_at",
+        ):
+            if cat_state.get(field, 0) > settle_at:
+                cat_state[field] += skipped_seconds
+        cat_state["last_lifecycle_settled_at"] = now
     used_food, used_water = _consume_offline_cat_portions(state)
 
     for pot in state.get("pots", []):
