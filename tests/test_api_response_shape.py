@@ -74,7 +74,7 @@ def test_ai_cat_summary_uses_phase_location(api, cat_clock, phase, location):
 
 
 @pytest.mark.parametrize("endpoint", ["status", "cmd"])
-def test_api_latest_event_only_reports_request_events(api, cat_clock, endpoint):
+def test_api_latest_event_excludes_offline_request_history(api, cat_clock, endpoint):
     module, client = api
     state = adopted_cat_state()
     state["events"] = [{"time": cat_clock[0], "text": "旧事件"}] * 5
@@ -93,7 +93,7 @@ def test_api_latest_event_only_reports_request_events(api, cat_clock, endpoint):
 
     assert query()["state"]["latest_event"] == ""
     cat_clock[0] = start + 21600
-    assert query()["state"]["latest_event"] == "栗子回家了。"
+    assert query()["state"]["latest_event"] == ""
     for delta in (0, 60, 180):
         cat_clock[0] = start + 21600 + delta
         result = query()

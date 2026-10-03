@@ -96,13 +96,13 @@ def test_unlocked_bouquet_card_opens_existing_detail_modal():
     assert '$("#modalClose").addEventListener("click", closeModal);' in js
 
 
-def test_garden_notice_uses_latest_important_recent_event_before_offline_summary():
+def test_garden_notice_does_not_promote_old_history_to_notification():
     root = Path(__file__).resolve().parents[1]
     js = (root / "static" / "app.js").read_text(encoding="utf-8")
     assert "function extractImportantGardenNotice(message)" in js
-    assert "recentImportantNotice = extractImportantGardenNotice(recentEvents.at(-1))" in js
-    assert "let notice = latestNotice || recentImportantNotice;" in js
-    assert "!latestNotice && !recentImportantNotice" in js
+    notice = js.split("function renderGardenNotice()", 1)[1].split("function ensureOfflineSummaryBar()", 1)[0]
+    assert "recent_events" not in notice
+    assert "let notice = latestNotice;" in notice
 
 
 def test_bouquet_artwork_uses_id_derived_assets_and_mask():

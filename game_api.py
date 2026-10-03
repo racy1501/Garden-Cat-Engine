@@ -191,7 +191,7 @@ def _decode_state(value: Any) -> dict[str, Any] | None:
     return dict(value) if hasattr(value, "items") else None
 
 
-def db_load_state(session_id: str, *, events_before: list | None = None) -> dict[str, Any] | None:
+def db_load_state(session_id: str, *, events_before: list | None = None, live_events: bool = False) -> dict[str, Any] | None:
     ensure_schema()
     with _get_conn() as conn:
         if USE_POSTGRES:
@@ -213,11 +213,14 @@ def db_load_state(session_id: str, *, events_before: list | None = None) -> dict
     state = _decode_state(row["state"])
     if state is None:
         return None
-    if events_before is not None:
+    if events_before is not None and live_events:
         events_before.extend(state.get("events", []))
     normalized = normalize_state(state)
     if apply_offline_progress(normalized):
         db_save_state(session_id, normalized)
+    if events_before is not None and not live_events:
+        # 首次恢复和AI调用：补算完成后才开始收集操作产生的新事件。
+        events_before.extend(normalized.get("events", []))
     return normalized
 
 
@@ -765,10 +768,10 @@ def _issue_web_token(state: dict[str, Any]) -> str:
     return token
 
 
-def _load_authorized_web_state(session_id: str, token: str) -> dict[str, Any] | None:
+def _load_authorized_web_state(session_id: str, token: str, *, events_before: list | None = None, live_events: bool = False) -> dict[str, Any] | None:
     if not session_id or not token:
         return None
-    state = db_load_state(session_id)
+    state = db_load_state(session_id, events_before=events_before, live_events=live_events)
     if state is None:
         return None
     expected = str(state.get(WEB_TOKEN_FIELD, ""))
@@ -928,24 +931,29 @@ def _build_offline_summary_for_ai(state: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _new_request_events(state: dict[str, Any], events_before: list) -> list[dict[str, Any]]:
+    # 对象引用只用于本次请求，避免误删同秒同文的真实新事件。
+    return [event for event in state.get("events", [])
+            if isinstance(event, dict) and not any(event is old for old in events_before)]
+
+
 def _ai_summary(state: dict[str, Any], *, events_before: list | None = None) -> dict[str, Any]:
-    # 请求入口在离线补算前保存旧事件引用；同秒同文的新事件也能区分。
-    if events_before is None:
-        events_before = list(state.get("events", []))
     now = int(time.time())
+    summary_events_before = list(state.get("events", []))
     normalize_state(state, now)
     apply_offline_progress(state, now)
+    if events_before is None:
+        events_before = list(state.get("events", []))
+    else:
+        # 摘要阶段若跨秒再次补算，也不能将其历史事件作为操作消息。
+        events_before = events_before + _new_request_events(state, summary_events_before)
     weather_id = state.get("weather", "sunny")
     weather = WEATHER.get(weather_id, WEATHER["sunny"])
     garden_events = _build_garden_event_summary(state, now)
     time_summary = _build_time_summary(state, now)
 
-    latest_event = ""
-    events = state.get("events", [])
-    for event in reversed(events):
-        if isinstance(event, dict) and not any(event is old for old in events_before):
-            latest_event = str(event.get("text", "") or "")
-            break
+    new_events = _new_request_events(state, events_before)
+    latest_event = str(new_events[-1].get("text", "") or "") if new_events else ""
 
     return {
         "garden_name": state.get("garden_name", ""),
@@ -971,7 +979,7 @@ def _ai_summary(state: dict[str, Any], *, events_before: list | None = None) -> 
     }
 
 
-def _summary(state: dict[str, Any]) -> dict[str, Any]:
+def _summary(state: dict[str, Any], *, events_before: list | None = None) -> dict[str, Any]:
     """给网页或其他 AI 返回易用的结构化状态摘要。"""
     now = int(time.time())
     normalize_state(state, now)
@@ -1162,6 +1170,11 @@ def _summary(state: dict[str, Any]) -> dict[str, Any]:
         ],
         "letter_catalog": letter_catalog,
         "recent_events": [event.get("text", "") for event in state.get("events", [])[-5:]],
+        "recent_event_records": sorted(
+            [{"time": event.get("time", 0), "text": event.get("text", "")}
+             for event in state.get("events", [])[-5:]], key=lambda event: event["time"],
+        ),
+        "new_events": _new_request_events(state, events_before) if events_before is not None else [],
     }
 
 
@@ -1359,7 +1372,11 @@ def web_register():
 def web_status():
     session_id = _safe_session_id(request.args.get("session_id", ""))
     token = request.headers.get("X-Garden-Token", "")
-    state = _load_authorized_web_state(session_id, token)
+    events_before = []
+    state = _load_authorized_web_state(
+        session_id, token, events_before=events_before,
+        live_events=request.headers.get("X-Garden-Live") == "1",
+    )
     if state is None:
         return _web_auth_error()
     result = process_command(state, "status")
@@ -1370,7 +1387,7 @@ def web_status():
             "ok": True,
             "session_id": session_id,
             "message": result,
-            "state": _summary(state),
+            "state": _summary(state, events_before=events_before),
             "notes": notes,
         }
     )
@@ -1384,7 +1401,11 @@ def web_cmd():
     token = request.headers.get("X-Garden-Token", "")
     if not command:
         return jsonify({"ok": False, "message": "请选择一个操作。"}), 400
-    state = _load_authorized_web_state(session_id, token)
+    events_before = []
+    state = _load_authorized_web_state(
+        session_id, token, events_before=events_before,
+        live_events=request.headers.get("X-Garden-Live") == "1",
+    )
     if state is None:
         return _web_auth_error()
     result = _handle_note_command(session_id, command, "human")
@@ -1398,7 +1419,7 @@ def web_cmd():
             "ok": not result.lstrip().startswith("❌"),
             "session_id": session_id,
             "message": result,
-            "state": _summary(state),
+            "state": _summary(state, events_before=events_before),
         }
     )
 

@@ -39,6 +39,7 @@ let petCooldownTimer = null;
 let latestGardenNotice = "";
 let stateSnapshotAtMs = 0;
 let liveRefreshQueued = false;
+let gardenNeedsResume = true; // 仅页面内使用，恢复时不把历史补算当作在线通知。
 let notesCooldownTimer = null;
 let currentNotesPage = 1;
 let hasUnreadNotes = false;
@@ -331,6 +332,7 @@ function waitForNextPaint() {
 
 function saveCredentials(value) {
   credentials = value;
+  gardenNeedsResume = true;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
 }
 
@@ -466,7 +468,7 @@ async function refreshGarden({ quiet = false } = {}) {
   try {
     const query = encodeURIComponent(credentials.session_id);
     const data = await requestJson(`/web/status?session_id=${query}`, {
-      headers: authHeaders(),
+      headers: { ...authHeaders(), "X-Garden-Live": gardenNeedsResume ? "0" : "1" },
     });
     updateFromResponse(data, quiet);
   } catch (error) {
@@ -517,7 +519,7 @@ async function runCommand(command, sourceButton = null) {
   try {
     const data = await requestJson("/web/cmd", {
       method: "POST",
-      headers: authHeaders(),
+      headers: { ...authHeaders(), "X-Garden-Live": gardenNeedsResume ? "0" : "1" },
       body: JSON.stringify({
         session_id: credentials.session_id,
         command,
@@ -549,6 +551,9 @@ async function runCommand(command, sourceButton = null) {
 }
 
 function updateFromResponse(data, quiet = false) {
+  if (gardenNeedsResume && quiet) {
+    $("#messageBox").textContent = "已显示花园当前状态，历史记录见下方日志。";
+  }
   currentState = data.state;
   if (typeof currentState?.has_unread_bouquet_gifts === "boolean") {
     hasUnreadBouquetGifts = currentState.has_unread_bouquet_gifts;
@@ -560,12 +565,17 @@ function updateFromResponse(data, quiet = false) {
   }
   stateSnapshotAtMs = Date.now();
   liveRefreshQueued = false;
-  if (!quiet && data.message) latestGardenNotice = data.message;
+  const notifications = currentState?.new_events || [];
+  latestGardenNotice = notifications.length
+    ? notifications.map((event) => event.text).join("\n")
+    : (!quiet && data.message ? data.message : "");
+  gardenNeedsResume = document.visibilityState !== "visible";
   renderAll();
   updateLiveCountdowns();
   maybeAutoShowUpdateAnnouncement();
-  if (!quiet && data.message) {
-    $("#messageBox").textContent = data.message;
+  if (notifications.length || (!quiet && data.message)) {
+    $("#messageBox").textContent = notifications.length && quiet
+      ? notifications.map((event) => event.text).join("\n") : data.message;
   }
 }
 
@@ -693,20 +703,16 @@ function buildGardenNoticeSupplements() {
 function renderGardenNotice() {
   const root = $("#gardenNoticeText");
   const latestNotice = extractGardenNotice(latestGardenNotice);
-  const recentEvents = currentState?.recent_events || [];
-  const recentImportantNotice = extractImportantGardenNotice(recentEvents.at(-1)).join("\n");
-  let notice = latestNotice || recentImportantNotice;
+  let notice = latestNotice;
   const offline = currentState?.offline_summary || {};
   const supplements = buildGardenNoticeSupplements();
   if (!notice && Number(offline.offline_seconds || 0) > 0) {
     notice = offline.message || "花园在你离开时暂停在安全状态。";
   }
   if (!notice) {
-    notice = recentEvents.length
-      ? recentEvents[recentEvents.length - 1]
-      : "花园很安静，风从花叶间穿过去。";
+    notice = "花园很安静，风从花叶间穿过去。";
   }
-  if (!latestNotice && !recentImportantNotice && Number(offline.offline_seconds || 0) > 0) {
+  if (!latestNotice && Number(offline.offline_seconds || 0) > 0) {
     notice = supplements.shift() || notice;
   }
   if (supplements.length) {
@@ -2367,15 +2373,16 @@ showEncyclopediaModal = function() {
 function renderEvents() {
   const root = $("#eventsList");
   root.innerHTML = "";
-  const events = currentState.recent_events || [];
+  const events = currentState.recent_event_records || (currentState.recent_events || []).map((text) => ({ text, time: 0 }));
   if (!events.length) {
     root.innerHTML = `<div class="muted">还没有新的花园事件。</div>`;
     return;
   }
-  for (const event of [...events].reverse()) {
+  for (const event of [...events].sort((a, b) => a.time - b.time).reverse()) {
     const line = document.createElement("div");
     line.className = "event-line";
-    line.textContent = event;
+    const time = event.time ? new Date(event.time * 1000).toLocaleString("zh-CN", { hour12: false }) : "";
+    line.textContent = time ? `${time} · ${event.text}` : event.text;
     root.append(line);
   }
 }
@@ -3036,10 +3043,12 @@ for (const button of document.querySelectorAll(".store-tab-btn")) {
 }
 
 window.addEventListener("focus", () => {
+  gardenNeedsResume = true;
   if (credentials && !isBusy) refreshGarden({ quiet: true }).catch(() => {});
 });
 
 document.addEventListener("visibilitychange", () => {
+  gardenNeedsResume = true;
   if (document.visibilityState === "visible" && credentials && !isBusy) {
     refreshGarden({ quiet: true }).catch(() => {});
   }
