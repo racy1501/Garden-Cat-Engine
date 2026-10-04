@@ -3003,7 +3003,7 @@ def is_flower_unlocked(state, flower_id):
         return True
     requirement = get_flower_unlock_requirement(flower_id)
     encyclopedia_count = len(state.get("encyclopedia", []))
-    harvest_total = sum(int(qty or 0) for qty in state.get("flower_harvest_counts", {}).values())
+    harvest_total = get_total_flower_harvests(state)
     return (
         encyclopedia_count >= requirement["encyclopedia"]
         and harvest_total >= requirement["harvests"]
@@ -3022,14 +3022,35 @@ def get_unlock_message(flower_id):
     return "，".join(parts) + "后解锁"
 
 
-def get_stage_unlocks(before_count, after_count, encyclopedia_before):
+def get_total_flower_harvests(state):
+    return sum(
+        int(qty or 0)
+        for qty in state.get("flower_harvest_counts", {}).values()
+    )
+
+
+def get_stage_unlocks(
+    before_count,
+    after_count,
+    encyclopedia_before,
+    harvest_total_before,
+    harvest_total_after,
+):
     newly_unlocked = []
     known_before = set(encyclopedia_before)
     for flower_id in FLOWER_UNLOCK_REQUIREMENTS:
         requirement = get_flower_unlock_requirement(flower_id)
-        if requirement["encyclopedia"] <= 0 or flower_id in known_before:
+        if flower_id in known_before:
             continue
-        if before_count < requirement["encyclopedia"] <= after_count:
+        was_unlocked = (
+            before_count >= requirement["encyclopedia"]
+            and harvest_total_before >= requirement["harvests"]
+        )
+        is_unlocked = (
+            after_count >= requirement["encyclopedia"]
+            and harvest_total_after >= requirement["harvests"]
+        )
+        if not was_unlocked and is_unlocked:
             newly_unlocked.append(FLOWERS[flower_id]["name"])
     return newly_unlocked
 
@@ -3312,7 +3333,7 @@ def get_status(state, weather_data):
     if not has_any:
         lines.append("  空")
 
-    lines.append(f"\n📊 💰{state['money']} 🌸{len(state['encyclopedia'])}/12")
+    lines.append(f"\n📊 💰{state['money']} 🌸{len(state['encyclopedia'])}/{len(FLOWERS)}")
     if state["cat"]:
         collectible_count = sum(state["collectibles"].values())
         letter_count = len(state["letters_received"])
@@ -3544,7 +3565,7 @@ def apply_offline_progress(state, now=None):
 
 def _summary(state):
     text = (
-        f"📊 💰{state['money']} 🌸{len(state['encyclopedia'])}/12 "
+        f"📊 💰{state['money']} 🌸{len(state['encyclopedia'])}/{len(FLOWERS)} "
         f"💐{len(state.get('vase', []))}/{VASE_CAPACITY}"
     )
     if state["cat"]:
@@ -3555,103 +3576,6 @@ def _summary(state):
             f"心情{int(stats['mood'])}亲密{int(stats['affection'])}"
         )
     return text
-
-
-
-def _harvest_one_pot(state, pot_idx, now, weather_data):
-    """收获一个花盆，返回玩家可读结果。"""
-    if pot_idx < 0 or pot_idx >= state["max_pots"]:
-        return f"❌ 盆号必须是1-{state['max_pots']}"
-
-    pot = state["pots"][pot_idx]
-    if pot is None:
-        return "❌ 这个盆是空的"
-    if is_pot_withered(pot):
-        return f"❌ 这盆花已经枯萎，请使用 clear {pot_idx + 1} 清理"
-    if "pest_time" in pot and now < pot["pest_time"] and (
-        pot_idx not in state["pest_treatment"]
-        or now >= state["pest_treatment"].get(pot_idx, 0)
-    ):
-        return "❌ 花长虫子了！先治疗才能收获"
-
-    flower_id = pot["flower_id"]
-    flower_data = FLOWERS[flower_id]
-    grow_time = flower_data["grow_time"]
-    progress = float(pot.get("growth_progress", 0.0))
-
-    if progress < grow_time:
-        if not pot.get("watered", True):
-            return "❌ 这盆花还没浇水，生长暂停"
-        speed = weather_data["grow_speed"]
-        remaining = (grow_time - progress) / speed
-        return f"❌ 还没成熟，还需约{format_time(remaining)}"
-
-    state["inventory"]["flowers"][flower_id] = (
-        state["inventory"]["flowers"].get(flower_id, 0) + 1
-    )
-    harvest_counts = state.setdefault("flower_harvest_counts", {})
-    harvest_counts[flower_id] = int(harvest_counts.get(flower_id, 0) or 0) + 1
-    state["pots"][pot_idx] = None
-    state["pest_treatment"].pop(pot_idx, None)
-
-    if flower_id in state["encyclopedia"]:
-        return f"🌸 收获了{flower_data['name']}！"
-
-    encyclopedia_before = list(state["encyclopedia"])
-    before_count = len(encyclopedia_before)
-    state["encyclopedia"].append(flower_id)
-    after_count = len(state["encyclopedia"])
-    result = f"🎉 收获{flower_data['name']}！图鉴+1！"
-    reward = ENCYCLOPEDIA_REWARDS.get(flower_id, {})
-    reward_text = []
-
-    for seed_id, qty in reward.get("seeds", {}).items():
-        state["inventory"]["seeds"][seed_id] = (
-            state["inventory"]["seeds"].get(seed_id, 0) + qty
-        )
-        reward_text.append(f"{FLOWERS[seed_id]['name']}种子x{qty}")
-
-    for item_id, qty in reward.get("items", {}).items():
-        state["inventory"]["items"][item_id] = (
-            state["inventory"]["items"].get(item_id, 0) + qty
-        )
-        reward_text.append(f"{ITEMS[item_id]['name']}x{qty}")
-
-    if "permanent" in reward:
-        permanent_id = reward["permanent"]
-        if permanent_id not in state["permanent_items"]:
-            _apply_facility_purchase(state, permanent_id)
-            reward_text.append(ITEMS[permanent_id]["name"])
-        else:
-            compensation = int(ITEMS[permanent_id]["price"])
-            state["money"] += compensation
-            reward_text.append(
-                f"{ITEMS[permanent_id]['name']}已拥有，折算{compensation}块"
-            )
-
-    if "cat_mood" in reward:
-        mood_bonus = int(reward["cat_mood"])
-        if state["cat"] is not None:
-            state["cat_stats"]["mood"] = min(
-                100, state["cat_stats"]["mood"] + mood_bonus
-            )
-            reward_text.append(f"猫咪心情+{mood_bonus}")
-        else:
-            state["pending_cat_mood_bonus"] += mood_bonus
-            reward_text.append(f"猫咪心情+{mood_bonus}（收养后生效）")
-
-    if reward_text:
-        result += "\n🎁 解锁奖励：" + ", ".join(reward_text)
-
-    newly_unlocked = get_stage_unlocks(
-        before_count,
-        after_count,
-        encyclopedia_before,
-    )
-    if newly_unlocked:
-        result += "\n🔓 商店新解锁：" + "、".join(newly_unlocked)
-
-    return result
 
 
 
@@ -4421,7 +4345,7 @@ def process_command(state, command, *, event_source="system"):
                     lines.append(f"  ✅ {flower_data['name']} ({flower_data['rarity']})")
                 else:
                     lines.append("  ❓ ???")
-            lines.append(f"\n进度：{len(state['encyclopedia'])}/12")
+            lines.append(f"\n进度：{len(state['encyclopedia'])}/{len(FLOWERS)}")
             result = "\n".join(lines)
 
     elif action == "status":
@@ -4736,6 +4660,7 @@ def _harvest_one_pot(state, pot_idx, now, weather_data):
     grow_time = flower_data["grow_time"]
     progress = float(pot.get("growth_progress", 0.0))
     encyclopedia_before = list(state["encyclopedia"])
+    harvest_total_before = get_total_flower_harvests(state)
     if progress < grow_time:
         if not pot.get("watered", True):
             return "❌ 这盆花还没浇水，生长暂停"
@@ -4745,18 +4670,20 @@ def _harvest_one_pot(state, pot_idx, now, weather_data):
     state["inventory"]["flowers"][flower_id] = state["inventory"]["flowers"].get(flower_id, 0) + 1
     harvest_counts = state.setdefault("flower_harvest_counts", {})
     harvest_counts[flower_id] = int(harvest_counts.get(flower_id, 0) or 0) + 1
+    harvest_total_after = get_total_flower_harvests(state)
     state["pots"][pot_idx] = None
     state["pest_treatment"].pop(pot_idx, None)
     if flower_id in state["encyclopedia"]:
         result = f"🌸 收获了{flower_data['name']}！"
+        reward = {}
     else:
         state["encyclopedia"].append(flower_id)
         result = (
             f"🎉 收获{flower_data['name']}！图鉴+1！\n"
-            f"✨ 新发现！{flower_data['name']}已加入图鉴 ({len(state['encyclopedia'])}/12)"
+            f"✨ 新发现！{flower_data['name']}已加入图鉴 ({len(state['encyclopedia'])}/{len(FLOWERS)})"
         )
+        reward = ENCYCLOPEDIA_REWARDS.get(flower_id, {})
     add_event(state, f"收获了{flower_data['name']}")
-    reward = flower_data.get("reward")
     reward_text = []
     before_count = len(encyclopedia_before)
     after_count = len(state["encyclopedia"])
@@ -4764,13 +4691,23 @@ def _harvest_one_pot(state, pot_idx, now, weather_data):
         if "money" in reward:
             state["money"] += int(reward["money"])
             reward_text.append(f"获得{reward['money']}块")
-        if "item" in reward:
-            item_id = reward["item"]
-            _add_inventory_item(state, item_id, int(reward.get("qty", 1) or 1))
-            reward_text.append(f"{ITEMS[item_id]['name']}x{int(reward.get('qty', 1) or 1)}")
+        for seed_id, qty in reward.get("seeds", {}).items():
+            state["inventory"]["seeds"][seed_id] = (
+                state["inventory"]["seeds"].get(seed_id, 0) + qty
+            )
+            reward_text.append(f"{FLOWERS[seed_id]['name']}种子x{qty}")
+        for item_id, qty in reward.get("items", {}).items():
+            _add_inventory_item(state, item_id, qty)
+            reward_text.append(f"{ITEMS[item_id]['name']}x{qty}")
     if reward_text:
         result += "\n🎁 解锁奖励：" + ", ".join(reward_text)
-    newly_unlocked = get_stage_unlocks(before_count, after_count, encyclopedia_before)
+    newly_unlocked = get_stage_unlocks(
+        before_count,
+        after_count,
+        encyclopedia_before,
+        harvest_total_before,
+        harvest_total_after,
+    )
     if newly_unlocked:
         result += "\n🔁 商店新解锁：" + "、".join(newly_unlocked)
     return result
