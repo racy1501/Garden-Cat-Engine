@@ -97,6 +97,19 @@ const FLOWER_DISPLAY_ORDER = [
   "moonflower",
 ];
 
+const FLOWER_RARITY_ORDER = Object.freeze({ common: 0, uncommon: 1, rare: 2, legendary: 3 });
+
+function getSortedCatalogFlowers(flowersById) {
+  const displayRank = new Map(FLOWER_DISPLAY_ORDER.map((id, index) => [id, index]));
+  return Object.entries(flowersById || {})
+    .map(([id, flower], originalIndex) => ({ id, flower, originalIndex }))
+    .sort((left, right) => {
+      const rarityDifference = (FLOWER_RARITY_ORDER[left.flower.rarity] ?? 99) - (FLOWER_RARITY_ORDER[right.flower.rarity] ?? 99);
+      const orderDifference = (displayRank.get(left.id) ?? 99) - (displayRank.get(right.id) ?? 99);
+      return rarityDifference || orderDifference || left.originalIndex - right.originalIndex;
+    });
+}
+
 const VASE_LIFESPAN_SECONDS = 12 * 60 * 60;
 const REAL_SECONDS_PER_DAY = 24 * 60 * 60;
 
@@ -2270,15 +2283,7 @@ function showEncyclopediaModal() {
   grid.className = "encyclopedia-grid";
   const known = new Set(currentState.encyclopedia || []);
   const harvestCounts = currentState.flower_harvest_counts || {};
-  const rarityRank = { common: 0, uncommon: 1, rare: 2, legendary: 3 };
-  const displayRank = new Map(FLOWER_DISPLAY_ORDER.map((id, index) => [id, index]));
-  const flowers = Object.entries(catalog.flowers || {})
-    .map(([id, flower], originalIndex) => ({ id, flower, originalIndex }))
-    .sort((left, right) => {
-      const rarityDifference = (rarityRank[left.flower.rarity] ?? 99) - (rarityRank[right.flower.rarity] ?? 99);
-      const orderDifference = (displayRank.get(left.id) ?? 99) - (displayRank.get(right.id) ?? 99);
-      return rarityDifference || orderDifference || left.originalIndex - right.originalIndex;
-    });
+  const flowers = getSortedCatalogFlowers(catalog.flowers);
 
   for (const { id, flower } of flowers) {
     const isKnown = known.has(id);
@@ -2309,66 +2314,6 @@ function showEncyclopediaModal() {
   body.append(grid);
   $("#modal").classList.remove("hidden");
 }
-
-showEncyclopediaModal = function() {
-  resetModalPresentation();
-  $("#modal").classList.add("modal-encyclopedia");
-  $(".modal-card").classList.add("modal-card-wide");
-
-  const body = $("#modalBody");
-  body.className = "modal-body-encyclopedia";
-  body.innerHTML = "";
-
-  const grid = document.createElement("div");
-  grid.className = "encyclopedia-grid";
-  const known = new Set(currentState.encyclopedia || []);
-  const harvestCounts = currentState.flower_harvest_counts || {};
-  const rarityRank = { common: 0, uncommon: 1, rare: 2, legendary: 3 };
-  const displayRank = new Map(FLOWER_DISPLAY_ORDER.map((id, index) => [id, index]));
-  const flowers = Object.entries(catalog.flowers || {})
-    .map(([id, flower], originalIndex) => ({ id, flower, originalIndex }))
-    .sort((left, right) => {
-      const rarityDifference = (rarityRank[left.flower.rarity] ?? 99) - (rarityRank[right.flower.rarity] ?? 99);
-      const orderDifference = (displayRank.get(left.id) ?? 99) - (displayRank.get(right.id) ?? 99);
-      return rarityDifference || orderDifference || left.originalIndex - right.originalIndex;
-    })
-    .slice(0, 12);
-
-  const knownCount = flowers.filter(({ id }) => known.has(id)).length;
-  $("#modalTitle").textContent = `花卉图鉴 · ${knownCount}/${flowers.length}`;
-
-  for (const { id, flower } of flowers) {
-    const isKnown = known.has(id);
-    const item = document.createElement("div");
-    item.className = `encyclopedia-item ${isKnown ? "" : "unknown"}`;
-
-    const icon = document.createElement("div");
-    icon.className = "encyclopedia-item-icon";
-    if (isKnown) setFlowerIcon(icon, id);
-    else setAssetIcon(icon, "unknown", "尚未发现");
-
-    const meta = document.createElement("div");
-    meta.className = "encyclopedia-item-meta";
-    const name = document.createElement("strong");
-    name.textContent = isKnown ? flower.name : "尚未发现";
-    const rarity = document.createElement("small");
-    rarity.textContent = isKnown ? flower.rarity_name : "???";
-    meta.append(name, rarity);
-
-    if (isKnown) {
-      const count = document.createElement("small");
-      count.className = "collection-harvest-count";
-      count.textContent = `累计收获 ${Number(harvestCounts[id] || 0)} 朵`;
-      meta.append(count);
-    }
-
-    item.append(icon, meta);
-    grid.append(item);
-  }
-
-  body.append(grid);
-  $("#modal").classList.remove("hidden");
-};
 
 function renderEvents() {
   const root = $("#eventsList");

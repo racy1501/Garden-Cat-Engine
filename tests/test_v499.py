@@ -1,5 +1,7 @@
 import time
 import sys
+import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -181,5 +183,52 @@ def test_web_files_contain_all_requested_v499_controls():
     assert 'makeBackpackActionButton("一键售出", "sell all"' in js
     assert 'makeBackpackActionButton("卖全部"' in js
     assert '累计收获 ${Number(harvestCounts[id] || 0)}朵' in js
-    assert 'const rarityRank = { common: 0, uncommon: 1, rare: 2, legendary: 3 }' in js
+    assert 'const FLOWER_RARITY_ORDER = Object.freeze({ common: 0, uncommon: 1, rare: 2, legendary: 3 });' in js
     assert '.shop-square-card {' in css and 'height: 236px;' in css
+
+
+def test_encyclopedia_sort_displays_all_seventeen_flowers_in_rarity_order():
+    root = Path(__file__).resolve().parents[1]
+    js = (root / "static" / "app.js").read_text(encoding="utf-8")
+    assert js.count("function showEncyclopediaModal()") == 1
+    assert ".slice(0, 12)" not in js
+    assert 'const isKnown = known.has(id);' in js
+    assert 'item.className = `encyclopedia-item ${isKnown ? "" : "unknown"}`;' in js
+    start = js.index("const FLOWER_DISPLAY_ORDER = [")
+    end = js.index("\nconst VASE_LIFESPAN_SECONDS", start)
+    sort_source = js[start:end]
+    flowers = {
+        "daisy": {"rarity": "common"},
+        "tulip": {"rarity": "common"},
+        "pansy": {"rarity": "common"},
+        "sunflower": {"rarity": "common"},
+        "rose": {"rarity": "common"},
+        "baby_breath": {"rarity": "common"},
+        "carnation": {"rarity": "common"},
+        "lavender": {"rarity": "uncommon"},
+        "hydrangea": {"rarity": "uncommon"},
+        "lily": {"rarity": "uncommon"},
+        "iris": {"rarity": "uncommon"},
+        "lisianthus": {"rarity": "uncommon"},
+        "cherry_blossom": {"rarity": "rare"},
+        "peony": {"rarity": "rare"},
+        "camellia": {"rarity": "rare"},
+        "moonflower": {"rarity": "legendary"},
+        "starlight_orchid": {"rarity": "legendary"},
+    }
+    expected = list(flowers)
+    original_twelve = dict(list(flowers.items())[:5] + list(flowers.items())[7:11] + list(flowers.items())[12:14] + list(flowers.items())[15:16])
+    script = (
+        f"{sort_source}\n"
+        f"const flowers = {json.dumps(flowers)};\n"
+        f"const expected = {json.dumps(expected)};\n"
+        f"const originalTwelve = {json.dumps(original_twelve)};\n"
+        "const actual = getSortedCatalogFlowers(flowers).map(({ id }) => id);\n"
+        "if (JSON.stringify(actual) !== JSON.stringify(expected)) process.exit(1);\n"
+        "const originalActual = getSortedCatalogFlowers(originalTwelve).map(({ id }) => id);\n"
+        "if (JSON.stringify(originalActual) !== JSON.stringify(Object.keys(originalTwelve))) process.exit(1);\n"
+    )
+
+    result = subprocess.run(["node", "-e", script], capture_output=True, text=True)
+
+    assert result.returncode == 0, result.stderr
