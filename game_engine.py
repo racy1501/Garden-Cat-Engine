@@ -113,18 +113,23 @@ def get_event_source_label(source):
 
 # 游戏数据
 FLOWERS = {
-    "daisy": {"name": "雏菊", "rarity": "common", "seed_price": 3, "sell_price": 4, "grow_time": 120},
-    "tulip": {"name": "郁金香", "rarity": "common", "seed_price": 4, "sell_price": 5, "grow_time": 180},
-    "pansy": {"name": "三色堇", "rarity": "common", "seed_price": 5, "sell_price": 7, "grow_time": 240},
-    "sunflower": {"name": "向日葵", "rarity": "common", "seed_price": 6, "sell_price": 8, "grow_time": 300},
-    "rose": {"name": "玫瑰", "rarity": "common", "seed_price": 8, "sell_price": 11, "grow_time": 360},
-    "lavender": {"name": "薰衣草", "rarity": "uncommon", "seed_price": 10, "sell_price": 13, "grow_time": 420},
-    "hydrangea": {"name": "绣球花", "rarity": "uncommon", "seed_price": 12, "sell_price": 16, "grow_time": 480},
-    "lily": {"name": "百合", "rarity": "uncommon", "seed_price": 15, "sell_price": 19, "grow_time": 540},
-    "iris": {"name": "鸢尾花", "rarity": "uncommon", "seed_price": 18, "sell_price": 23, "grow_time": 600},
-    "cherry_blossom": {"name": "樱花", "rarity": "rare", "seed_price": 22, "sell_price": 28, "grow_time": 660},
-    "peony": {"name": "牡丹", "rarity": "rare", "seed_price": 28, "sell_price": 35, "grow_time": 780},
-    "moonflower": {"name": "月光花", "rarity": "legendary", "seed_price": 36, "sell_price": 44, "grow_time": 900},
+    "daisy": {"name": "雏菊", "rarity": "common", "seed_price": 3, "sell_price": 4, "grow_time": 180},
+    "tulip": {"name": "郁金香", "rarity": "common", "seed_price": 4, "sell_price": 6, "grow_time": 300},
+    "pansy": {"name": "三色堇", "rarity": "common", "seed_price": 5, "sell_price": 8, "grow_time": 420},
+    "sunflower": {"name": "向日葵", "rarity": "common", "seed_price": 6, "sell_price": 10, "grow_time": 600},
+    "rose": {"name": "玫瑰", "rarity": "common", "seed_price": 8, "sell_price": 14, "grow_time": 900},
+    "baby_breath": {"name": "满天星", "rarity": "common", "seed_price": 10, "sell_price": 18, "grow_time": 1200},
+    "carnation": {"name": "康乃馨", "rarity": "common", "seed_price": 12, "sell_price": 22, "grow_time": 1500},
+    "lavender": {"name": "薰衣草", "rarity": "uncommon", "seed_price": 16, "sell_price": 30, "grow_time": 2100},
+    "hydrangea": {"name": "绣球花", "rarity": "uncommon", "seed_price": 20, "sell_price": 38, "grow_time": 2700},
+    "lily": {"name": "百合", "rarity": "uncommon", "seed_price": 26, "sell_price": 50, "grow_time": 3600},
+    "iris": {"name": "鸢尾花", "rarity": "uncommon", "seed_price": 28, "sell_price": 64, "grow_time": 5400},
+    "lisianthus": {"name": "洋桔梗", "rarity": "uncommon", "seed_price": 36, "sell_price": 84, "grow_time": 7200},
+    "cherry_blossom": {"name": "樱花", "rarity": "rare", "seed_price": 46, "sell_price": 106, "grow_time": 9000},
+    "peony": {"name": "牡丹", "rarity": "rare", "seed_price": 58, "sell_price": 130, "grow_time": 10800},
+    "camellia": {"name": "山茶花", "rarity": "rare", "seed_price": 72, "sell_price": 156, "grow_time": 12600},
+    "moonflower": {"name": "月光花", "rarity": "legendary", "seed_price": 90, "sell_price": 198, "grow_time": 16200},
+    "red_spider_lily": {"name": "彼岸花", "rarity": "legendary", "seed_price": 120, "sell_price": 264, "grow_time": 21600},
 }
 
 BOUQUETS = {
@@ -146,13 +151,18 @@ FLOWER_UNLOCK_REQUIREMENTS = {
     "pansy": {"encyclopedia": 0, "harvests": 0},
     "sunflower": {"encyclopedia": 0, "harvests": 0},
     "rose": {"encyclopedia": 0, "harvests": 0},
-    "lavender": {"encyclopedia": 4, "harvests": 8},
-    "hydrangea": {"encyclopedia": 4, "harvests": 8},
-    "lily": {"encyclopedia": 4, "harvests": 8},
-    "iris": {"encyclopedia": 4, "harvests": 8},
-    "cherry_blossom": {"encyclopedia": 8, "harvests": 20},
-    "peony": {"encyclopedia": 8, "harvests": 20},
-    "moonflower": {"encyclopedia": 11, "harvests": 36},
+    "baby_breath": {"encyclopedia": 4, "harvests": 8},
+    "carnation": {"encyclopedia": 4, "harvests": 8},
+    "lavender": {"encyclopedia": 7, "harvests": 24},
+    "hydrangea": {"encyclopedia": 7, "harvests": 24},
+    "lily": {"encyclopedia": 7, "harvests": 24},
+    "iris": {"encyclopedia": 10, "harvests": 42},
+    "lisianthus": {"encyclopedia": 10, "harvests": 42},
+    "cherry_blossom": {"encyclopedia": 12, "harvests": 62},
+    "peony": {"encyclopedia": 12, "harvests": 62},
+    "camellia": {"encyclopedia": 14, "harvests": 85},
+    "moonflower": {"encyclopedia": 15, "harvests": 105},
+    "red_spider_lily": {"encyclopedia": 16, "harvests": 125},
 }
 
 ENCYCLOPEDIA_REWARDS = {
@@ -161,6 +171,7 @@ ENCYCLOPEDIA_REWARDS = {
     "pansy": {"items": {"basic_food": 5}},
     "sunflower": {"money": 5},
     "rose": {"seeds": {"rose": 1}},
+    "carnation": {"seeds": {"carnation": 1}},
     "lavender": {"items": {"cat_treat": 2}},
     "hydrangea": {"money": 6},
     "lily": {"items": {"premium_food": 5}},
@@ -168,6 +179,7 @@ ENCYCLOPEDIA_REWARDS = {
     "cherry_blossom": {"items": {"ball": 1}},
     "peony": {"money": 10},
     "moonflower": {"items": {"feather_wand": 1}},
+    "red_spider_lily": {"seeds": {"red_spider_lily": 1}},
 }
 
 GARDEN_EVENT_COLLECTIBLES = [

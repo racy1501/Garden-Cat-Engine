@@ -173,8 +173,55 @@ def test_catalog_is_public_and_ai_api_stays_protected(tmp_path):
     client = game_api.app.test_client()
     catalog = client.get("/api/catalog")
     assert catalog.status_code == 200
-    assert catalog.json["flowers"]["moonflower"]["unlock_requirement"] == 7
+    assert len(catalog.json["flowers"]) == 17
+    assert catalog.json["flowers"]["moonflower"]["unlock_requirement"] == {
+        "encyclopedia": 15,
+        "harvests": 105,
+    }
+    assert catalog.json["flowers"]["red_spider_lily"]["unlock_requirement"] == {
+        "encyclopedia": 16,
+        "harvests": 125,
+    }
     assert client.post("/api/register", json={}).status_code == 401
+
+
+def test_web_unlocked_flowers_uses_the_engine_unlock_result(tmp_path):
+    game_api = load_app(tmp_path)
+    client = game_api.app.test_client()
+    created = client.post("/web/register", json={})
+    sid = created.json["session_id"]
+    token = created.json["garden_token"]
+    state = game_api.db_load_state(sid)
+    state["encyclopedia"] = [
+        "daisy",
+        "tulip",
+        "pansy",
+        "sunflower",
+        "rose",
+        "baby_breath",
+        "carnation",
+    ]
+    state["flower_harvest_counts"] = {"daisy": 24}
+    game_api.db_save_state(sid, state)
+
+    response = client.get(
+        f"/web/status?session_id={sid}",
+        headers={"X-Garden-Token": token},
+    )
+
+    assert response.status_code == 200
+    assert response.json["state"]["unlocked_flowers"] == [
+        "daisy",
+        "tulip",
+        "pansy",
+        "sunflower",
+        "rose",
+        "baby_breath",
+        "carnation",
+        "lavender",
+        "hydrangea",
+        "lily",
+    ]
 
 
 def test_web_summary_includes_cat_name_and_readable_letters(tmp_path):

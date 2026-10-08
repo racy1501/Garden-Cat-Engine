@@ -88,13 +88,18 @@ const FLOWER_DISPLAY_ORDER = [
   "pansy",
   "sunflower",
   "rose",
+  "baby_breath",
+  "carnation",
   "lavender",
   "hydrangea",
   "lily",
   "iris",
+  "lisianthus",
   "cherry_blossom",
   "peony",
+  "camellia",
   "moonflower",
+  "red_spider_lily",
 ];
 
 const FLOWER_RARITY_ORDER = Object.freeze({ common: 0, uncommon: 1, rare: 2, legendary: 3 });

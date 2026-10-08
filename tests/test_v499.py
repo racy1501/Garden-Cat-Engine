@@ -62,6 +62,37 @@ def test_old_save_harvest_counts_start_from_current_flower_inventory():
     assert normalized["flower_harvest_counts"] == {"daisy": 2, "lily": 1}
 
 
+def test_old_twelve_flower_save_keeps_existing_discoveries_and_dynamically_unlocks_new_flowers():
+    old_state = get_default_state()
+    old_state["encyclopedia"] = [
+        "daisy",
+        "tulip",
+        "pansy",
+        "sunflower",
+        "rose",
+        "lavender",
+        "hydrangea",
+        "lily",
+        "iris",
+        "cherry_blossom",
+        "peony",
+        "moonflower",
+    ]
+    old_state["flower_harvest_counts"] = {"daisy": 125}
+    old_state["inventory"] = {"seeds": {"daisy": 1}, "flowers": {}, "items": {}}
+
+    normalized = normalize_state(old_state)
+
+    assert normalized["encyclopedia"] == old_state["encyclopedia"]
+    assert normalized["inventory"]["seeds"] == {"daisy": 1}
+    assert normalized["flower_harvest_counts"] == {"daisy": 125}
+    assert is_flower_unlocked(normalized, "baby_breath")
+    assert is_flower_unlocked(normalized, "carnation")
+    assert is_flower_unlocked(normalized, "lisianthus")
+    assert not is_flower_unlocked(normalized, "camellia")
+    assert is_flower_unlocked(normalized, "moonflower")
+
+
 def test_each_successful_harvest_increments_flower_count():
     now = int(time.time())
     state = get_default_state()
@@ -117,6 +148,37 @@ def test_first_encyclopedia_reward_is_applied_once_only():
     )
 
 
+@pytest.mark.parametrize("flower_id", ["carnation", "red_spider_lily"])
+def test_new_seed_first_rewards_are_applied_once_only(flower_id):
+    now = int(time.time())
+    state = get_default_state()
+    state["pots"][0] = _ready_pot(flower_id, now)
+
+    first_result = _harvest_one_pot(state, 0, now, WEATHER["cloudy"])
+
+    assert "解锁奖励" in first_result
+    assert state["inventory"]["seeds"][flower_id] == 1
+
+    state["pots"][0] = _ready_pot(flower_id, now)
+    repeat_result = _harvest_one_pot(state, 0, now, WEATHER["cloudy"])
+
+    assert "解锁奖励" not in repeat_result
+    assert state["inventory"]["seeds"][flower_id] == 1
+
+
+@pytest.mark.parametrize("flower_id", ["baby_breath", "lisianthus", "camellia"])
+def test_future_hut_decor_rewards_are_not_put_in_a_temporary_inventory(flower_id):
+    now = int(time.time())
+    state = get_default_state()
+    state["pots"][0] = _ready_pot(flower_id, now)
+
+    result = _harvest_one_pot(state, 0, now, WEATHER["cloudy"])
+
+    assert "解锁奖励" not in result
+    assert state["inventory"]["items"] == {}
+    assert state["garden_collectibles"] == {}
+
+
 def test_first_discovery_uses_current_flower_catalog_total(monkeypatch):
     now = int(time.time())
     state = get_default_state()
@@ -141,8 +203,9 @@ def test_repeat_harvest_announces_unlock_after_harvest_threshold_is_met():
 
     result = _harvest_one_pot(state, 0, now, WEATHER["cloudy"])
 
-    assert "商店新解锁：薰衣草" in result
-    assert is_flower_unlocked(state, "lavender")
+    assert "商店新解锁：满天星、康乃馨" in result
+    assert is_flower_unlocked(state, "baby_breath")
+    assert is_flower_unlocked(state, "carnation")
 
 
 def test_pest_protection_still_blocks_harvest():
@@ -214,7 +277,7 @@ def test_encyclopedia_sort_displays_all_seventeen_flowers_in_rarity_order():
         "peony": {"rarity": "rare"},
         "camellia": {"rarity": "rare"},
         "moonflower": {"rarity": "legendary"},
-        "starlight_orchid": {"rarity": "legendary"},
+        "red_spider_lily": {"rarity": "legendary"},
     }
     expected = list(flowers)
     original_twelve = dict(list(flowers.items())[:5] + list(flowers.items())[7:11] + list(flowers.items())[12:14] + list(flowers.items())[15:16])

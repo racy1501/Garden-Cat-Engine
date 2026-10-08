@@ -3,11 +3,13 @@ from unittest.mock import patch
 
 from game_engine import (
     BOUQUETS,
+    FLOWER_UNLOCK_REQUIREMENTS,
     FLOWERS,
     VASE_LIFESPAN_SECONDS,
     WEATHER,
     get_default_state,
     get_vase_flower_status,
+    is_flower_unlocked,
     normalize_state,
     process_command,
 )
@@ -115,12 +117,78 @@ def test_make_bouquet_is_atomic_and_records_each_gift():
     assert all(gift["bouquet_id"] == "first_meeting" for gift in state["bouquet_gifts"])
 
 
-def test_unlock_tiers():
+def test_seventeen_flower_configuration_matches_the_first_development_batch():
+    expected = {
+        "daisy": ("雏菊", "common", 180, 3, 4),
+        "tulip": ("郁金香", "common", 300, 4, 6),
+        "pansy": ("三色堇", "common", 420, 5, 8),
+        "sunflower": ("向日葵", "common", 600, 6, 10),
+        "rose": ("玫瑰", "common", 900, 8, 14),
+        "baby_breath": ("满天星", "common", 1200, 10, 18),
+        "carnation": ("康乃馨", "common", 1500, 12, 22),
+        "lavender": ("薰衣草", "uncommon", 2100, 16, 30),
+        "hydrangea": ("绣球花", "uncommon", 2700, 20, 38),
+        "lily": ("百合", "uncommon", 3600, 26, 50),
+        "iris": ("鸢尾花", "uncommon", 5400, 28, 64),
+        "lisianthus": ("洋桔梗", "uncommon", 7200, 36, 84),
+        "cherry_blossom": ("樱花", "rare", 9000, 46, 106),
+        "peony": ("牡丹", "rare", 10800, 58, 130),
+        "camellia": ("山茶花", "rare", 12600, 72, 156),
+        "moonflower": ("月光花", "legendary", 16200, 90, 198),
+        "red_spider_lily": ("彼岸花", "legendary", 21600, 120, 264),
+    }
+
+    assert len(FLOWERS) == 17
+    assert {
+        flower_id: (
+            flower["name"],
+            flower["rarity"],
+            flower["grow_time"],
+            flower["seed_price"],
+            flower["sell_price"],
+        )
+        for flower_id, flower in FLOWERS.items()
+    } == expected
+    assert {
+        rarity: sum(flower["rarity"] == rarity for flower in FLOWERS.values())
+        for rarity in ("common", "uncommon", "rare", "legendary")
+    } == {"common": 7, "uncommon": 5, "rare": 3, "legendary": 2}
+
+
+def test_unlock_tiers_share_the_dynamic_encyclopedia_and_harvest_facts():
     state = fresh_state()
-    assert process_command(state, "buy lavender 1").startswith("🔒")
-    state["encyclopedia"] = ["daisy", "tulip"]
-    assert process_command(state, "buy lavender 1").startswith("✅")
-    assert process_command(state, "buy cherry 1").startswith("🔒")
+    flower_ids = list(FLOWERS)
+    tiers = [
+        (0, 0, 5),
+        (4, 8, 7),
+        (7, 24, 10),
+        (10, 42, 12),
+        (12, 62, 14),
+        (14, 85, 15),
+        (15, 105, 16),
+        (16, 125, 17),
+    ]
+
+    locked_result = process_command(state, "buy baby_breath 1")
+    assert "满天星尚未解锁" in locked_result
+    for encyclopedia_count, harvest_count, unlocked_count in tiers:
+        state["encyclopedia"] = flower_ids[:encyclopedia_count]
+        state["flower_harvest_counts"] = {"daisy": harvest_count}
+        unlocked = [flower_id for flower_id in flower_ids if is_flower_unlocked(state, flower_id)]
+        assert unlocked == flower_ids[:unlocked_count]
+
+    state["encyclopedia"] = flower_ids[:4]
+    state["flower_harvest_counts"] = {"daisy": 7}
+    assert "满天星尚未解锁" in process_command(state, "buy baby_breath 1")
+    state["flower_harvest_counts"] = {"daisy": 8}
+    process_command(state, "buy baby_breath 1")
+    assert state["inventory"]["seeds"]["baby_breath"] == 1
+
+    state["encyclopedia"] = ["moonflower"]
+    state["flower_harvest_counts"] = {}
+    assert is_flower_unlocked(state, "moonflower")
+
+    assert FLOWER_UNLOCK_REQUIREMENTS["red_spider_lily"] == {"encyclopedia": 16, "harvests": 125}
 
 
 def test_duplicate_permanent_reward_refunds_full_store_price():
