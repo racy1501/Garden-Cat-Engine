@@ -92,6 +92,7 @@ import json
 import time
 import os
 import random
+import uuid
 from datetime import datetime, timedelta, timezone
 
 # 事件来源是稳定的机器可读标识；展示名由调用方按需转换，未来可独立扩展昵称。
@@ -323,6 +324,11 @@ SHOP_CAT_ITEM_IDS = (
 REAL_SECONDS_PER_DAY = 24 * 60 * 60
 DISPLAY_TIMEZONE = timezone(timedelta(hours=8), name="Asia/Shanghai")
 DISPLAY_TIMEZONE_NAME = "Asia/Shanghai"
+
+# 花店 3A：只保存开店与营业安排，不在本批次处理上架或销售。
+FLOWER_SHOP_ESTABLISH_COST = 3500
+FLOWER_SHOP_SHELF_CAPACITY = 3
+FLOWER_SHOP_BUSINESS_DURATION_MINUTES = 10 * 60
 
 # v4.7: 害虫死亡时间（真实分钟）
 PEST_DEATH_REAL_MINUTES = 10
@@ -1429,6 +1435,18 @@ def _default_offline_summary():
     }
 
 
+def _default_flower_shop_state():
+    return {
+        "established_at": None,
+        "launched_at": None,
+        "shelf_capacity": 0,
+        "business_start_minute": None,
+        "pending_business_start_minute": None,
+        "pending_business_effective_at": None,
+        "slots": [],
+    }
+
+
 def get_default_state():
     now = int(time.time())
     return {
@@ -1449,6 +1467,7 @@ def get_default_state():
         "encyclopedia": [],
         "flower_harvest_counts": {},
         "total_earned": 0,
+        "direct_flower_sale_earned": 0,
         "weather": "sunny",
         "weather_change_time": now + random.randint(WEATHER_CHANGE_MIN, WEATHER_CHANGE_MAX),
         "events": [],
@@ -1468,7 +1487,9 @@ def get_default_state():
         "garden_collectible_first_found": {},
         "garden_collection_log": [],
         "bouquet_gifts": [],
+        "bouquet_inventory": [],
         "human_last_read_bouquet_gift_count": 0,
+        "flower_shop": _default_flower_shop_state(),
         "cat_state": _default_v5_cat_state(now),
         "cat_care": _default_v5_cat_care(),
         "cat_max_affection": 0.0,
@@ -2445,6 +2466,82 @@ def _can_finalize_adoption(state):
     return phase == CAT_PHASE_WAITING_NAME
 
 
+def _normalize_bouquet_inventory(raw_inventory):
+    inventory = []
+    seen_ids = set()
+    if not isinstance(raw_inventory, list):
+        return inventory
+    for entry in raw_inventory:
+        if not isinstance(entry, dict):
+            continue
+        instance_id = str(entry.get("instance_id", "") or "").strip()
+        bouquet_id = str(entry.get("bouquet_id", "") or "").strip()
+        components = entry.get("components")
+        if not instance_id or instance_id in seen_ids or not bouquet_id or not isinstance(components, dict):
+            continue
+        snapshot = {}
+        for flower_id, quantity in components.items():
+            try:
+                quantity = int(quantity)
+            except (TypeError, ValueError):
+                continue
+            if quantity > 0:
+                snapshot[str(flower_id)] = quantity
+        if not snapshot:
+            continue
+        seen_ids.add(instance_id)
+        inventory.append(
+            {"instance_id": instance_id, "bouquet_id": bouquet_id, "components": snapshot}
+        )
+    return inventory
+
+
+def _nullable_positive_int(value):
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
+def _normalize_flower_shop(raw_shop):
+    raw_shop = raw_shop if isinstance(raw_shop, dict) else {}
+    established_at = _nullable_positive_int(raw_shop.get("established_at"))
+    if established_at is None:
+        return _default_flower_shop_state()
+
+    start_minute = raw_shop.get("business_start_minute")
+    pending_start_minute = raw_shop.get("pending_business_start_minute")
+    try:
+        start_minute = int(start_minute)
+    except (TypeError, ValueError):
+        start_minute = None
+    try:
+        pending_start_minute = int(pending_start_minute)
+    except (TypeError, ValueError):
+        pending_start_minute = None
+    if start_minute is not None and not 0 <= start_minute < 24 * 60:
+        start_minute = None
+    if pending_start_minute is not None and not 0 <= pending_start_minute < 24 * 60:
+        pending_start_minute = None
+
+    pending_effective_at = _nullable_positive_int(raw_shop.get("pending_business_effective_at"))
+    if pending_start_minute is None or pending_effective_at is None:
+        pending_start_minute = None
+        pending_effective_at = None
+    launched_at = _nullable_positive_int(raw_shop.get("launched_at")) if start_minute is not None else None
+    return {
+        "established_at": established_at,
+        "launched_at": launched_at,
+        "shelf_capacity": FLOWER_SHOP_SHELF_CAPACITY,
+        "business_start_minute": start_minute,
+        "pending_business_start_minute": pending_start_minute,
+        "pending_business_effective_at": pending_effective_at,
+        # 3A 尚未开放上架，货架必须保持为空。
+        "slots": [None] * FLOWER_SHOP_SHELF_CAPACITY,
+    }
+
+
 def normalize_state(data, now=None):
     """补齐旧存档字段，并修复 JSON 字典键类型。"""
     if now is None:
@@ -2453,6 +2550,7 @@ def normalize_state(data, now=None):
         return get_default_state()
 
     had_harvest_counts = "flower_harvest_counts" in data
+    had_direct_flower_sale_earned = "direct_flower_sale_earned" in data
     had_cat_state = isinstance(data.get("cat_state"), dict)
     had_last_active_at = "last_active_at" in data
     had_ai_v5_update_notice_seen = "ai_v5_update_notice_seen" in data
@@ -2546,6 +2644,8 @@ def normalize_state(data, now=None):
                 }
             )
     data["bouquet_gifts"] = bouquet_gifts
+    data["bouquet_inventory"] = _normalize_bouquet_inventory(data.get("bouquet_inventory", []))
+    data["flower_shop"] = _normalize_flower_shop(data.get("flower_shop"))
     raw_bouquet_read_count = data.get("human_last_read_bouquet_gift_count")
     if not had_bouquet_read_count:
         # 花束功能上线前已有的赠送记录，在首次升级时默认已查看。
@@ -2609,6 +2709,14 @@ def normalize_state(data, now=None):
             data[field] = int(data.get(field, defaults[field]))
         except (TypeError, ValueError):
             data[field] = defaults[field]
+
+    try:
+        direct_flower_sale_earned = int(data.get("direct_flower_sale_earned", 0))
+    except (TypeError, ValueError):
+        direct_flower_sale_earned = 0
+    if not had_direct_flower_sale_earned:
+        direct_flower_sale_earned = data["total_earned"]
+    data["direct_flower_sale_earned"] = max(0, direct_flower_sale_earned)
 
     # 旧版检查时间为0时，从本次加载开始计时，避免连续刷命令抽事件。
     for field in ("last_letter_check", "last_collectible_check", "last_butterfly_check"):
@@ -3053,6 +3161,117 @@ def get_total_flower_harvests(state):
         int(qty or 0)
         for qty in state.get("flower_harvest_counts", {}).values()
     )
+
+
+def get_flower_shop_eligibility_progress(state):
+    return {
+        "encyclopedia": len(state.get("encyclopedia", [])),
+        "harvests": get_total_flower_harvests(state),
+        "direct_flower_sale_earned": max(0, int(state.get("direct_flower_sale_earned", 0) or 0)),
+    }
+
+
+def is_flower_shop_eligible(state):
+    progress = get_flower_shop_eligibility_progress(state)
+    return (
+        progress["encyclopedia"] >= 10
+        and progress["harvests"] >= 42
+        and progress["direct_flower_sale_earned"] >= 3000
+    )
+
+
+def _flower_shop_local_cycle_start(start_minute, now):
+    local_now = datetime.fromtimestamp(now, DISPLAY_TIMEZONE)
+    return local_now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(
+        minutes=start_minute
+    )
+
+
+def _flower_shop_is_open_for_start(start_minute, now):
+    if start_minute is None:
+        return False
+    local_minute = datetime.fromtimestamp(now, DISPLAY_TIMEZONE).hour * 60 + datetime.fromtimestamp(now, DISPLAY_TIMEZONE).minute
+    elapsed_minutes = (local_minute - start_minute) % (24 * 60)
+    return elapsed_minutes < FLOWER_SHOP_BUSINESS_DURATION_MINUTES
+
+
+def get_next_flower_shop_cycle_at(state, now=None, start_minute=None):
+    if now is None:
+        now = int(time.time())
+    shop = state.get("flower_shop", {})
+    if start_minute is None:
+        start_minute = shop.get("business_start_minute") if isinstance(shop, dict) else None
+    if not isinstance(start_minute, int) or not 0 <= start_minute < 24 * 60:
+        return None
+    candidate = _flower_shop_local_cycle_start(start_minute, now)
+    if candidate.timestamp() <= now:
+        candidate += timedelta(days=1)
+    return int(candidate.timestamp())
+
+
+def _refresh_flower_shop_schedule(state, now):
+    shop = state.get("flower_shop")
+    if not isinstance(shop, dict):
+        return
+    pending_start = shop.get("pending_business_start_minute")
+    pending_effective_at = shop.get("pending_business_effective_at")
+    if (
+        isinstance(pending_start, int)
+        and isinstance(pending_effective_at, int)
+        and now >= pending_effective_at
+    ):
+        shop["business_start_minute"] = pending_start
+        shop["pending_business_start_minute"] = None
+        shop["pending_business_effective_at"] = None
+
+
+def get_flower_shop_public_summary(state, now=None):
+    if now is None:
+        now = int(time.time())
+    shop = state.get("flower_shop", {})
+    if not isinstance(shop, dict):
+        shop = _default_flower_shop_state()
+    start_minute = shop.get("business_start_minute")
+    established = bool(shop.get("established_at"))
+    is_open = bool(
+        established
+        and shop.get("launched_at")
+        and _flower_shop_is_open_for_start(start_minute, now)
+    )
+    slots = shop.get("slots", []) if isinstance(shop.get("slots"), list) else []
+    return {
+        "eligible": is_flower_shop_eligible(state),
+        "eligibility_progress": get_flower_shop_eligibility_progress(state),
+        "established": established,
+        "launched": bool(shop.get("launched_at")),
+        "capacity": int(shop.get("shelf_capacity", 0) or 0),
+        "business_start_minute": start_minute,
+        "business_duration_minutes": FLOWER_SHOP_BUSINESS_DURATION_MINUTES,
+        "pending_business_start_minute": shop.get("pending_business_start_minute"),
+        "pending_business_effective_at": shop.get("pending_business_effective_at"),
+        "is_open": is_open,
+        "next_business_cycle_at": get_next_flower_shop_cycle_at(state, now),
+        "empty_slots": sum(1 for slot in slots if slot is None),
+        "slots": [{"slot": index + 1, "empty": slot is None} for index, slot in enumerate(slots)],
+    }
+
+
+def get_bouquet_inventory_public(state):
+    public_inventory = []
+    for entry in state.get("bouquet_inventory", []):
+        if not isinstance(entry, dict):
+            continue
+        bouquet_id = str(entry.get("bouquet_id", "") or "")
+        bouquet = BOUQUETS.get(bouquet_id, {})
+        public_inventory.append(
+            {
+                "id": str(entry.get("instance_id", "") or ""),
+                "bouquet_id": bouquet_id,
+                "name": str(bouquet.get("name", bouquet_id) or bouquet_id),
+                "components": dict(entry.get("components", {})),
+            }
+        )
+    return public_inventory
 
 
 def get_stage_unlocks(
@@ -3604,6 +3823,81 @@ def _summary(state):
     return text
 
 
+def _parse_bouquet_arguments(parts):
+    bouquet_id = ""
+    message_parts = []
+    for part in parts[1:]:
+        if part.startswith("bouquet_id="):
+            bouquet_id = part.split("=", 1)[1].strip().lower()
+        elif part.startswith("message="):
+            message_parts.append(part.split("=", 1)[1])
+        elif not bouquet_id:
+            bouquet_id = part.lower()
+        else:
+            message_parts.append(part)
+    return bouquet_id, " ".join(message_parts).strip() or None
+
+
+def _craft_bouquet_instance(state, bouquet_id):
+    if bouquet_id not in BOUQUETS:
+        return None, "❌ 没有这款花束，请先使用 make_bouquet 查看配方。"
+    bouquet = BOUQUETS[bouquet_id]
+    options = {item["bouquet_id"]: item for item in get_bouquet_options(state)}
+    option = options.get(bouquet_id)
+    if option is None:
+        return None, f"❌ 还没有发现「{bouquet['name']}」的配方，先收获所需花材吧。"
+    if not option["can_make"]:
+        missing = "、".join(
+            f"{FLOWERS.get(flower_id, {'name': flower_id})['name']}×{quantity}"
+            for flower_id, quantity in option["missing"].items()
+        )
+        return None, f"❌ 鲜花不够，无法制作{bouquet['name']}。缺少：{missing}"
+    for flower_id, quantity in bouquet["components"].items():
+        state["inventory"]["flowers"][flower_id] -= quantity
+        if state["inventory"]["flowers"][flower_id] <= 0:
+            del state["inventory"]["flowers"][flower_id]
+    return {
+        "instance_id": uuid.uuid4().hex,
+        "bouquet_id": bouquet_id,
+        "components": dict(bouquet["components"]),
+    }, None
+
+
+def _record_bouquet_gift(state, bouquet_instance, now, message=None):
+    bouquet_id = bouquet_instance["bouquet_id"]
+    bouquet = BOUQUETS[bouquet_id]
+    state.setdefault("bouquet_gifts", []).append(
+        {
+            "bouquet_id": bouquet_id,
+            "components": dict(bouquet_instance["components"]),
+            "sent_at": now,
+            "message": message,
+        }
+    )
+    event_text = f"💐 小机送给你一束「{bouquet['name']}」。"
+    if message:
+        event_text = event_text[:-1] + "，还附了一张小卡片。"
+    add_event(state, event_text)
+
+
+def _parse_flower_shop_start_minute(value):
+    value = str(value or "").strip()
+    if ":" in value:
+        pieces = value.split(":")
+        if len(pieces) != 2:
+            return None
+        try:
+            hour, minute = (int(piece) for piece in pieces)
+        except ValueError:
+            return None
+        return hour * 60 + minute if 0 <= hour < 24 and 0 <= minute < 60 else None
+    try:
+        minute = int(value)
+    except ValueError:
+        return None
+    return minute if 0 <= minute < 24 * 60 else None
+
+
 
 def process_command(state, command, *, event_source="system"):
     """在传入的存档字典上执行命令，并原地更新状态。
@@ -3621,6 +3915,7 @@ def process_command(state, command, *, event_source="system"):
     event_source = normalize_event_source(event_source)
     now = int(time.time())
     normalize_state(state, now)
+    _refresh_flower_shop_schedule(state, now)
     if state.get("is_frozen"):
         state["is_frozen"] = False
         state["garden_frozen_until"] = 0
@@ -3883,54 +4178,126 @@ def process_command(state, command, *, event_source="system"):
                     add_event(state, f"清理枯萎的{flower_name}（盆{pot_idx + 1}）")
 
     elif action == "make_bouquet":
-        bouquet_id = ""
-        message_parts = []
-        for part in parts[1:]:
-            if part.startswith("bouquet_id="):
-                bouquet_id = part.split("=", 1)[1].strip().lower()
-            elif part.startswith("message="):
-                message_parts.append(part.split("=", 1)[1])
-            elif not bouquet_id:
-                bouquet_id = part.lower()
-            else:
-                message_parts.append(part)
+        bouquet_id, message = _parse_bouquet_arguments(parts)
         if not bouquet_id:
             result = _format_bouquet_options(get_bouquet_options(state))
-        elif bouquet_id not in BOUQUETS:
-            result = "❌ 没有这款花束，请先使用 make_bouquet 查看配方。"
         else:
-            bouquet = BOUQUETS[bouquet_id]
-            options = {item["bouquet_id"]: item for item in get_bouquet_options(state)}
-            option = options.get(bouquet_id)
-            if option is None:
-                result = f"❌ 还没有发现「{bouquet['name']}」的配方，先收获所需花材吧。"
-            elif not option["can_make"]:
-                missing = "、".join(
-                    f"{FLOWERS.get(flower_id, {'name': flower_id})['name']}×{quantity}"
-                    for flower_id, quantity in option["missing"].items()
-                )
-                result = f"❌ 鲜花不够，无法制作{bouquet['name']}。缺少：{missing}"
+            bouquet_instance, error = _craft_bouquet_instance(state, bouquet_id)
+            if error:
+                result = error
             else:
-                for flower_id, quantity in bouquet["components"].items():
-                    state["inventory"]["flowers"][flower_id] -= quantity
-                    if state["inventory"]["flowers"][flower_id] <= 0:
-                        del state["inventory"]["flowers"][flower_id]
-                message = " ".join(message_parts).strip() or None
-                state.setdefault("bouquet_gifts", []).append(
-                    {
-                        "bouquet_id": bouquet_id,
-                        "components": dict(bouquet["components"]),
-                        "sent_at": now,
-                        "message": message,
-                    }
-                )
-                event_text = f"💐 小机送给你一束「{bouquet['name']}」。"
-                if message:
-                    event_text = event_text[:-1] + "，还附了一张小卡片。"
-                add_event(state, event_text)
-                result = f"💐 已将{bouquet['name']}送给人类！"
+                _record_bouquet_gift(state, bouquet_instance, now, message)
+                result = f"💐 已将{BOUQUETS[bouquet_id]['name']}送给人类！"
                 if message:
                     result += " 已附上小卡片。"
+
+    elif action == "craft_bouquet":
+        bouquet_id, _ = _parse_bouquet_arguments(parts)
+        if not bouquet_id:
+            result = "❌ 用法：craft_bouquet bouquet_id=<花束ID>"
+        else:
+            bouquet_instance, error = _craft_bouquet_instance(state, bouquet_id)
+            if error:
+                result = error
+            else:
+                state.setdefault("bouquet_inventory", []).append(bouquet_instance)
+                bouquet_name = BOUQUETS[bouquet_id]["name"]
+                add_event(state, f"制作了一束「{bouquet_name}」")
+                result = f"💐 已制作{bouquet_name}，可从花束背包赠送给人类。"
+
+    elif action == "gift_bouquet":
+        instance_id = ""
+        message_parts = []
+        for part in parts[1:]:
+            if part.startswith("instance_id="):
+                instance_id = part.split("=", 1)[1].strip()
+            elif part.startswith("message="):
+                message_parts.append(part.split("=", 1)[1])
+            elif not instance_id:
+                instance_id = part
+            else:
+                message_parts.append(part)
+        if not instance_id:
+            result = "❌ 用法：gift_bouquet instance_id=<花束实例ID> [message=...]"
+        else:
+            bouquet_inventory = state.setdefault("bouquet_inventory", [])
+            instance_index = next(
+                (index for index, entry in enumerate(bouquet_inventory) if entry.get("instance_id") == instance_id),
+                None,
+            )
+            if instance_index is None:
+                result = "❌ 背包里没有这束花。"
+            else:
+                bouquet_instance = bouquet_inventory.pop(instance_index)
+                message = " ".join(message_parts).strip() or None
+                _record_bouquet_gift(state, bouquet_instance, now, message)
+                result = f"💐 已将{BOUQUETS[bouquet_instance['bouquet_id']]['name']}送给人类！"
+                if message:
+                    result += " 已附上小卡片。"
+
+    elif action == "establish_flower_shop":
+        shop = state["flower_shop"]
+        if shop.get("established_at"):
+            result = "❌ 花店已经建好了，不会重复扣款。"
+        elif not is_flower_shop_eligible(state):
+            progress = get_flower_shop_eligibility_progress(state)
+            result = (
+                "❌ 还不满足建店条件："
+                f"图鉴{progress['encyclopedia']}/10，累计收获{progress['harvests']}/42，"
+                f"直接卖花收入{progress['direct_flower_sale_earned']}/3000。"
+            )
+        elif state["money"] < FLOWER_SHOP_ESTABLISH_COST:
+            result = f"❌ 建造花店需要{FLOWER_SHOP_ESTABLISH_COST}块金币。"
+        else:
+            state["money"] -= FLOWER_SHOP_ESTABLISH_COST
+            state["flower_shop"] = {
+                **_default_flower_shop_state(),
+                "established_at": now,
+                "shelf_capacity": FLOWER_SHOP_SHELF_CAPACITY,
+                "slots": [None] * FLOWER_SHOP_SHELF_CAPACITY,
+            }
+            add_event(state, "建好了花店，准备了3个空货架")
+            result = "🏪 花店建好了！现在有3个空货架，请先设置每天的营业开始时间。"
+
+    elif action == "set_flower_shop_hours":
+        shop = state["flower_shop"]
+        if not shop.get("established_at"):
+            result = "❌ 请先建造花店。"
+        elif len(parts) != 2:
+            result = "❌ 用法：set_flower_shop_hours <HH:MM>"
+        elif shop.get("launched_at") and _flower_shop_is_open_for_start(shop.get("business_start_minute"), now):
+            result = "❌ 花店营业中，闭店后且货架全空时才能调整营业开始时间。"
+        elif any(slot is not None for slot in shop.get("slots", [])):
+            result = "❌ 货架尚有上架商品，清空后才能调整营业开始时间。"
+        else:
+            start_minute = _parse_flower_shop_start_minute(parts[1])
+            if start_minute is None:
+                result = "❌ 营业开始时间请使用 HH:MM（例如 09:30）。"
+            elif shop.get("business_start_minute") is None or not shop.get("launched_at"):
+                shop["business_start_minute"] = start_minute
+                shop["pending_business_start_minute"] = None
+                shop["pending_business_effective_at"] = None
+                result = "🕙 已设置花店每天营业10小时的开始时间。"
+            else:
+                effective_at = get_next_flower_shop_cycle_at(state, now, start_minute)
+                shop["pending_business_start_minute"] = start_minute
+                shop["pending_business_effective_at"] = effective_at
+                result = "🕙 已安排新的营业开始时间，将从下一次营业周期生效。"
+
+    elif action == "launch_flower_shop":
+        shop = state["flower_shop"]
+        if not shop.get("established_at"):
+            result = "❌ 请先建造花店。"
+        elif shop.get("launched_at"):
+            result = "❌ 花店已经正式开业了。"
+        elif shop.get("business_start_minute") is None:
+            result = "❌ 请先设置每天的营业开始时间。"
+        else:
+            shop["launched_at"] = now
+            if _flower_shop_is_open_for_start(shop.get("business_start_minute"), now):
+                result = "🎉 花店正式开业！当前正处于营业时间。"
+            else:
+                result = "🎉 花店正式开业！当前已闭店，等待下一次营业周期。"
 
     elif action == "arrange":
         if len(parts) != 2:
@@ -4002,6 +4369,7 @@ def process_command(state, command, *, event_source="system"):
                 else:
                     state["money"] += total
                     state["total_earned"] += total
+                    state["direct_flower_sale_earned"] += total
                     state["inventory"]["flowers"] = {}
                     add_event(state, f"卖掉所有花，赚了{total}块", source=event_source)
                     result = f"💰 卖掉所有花，赚了{total}块！"
@@ -4020,6 +4388,7 @@ def process_command(state, command, *, event_source="system"):
                 price = FLOWERS[flower_id]["sell_price"] * quantity
                 state["money"] += price
                 state["total_earned"] += price
+                state["direct_flower_sale_earned"] += price
                 state["inventory"]["flowers"][flower_id] -= quantity
                 if state["inventory"]["flowers"][flower_id] <= 0:
                     del state["inventory"]["flowers"][flower_id]
@@ -4390,6 +4759,11 @@ plant <花> <盆号> - 种花（雨天自动浇水，否则需手动浇水才能
 water <盆号|all> - 给花浇水（浇一次永久有效，直到收获）
 harvest <盆号|all> - 收获一盆，或一键收获全部成熟花朵
 make_bouquet [bouquet_id=...] [message=...] - 查看或制作花束并送给人类
+craft_bouquet bouquet_id=<花束ID> - 制作一束花并放进花束背包
+gift_bouquet instance_id=<花束实例ID> [message=...] - 从花束背包赠送
+establish_flower_shop - 满足条件后花费{FLOWER_SHOP_ESTABLISH_COST}块建造花店
+set_flower_shop_hours <HH:MM> - 设置每天固定10小时营业的开始时间
+launch_flower_shop - 在已建店并设置营业时间后正式开业
 sell <花> [数量] - 卖花，或 sell all
 treat <盆号> - 治疗害虫({PEST_TREATMENT_COST}块，本轮不再长虫)
 clear <盆号> - 清理枯萎花（50%概率获得少量金币）

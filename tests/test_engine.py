@@ -1,16 +1,21 @@
 import time
+from datetime import datetime
 from unittest.mock import patch
 
 from game_engine import (
     BOUQUETS,
+    DISPLAY_TIMEZONE,
     FLOWER_UNLOCK_REQUIREMENTS,
     FLOWERS,
     VASE_LIFESPAN_SECONDS,
     WEATHER,
     get_default_state,
     get_bouquet_options,
+    get_bouquet_inventory_public,
+    get_flower_shop_public_summary,
     get_vase_flower_status,
     is_bouquet_discovered,
+    is_flower_shop_eligible,
     is_flower_unlocked,
     normalize_state,
     process_command,
@@ -118,6 +123,90 @@ def test_make_bouquet_is_atomic_and_records_each_gift():
     process_command(state, "make_bouquet bouquet_id=first_meeting")
     assert len(state["bouquet_gifts"]) == 2
     assert all(gift["bouquet_id"] == "first_meeting" for gift in state["bouquet_gifts"])
+
+
+def test_craft_bouquet_creates_instance_and_gift_consumes_only_that_instance():
+    state = fresh_state()
+    state["encyclopedia"] = ["tulip", "baby_breath"]
+    state["inventory"]["flowers"] = {"tulip": 4, "baby_breath": 2}
+
+    assert "已制作初见" in process_command(state, "craft_bouquet bouquet_id=first_meeting")
+    assert len(state["bouquet_inventory"]) == 1
+    instance = state["bouquet_inventory"][0]
+    assert instance["components"] == {"tulip": 2, "baby_breath": 1}
+    assert state["bouquet_gifts"] == []
+    assert state["inventory"]["flowers"] == {"tulip": 2, "baby_breath": 1}
+
+    assert "送给人类" in process_command(state, f"gift_bouquet instance_id={instance['instance_id']}")
+    assert state["bouquet_inventory"] == []
+    assert len(state["bouquet_gifts"]) == 1
+    assert state["bouquet_gifts"][0]["components"] == instance["components"]
+    assert get_bouquet_inventory_public(state) == []
+
+
+def test_bouquet_inventory_normalization_and_legacy_gifts_keep_component_snapshots():
+    state = fresh_state()
+    state["bouquet_gifts"] = [{"bouquet_id": "legacy", "components": {"removed_flower": 2}, "sent_at": 1, "message": None}]
+    state["bouquet_inventory"] = [
+        {"instance_id": "one", "bouquet_id": "first_meeting", "components": {"tulip": "2"}},
+        {"instance_id": "one", "bouquet_id": "first_meeting", "components": {"tulip": 2}},
+        {"instance_id": "bad", "bouquet_id": "first_meeting", "components": {}},
+    ]
+    normalize_state(state)
+    assert state["bouquet_gifts"][0]["components"] == {"removed_flower": 2}
+    assert state["bouquet_inventory"] == [
+        {"instance_id": "one", "bouquet_id": "first_meeting", "components": {"tulip": 2}}
+    ]
+
+
+def test_direct_flower_sale_earned_migrates_once_and_only_grows_on_sell():
+    state = fresh_state()
+    state["total_earned"] = 123
+    state.pop("direct_flower_sale_earned")
+    normalize_state(state)
+    assert state["direct_flower_sale_earned"] == 123
+    state["inventory"]["flowers"] = {"daisy": 2}
+    process_command(state, "sell daisy 2")
+    assert state["direct_flower_sale_earned"] == 131
+    process_command(state, "buy daisy 1")
+    assert state["direct_flower_sale_earned"] == 131
+
+
+def test_flower_shop_requires_monotonic_facts_and_establishes_once():
+    state = fresh_state()
+    state["money"] = 4000
+    assert not is_flower_shop_eligible(state)
+    assert "还不满足" in process_command(state, "establish_flower_shop")
+    state["encyclopedia"] = list(FLOWERS)[:10]
+    state["flower_harvest_counts"] = {"daisy": 42}
+    state["direct_flower_sale_earned"] = 3000
+    assert is_flower_shop_eligible(state)
+    assert "建好了" in process_command(state, "establish_flower_shop")
+    assert state["money"] == 500
+    assert state["flower_shop"]["slots"] == [None, None, None]
+    assert "不会重复扣款" in process_command(state, "establish_flower_shop")
+    assert state["money"] == 500
+
+
+def test_flower_shop_fixed_hours_cross_midnight_and_pending_change():
+    state = fresh_state()
+    state["money"] = 4000
+    state["encyclopedia"] = list(FLOWERS)[:10]
+    state["flower_harvest_counts"] = {"daisy": 42}
+    state["direct_flower_sale_earned"] = 3000
+    process_command(state, "establish_flower_shop")
+    assert "已设置" in process_command(state, "set_flower_shop_hours 22:00")
+    assert "正式开业" in process_command(state, "launch_flower_shop")
+    overnight = int(datetime(2026, 10, 9, 23, 30, tzinfo=DISPLAY_TIMEZONE).timestamp())
+    summary = get_flower_shop_public_summary(state, overnight)
+    assert summary["business_duration_minutes"] == 600
+    assert summary["is_open"] is True
+    assert summary["capacity"] == 3
+    closed = int(datetime(2026, 10, 10, 12, 0, tzinfo=DISPLAY_TIMEZONE).timestamp())
+    with patch("game_engine.time.time", return_value=closed):
+        assert "下一次营业周期生效" in process_command(state, "set_flower_shop_hours 09:00")
+    assert state["flower_shop"]["business_start_minute"] == 22 * 60
+    assert state["flower_shop"]["pending_business_start_minute"] == 9 * 60
 
 
 def test_bouquet_recipes_and_discovery_are_derived_from_encyclopedia():

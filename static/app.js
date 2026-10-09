@@ -639,6 +639,7 @@ function renderAll() {
   renderInventory();
   renderCollection();
   renderEvents();
+  if (document.querySelector(".bouquet-panel.active")) renderBouquetPage();
   startPetCooldownTimer();
 }
 
@@ -939,6 +940,103 @@ function getLatestBouquetCard(gifts) {
   return gifts.find((gift) => String(gift.message || "").trim()) || null;
 }
 
+function flowerComponentText(components) {
+  return Object.entries(components || {})
+    .map(([flowerId, quantity]) => `${catalog.flowers?.[flowerId]?.name || flowerId} ×${quantity}`)
+    .join("、");
+}
+
+function formatShopStartMinute(minute) {
+  if (!Number.isInteger(minute)) return "未设置";
+  return `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
+}
+
+function renderBouquetWorkshop(body) {
+  const panel = document.createElement("section");
+  panel.className = "flower-shop-panel";
+  const title = document.createElement("h3");
+  title.textContent = "制作与花店";
+  panel.append(title);
+
+  const options = Array.isArray(currentState?.bouquet_options) ? currentState.bouquet_options : [];
+  const craft = document.createElement("div");
+  craft.className = "flower-shop-section";
+  craft.innerHTML = "<strong>制作花束</strong>";
+  if (!options.length) {
+    const hint = document.createElement("small");
+    hint.textContent = "先收获配方所需的花材，才会发现花束配方。";
+    craft.append(hint);
+  }
+  for (const option of options) {
+    const row = document.createElement("div");
+    row.className = "flower-shop-row";
+    const text = document.createElement("span");
+    text.textContent = `${option.name}｜${flowerComponentText(option.components)}`;
+    row.append(text, makeButton("制作", `craft_bouquet bouquet_id=${option.bouquet_id}`, "mini-btn", !option.can_make));
+    craft.append(row);
+  }
+  panel.append(craft);
+
+  const bag = document.createElement("div");
+  bag.className = "flower-shop-section";
+  bag.innerHTML = "<strong>持有的花束</strong>";
+  const inventory = Array.isArray(currentState?.bouquet_inventory) ? currentState.bouquet_inventory : [];
+  if (!inventory.length) {
+    const hint = document.createElement("small");
+    hint.textContent = "这里会放入新制作、尚未赠送的花束。";
+    bag.append(hint);
+  }
+  for (const bouquet of inventory) {
+    const row = document.createElement("div");
+    row.className = "flower-shop-row";
+    const text = document.createElement("span");
+    text.textContent = `${bouquet.name}｜${flowerComponentText(bouquet.components)}`;
+    row.append(text, makeButton("赠送", `gift_bouquet instance_id=${bouquet.id}`));
+    bag.append(row);
+  }
+  panel.append(bag);
+
+  const shop = currentState?.flower_shop || {};
+  const shopSection = document.createElement("div");
+  shopSection.className = "flower-shop-section";
+  const progress = shop.eligibility_progress || {};
+  const heading = document.createElement("strong");
+  heading.textContent = "花店";
+  const progressText = document.createElement("small");
+  progressText.textContent = `条件：图鉴 ${progress.encyclopedia || 0}/10｜收获 ${progress.harvests || 0}/42｜直接卖花 ${progress.direct_flower_sale_earned || 0}/3000`;
+  shopSection.append(heading, progressText);
+  if (!shop.established) {
+    const button = makeButton("建造花店 · 3500金币", "establish_flower_shop", "mini-btn gold", !shop.eligible || currentState.money < 3500);
+    shopSection.append(button);
+  } else {
+    const status = document.createElement("small");
+    status.textContent = shop.launched ? (shop.is_open ? "营业中" : "已闭店，等待下一次营业") : "已建成，尚未正式开业";
+    const shelves = document.createElement("div");
+    shelves.className = "flower-shop-shelves";
+    for (const slot of shop.slots || []) {
+      const shelf = document.createElement("span");
+      shelf.textContent = `货架 ${slot.slot}｜${slot.empty ? "空" : "已上架"}`;
+      shelves.append(shelf);
+    }
+    const hours = document.createElement("div");
+    hours.className = "flower-shop-row";
+    const timeInput = document.createElement("input");
+    timeInput.type = "time";
+    timeInput.value = Number.isInteger(shop.business_start_minute) ? formatShopStartMinute(shop.business_start_minute) : "";
+    const setHours = makeButton("设置每日10小时", null, "mini-btn");
+    setHours.addEventListener("click", () => {
+      if (timeInput.value) runCommand(`set_flower_shop_hours ${timeInput.value}`, setHours);
+    });
+    hours.append(timeInput, setHours);
+    const next = document.createElement("small");
+    next.textContent = shop.next_business_cycle_at ? `下次营业周期：${formatBouquetTimestamp(shop.next_business_cycle_at)}` : "请先设置营业开始时间";
+    shopSection.append(status, shelves, hours, next);
+    if (!shop.launched) shopSection.append(makeButton("正式开业", "launch_flower_shop", "mini-btn gold", !Number.isInteger(shop.business_start_minute)));
+  }
+  panel.append(shopSection);
+  body.append(panel);
+}
+
 function captureUnreadBouquetGiftIndexes() {
   bouquetVisitNewGiftIndexes = new Set();
   if (!hasUnreadBouquetGifts) return;
@@ -1062,6 +1160,7 @@ function renderBouquetPage(activeTab = "bouquets") {
       body.append(list);
     }
   } else {
+    renderBouquetWorkshop(body);
     const grid = document.createElement("div");
     grid.className = "bouquet-shelf-grid";
     const discoveredOptions = new Map(

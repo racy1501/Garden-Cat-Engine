@@ -40,6 +40,7 @@ from game_engine import (
     apply_move_with_cat_reset,
     apply_offline_progress,
     get_actual_grow_speed,
+    get_bouquet_inventory_public,
     get_bouquet_options,
     get_event_source_label,
     get_current_cat_name,
@@ -48,6 +49,7 @@ from game_engine import (
     get_collectible_status_text,
     get_collectible_unlock_hint,
     get_game_time_info,
+    get_flower_shop_public_summary,
     get_next_pot_cost,
     refresh_garden_events,
     is_collectible_unlocked,
@@ -987,6 +989,8 @@ def _ai_summary(state: dict[str, Any], *, events_before: list | None = None) -> 
         "offline_summary": _build_offline_summary_for_ai(state),
         "inventory_counts": _build_inventory_counts_for_ai(state),
         "bouquet_options": get_bouquet_options(state),
+        "bouquet_inventory": get_bouquet_inventory_public(state),
+        "flower_shop": get_flower_shop_public_summary(state, now),
         "latest_event": latest_event,
     }
 
@@ -1139,6 +1143,7 @@ def _summary(state: dict[str, Any], *, events_before: list | None = None) -> dic
         "flower_harvest_counts": state.get("flower_harvest_counts", {}),
         "unlocked_flowers": [fid for fid in FLOWERS if is_flower_unlocked(state, fid)],
         "total_earned": state.get("total_earned", 0),
+        "direct_flower_sale_earned": state.get("direct_flower_sale_earned", 0),
         "max_pots": state.get("max_pots", len(pots)),
         "pot_capacity": MAX_POTS,
         "next_pot_cost": get_next_pot_cost(state),
@@ -1146,6 +1151,8 @@ def _summary(state: dict[str, Any], *, events_before: list | None = None) -> dic
         "pots": pots,
         "vase": {"capacity": VASE_CAPACITY, "flowers": vase},
         "bouquet_options": get_bouquet_options(state),
+        "bouquet_inventory": get_bouquet_inventory_public(state),
+        "flower_shop": get_flower_shop_public_summary(state, now),
         "bouquet_gifts": [
             {
                 **gift,

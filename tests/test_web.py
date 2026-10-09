@@ -385,3 +385,18 @@ def test_v4811_live_timers_encyclopedia_shortcut_and_lily_asset():
     assert "waitForNextPaint" in js
     assert ".pending-action" in css
     assert ".metric-link" in css
+
+
+def test_flower_shop_3a_uses_bouquet_page_without_a_separate_shop_screen():
+    root = Path(__file__).resolve().parents[1]
+    html = (root / "templates" / "index.html").read_text(encoding="utf-8")
+    js = (root / "static" / "app.js").read_text(encoding="utf-8")
+    css = (root / "static" / "style.css").read_text(encoding="utf-8")
+
+    assert "renderBouquetWorkshop" in js
+    assert "craft_bouquet bouquet_id=" in js
+    assert "gift_bouquet instance_id=" in js
+    assert "set_flower_shop_hours" in js
+    assert "launch_flower_shop" in js
+    assert ".flower-shop-panel" in css
+    assert "flower-shop-panel" not in html

@@ -502,6 +502,43 @@ def test_ai_bouquet_command_and_web_collection_state(api):
     assert len(catalog["bouquets"]) == 12
 
 
+def test_flower_shop_and_bouquet_inventory_have_public_summary_only(api):
+    module, client = api
+    session_id, human_headers = create_human_garden(client)
+    state = module.db_load_state(session_id)
+    state["money"] = 4000
+    state["encyclopedia"] = list(module.FLOWERS)[:10]
+    state["flower_harvest_counts"] = {"daisy": 42}
+    state["direct_flower_sale_earned"] = 3000
+    state["inventory"]["flowers"] = {"tulip": 2, "baby_breath": 1}
+    state["encyclopedia"].extend(["tulip", "baby_breath"])
+    module.db_save_state(session_id, state)
+    ai_headers = {"X-API-Key": "test-key"}
+
+    crafted = client.post(
+        "/api/cmd", headers=ai_headers,
+        json={"session_id": session_id, "command": "craft_bouquet bouquet_id=first_meeting"},
+    ).get_json()
+    assert crafted["ok"] is True
+    item = crafted["state"]["bouquet_inventory"][0]
+    assert set(item) == {"id", "bouquet_id", "name", "components"}
+
+    established = client.post(
+        "/web/cmd", headers=human_headers,
+        json={"session_id": session_id, "command": "establish_flower_shop"},
+    ).get_json()["state"]
+    shop = established["flower_shop"]
+    assert shop["eligible"] is True
+    assert shop["capacity"] == 3
+    assert shop["empty_slots"] == 3
+    assert "established_at" not in shop
+    assert "flower_shop" not in established["inventory"]
+
+    ai_state = client.get(f"/api/status?session_id={session_id}", headers=ai_headers).get_json()["state"]
+    assert ai_state["flower_shop"]["eligibility_progress"]["direct_flower_sale_earned"] == 3000
+    assert ai_state["bouquet_inventory"][0]["id"] == item["id"]
+
+
 def test_bouquet_unread_cursor_is_durable_and_legacy_gifts_are_read(api):
     module, client = api
     session_id, human_headers = create_human_garden(client)
