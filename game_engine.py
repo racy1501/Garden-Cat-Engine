@@ -331,6 +331,9 @@ FLOWER_SHOP_SHELF_CAPACITY = 3
 FLOWER_SHOP_SHELF_CAPACITIES = (3, 6, 9)
 FLOWER_SHOP_SHELF_UPGRADE_COSTS = {3: 1500, 6: 2500}
 FLOWER_SHOP_FRESHENER_COST = 1800
+FLOWER_SHOP_CAT_BUFF_CHANCE = 0.12
+FLOWER_SHOP_CAT_BUFF_DURATION_SECONDS = 4 * 60 * 60
+FLOWER_SHOP_CAT_BUFF_MULTIPLIER = 1.10
 FLOWER_SHOP_BUSINESS_DURATION_MINUTES = 10 * 60
 FLOWER_SHOP_SALE_CHANCE = 0.82
 FLOWER_SHOP_SALE_WAIT_MAX_SECONDS = 10 * 60 * 60
@@ -1032,6 +1035,22 @@ def maybe_drop_cat_collectible(state, drop_context, now=None, source=None):
     return award_cat_collectible(state, collectible, now=now, source=source)
 
 
+def _maybe_trigger_flower_shop_cat_buff(state, now, buff_windows=None):
+    shop = state.get("flower_shop")
+    if not isinstance(shop, dict) or not shop.get("established_at"):
+        return None
+    if random.random() >= FLOWER_SHOP_CAT_BUFF_CHANCE:
+        return None
+    start_at = int(now)
+    until_at = start_at + FLOWER_SHOP_CAT_BUFF_DURATION_SECONDS
+    shop["shop_buff_until"] = until_at
+    if isinstance(buff_windows, list):
+        buff_windows.append({"start_at": start_at, "until_at": until_at})
+    message = "🐾 猫咪带回的小发现给花店添了好运，接下来4小时成交金额会提高。"
+    add_event(state, message, now=start_at)
+    return message
+
+
 def get_collectible_unique_count(state):
     """返回已获得的不同收集品数量。"""
     valid_ids = {item["id"] for item in CAT_COLLECTIBLES}
@@ -1258,7 +1277,7 @@ def _enter_waiting_name_phase(state, now, *, force_location=CAT_LOCATION_GARDEN)
     return changed
 
 
-def settle_cat_lifecycle(state, target_time, letter_context=None):
+def settle_cat_lifecycle(state, target_time, letter_context=None, shop_buff_windows=None):
     if not isinstance(state, dict):
         return []
 
@@ -1433,6 +1452,13 @@ def settle_cat_lifecycle(state, target_time, letter_context=None):
                 )
                 if collectible_message:
                     events.append(collectible_message)
+                    buff_message = _maybe_trigger_flower_shop_cat_buff(
+                        state,
+                        outing_return_at,
+                        shop_buff_windows,
+                    )
+                    if buff_message:
+                        events.append(buff_message)
                 cat_state["last_lifecycle_settled_at"] = outing_return_at
                 continue
 
@@ -1461,6 +1487,7 @@ def _default_flower_shop_state():
         "launched_at": None,
         "shelf_capacity": 0,
         "has_freshener": False,
+        "shop_buff_until": 0,
         "business_start_minute": None,
         "pending_business_start_minute": None,
         "pending_business_effective_at": None,
@@ -2667,6 +2694,7 @@ def _normalize_flower_shop(raw_shop):
         "launched_at": launched_at,
         "shelf_capacity": capacity,
         "has_freshener": bool(raw_shop.get("has_freshener", False)),
+        "shop_buff_until": _safe_nonnegative_int(raw_shop.get("shop_buff_until", 0), 0),
         "business_start_minute": start_minute,
         "pending_business_start_minute": pending_start_minute,
         "pending_business_effective_at": pending_effective_at,
@@ -3418,13 +3446,42 @@ def _get_flower_shop_price_details(slot, at_timestamp):
     }
 
 
-def settle_flower_shop(state, now=None):
+def _flower_shop_sale_has_cat_buff(
+    sold_at,
+    settlement_start,
+    previous_shop_buff_until,
+    shop_buff_windows,
+):
+    sold_at = int(sold_at)
+    settlement_start = int(settlement_start)
+    previous_shop_buff_until = _safe_nonnegative_int(previous_shop_buff_until, 0)
+    if settlement_start <= sold_at < previous_shop_buff_until:
+        return True
+    for window in shop_buff_windows or ():
+        if not isinstance(window, dict):
+            continue
+        start_at = _safe_nonnegative_int(window.get("start_at", 0), 0)
+        until_at = _safe_nonnegative_int(window.get("until_at", 0), 0)
+        if start_at <= sold_at < until_at:
+            return True
+    return False
+
+
+def settle_flower_shop(
+    state,
+    now=None,
+    *,
+    previous_shop_buff_until=None,
+    shop_buff_windows=None,
+):
     if now is None:
         now = int(time.time())
     now = int(now)
     shop = state.get("flower_shop")
     if not isinstance(shop, dict) or not shop.get("launched_at"):
         return []
+    if previous_shop_buff_until is None:
+        previous_shop_buff_until = shop.get("shop_buff_until", 0)
     start_minute = shop.get("business_start_minute")
     if not isinstance(start_minute, int):
         return []
@@ -3462,6 +3519,15 @@ def settle_flower_shop(state, now=None):
         if sold_at is not None and sold_at < expires_at:
             price_details = _get_flower_shop_price_details(slot, sold_at)
             sale_price = price_details["price"]
+            if _flower_shop_sale_has_cat_buff(
+                sold_at,
+                from_timestamp,
+                previous_shop_buff_until,
+                shop_buff_windows,
+            ):
+                sale_price = _round_flower_shop_price(
+                    sale_price * FLOWER_SHOP_CAT_BUFF_MULTIPLIER
+                )
             state["money"] += sale_price
             state["total_earned"] += sale_price
             bouquet_name = BOUQUETS.get(slot["bouquet_id"], {}).get("name", slot["bouquet_id"])
@@ -3487,6 +3553,37 @@ def settle_flower_shop(state, now=None):
             slots[slot_index] = None
             results.append({"type": "expired", "slot": slot_index + 1, "expired_at": expires_at})
     return results
+
+
+def _settle_cat_then_flower_shop(
+    state,
+    cat_target_time,
+    *,
+    flower_shop_target_time=None,
+    letter_context=None,
+):
+    if flower_shop_target_time is None:
+        flower_shop_target_time = cat_target_time
+    shop = state.get("flower_shop")
+    previous_shop_buff_until = (
+        _safe_nonnegative_int(shop.get("shop_buff_until", 0), 0)
+        if isinstance(shop, dict)
+        else 0
+    )
+    shop_buff_windows = []
+    lifecycle_messages = settle_cat_lifecycle(
+        state,
+        cat_target_time,
+        letter_context=letter_context,
+        shop_buff_windows=shop_buff_windows,
+    )
+    flower_shop_results = settle_flower_shop(
+        state,
+        flower_shop_target_time,
+        previous_shop_buff_until=previous_shop_buff_until,
+        shop_buff_windows=shop_buff_windows,
+    )
+    return lifecycle_messages, flower_shop_results
 
 
 def get_next_flower_shop_cycle_at(state, now=None, start_minute=None):
@@ -3534,6 +3631,8 @@ def get_flower_shop_public_summary(state, now=None):
     )
     slots = shop.get("slots", []) if isinstance(shop.get("slots"), list) else []
     shelf_capacity = int(shop.get("shelf_capacity", 0) or 0)
+    shop_buff_until = _safe_nonnegative_int(shop.get("shop_buff_until", 0), 0)
+    shop_buff_active = bool(established and now < shop_buff_until)
     next_shelf_capacity = next(
         (capacity for capacity in FLOWER_SHOP_SHELF_CAPACITIES if capacity > shelf_capacity),
         None,
@@ -3577,6 +3676,10 @@ def get_flower_shop_public_summary(state, now=None):
         "next_shelf_upgrade_cost": FLOWER_SHOP_SHELF_UPGRADE_COSTS.get(shelf_capacity),
         "has_freshener": bool(shop.get("has_freshener", False)),
         "freshener_cost": None if shop.get("has_freshener", False) else FLOWER_SHOP_FRESHENER_COST,
+        "shop_buff_active": shop_buff_active,
+        "shop_buff_until": shop_buff_until if shop_buff_active else None,
+        "shop_buff_remaining_seconds": max(0, shop_buff_until - now) if shop_buff_active else 0,
+        "shop_buff_effect": "成交金额 +10%" if shop_buff_active else None,
         "business_start_minute": start_minute,
         "business_duration_minutes": FLOWER_SHOP_BUSINESS_DURATION_MINUTES,
         "pending_business_start_minute": shop.get("pending_business_start_minute"),
@@ -4071,11 +4174,11 @@ def apply_offline_progress(state, now=None):
         now = int(time.time())
     normalize_state(state, now)
     _refresh_flower_shop_schedule(state, now)
-    flower_shop_results = settle_flower_shop(state, now)
 
     last_active_at = _safe_nonnegative_int(state.get("last_active_at", state.get("last_update", now)), now)
     elapsed = max(0, now - last_active_at)
     if elapsed <= 0:
+        flower_shop_results = settle_flower_shop(state, now)
         state["last_active_at"] = now
         return bool(flower_shop_results)
 
@@ -4096,7 +4199,11 @@ def apply_offline_progress(state, now=None):
     if starting_mood is not None:
         state["cat_stats"]["mood"] = min(starting_mood, float(state["cat_stats"].get("mood", starting_mood)))
         _sync_cat_stats_views(state)
-    settle_cat_lifecycle(state, settle_at)
+    _, flower_shop_results = _settle_cat_then_flower_shop(
+        state,
+        settle_at,
+        flower_shop_target_time=now,
+    )
     if skipped_seconds > 0:
         # 超限时间不再执行：保留结算终点的状态和计划剩余等待。
         # 只移动尚未到期的计划，已发生事件及状态变化时间保持原值。
@@ -4251,7 +4358,6 @@ def process_command(state, command, *, event_source="system"):
     now = int(time.time())
     normalize_state(state, now)
     _refresh_flower_shop_schedule(state, now)
-    settle_flower_shop(state, now)
     if state.get("is_frozen"):
         state["is_frozen"] = False
         state["garden_frozen_until"] = 0
@@ -4265,7 +4371,11 @@ def process_command(state, command, *, event_source="system"):
     update_cat_stats(state, now, previous_weather_data)
     weather_data, weather_messages = get_weather_info(state, now)
     pest_messages = check_pests(state, now)
-    lifecycle_messages = settle_cat_lifecycle(state, now, letter_context=letter_context)
+    lifecycle_messages, _ = _settle_cat_then_flower_shop(
+        state,
+        now,
+        letter_context=letter_context,
+    )
     _consume_offline_cat_portions(state)
     softlock_recovered = apply_economic_softlock_safety_net(state)
 

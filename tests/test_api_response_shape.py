@@ -536,12 +536,29 @@ def test_flower_shop_and_bouquet_inventory_have_public_summary_only(api):
     assert shop["next_shelf_upgrade_cost"] == 1500
     assert shop["has_freshener"] is False
     assert shop["freshener_cost"] == 1800
+    assert shop["shop_buff_active"] is False
+    assert shop["shop_buff_until"] is None
+    assert shop["shop_buff_remaining_seconds"] == 0
     assert "established_at" not in shop
     assert "flower_shop" not in established["inventory"]
 
     ai_state = client.get(f"/api/status?session_id={session_id}", headers=ai_headers).get_json()["state"]
     assert ai_state["flower_shop"]["eligibility_progress"]["direct_flower_sale_earned"] == 3000
     assert ai_state["bouquet_inventory"][0]["id"] == item["id"]
+
+    saved = module.db_load_state(session_id)
+    buff_until = int(ge.time.time()) + 3600
+    saved["flower_shop"]["shop_buff_until"] = buff_until
+    module.db_save_state(session_id, saved)
+    active_shop = client.get(
+        f"/api/status?session_id={session_id}", headers=ai_headers
+    ).get_json()["state"]["flower_shop"]
+    assert active_shop["shop_buff_active"] is True
+    assert active_shop["shop_buff_until"] == buff_until
+    assert 0 < active_shop["shop_buff_remaining_seconds"] <= 3600
+    assert active_shop["shop_buff_effect"] == "成交金额 +10%"
+    assert "shop_buff_windows" not in active_shop
+    assert "buff_roll" not in active_shop
 
 
 def test_flower_shop_listing_summary_exposes_price_but_hides_random_facts(api, monkeypatch):

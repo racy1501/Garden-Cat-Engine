@@ -186,6 +186,33 @@ def test_no_new_random_plan_when_skipping_time(environment, monkeypatch):
     assert state["events"] == baseline["events"]
 
 
+def test_cat_shop_buff_does_not_replay_returns_beyond_offline_cap(environment, monkeypatch):
+    clock, _ = environment
+    state = make_cat("home")
+    state["flower_shop"] = {
+        **ge._default_flower_shop_state(),
+        "established_at": START - 100,
+        "shelf_capacity": 3,
+        "slots": [None, None, None],
+    }
+    state["cat_state"]["next_outing_at"] = START + 73 * 3600
+    state["cat_state"]["last_lifecycle_settled_at"] = START
+    drop_calls = []
+    monkeypatch.setattr(
+        ge,
+        "maybe_drop_cat_collectible",
+        lambda *args, **kwargs: drop_calls.append((args, kwargs)) or "🎁 带回藏品",
+    )
+    monkeypatch.setattr(ge.random, "random", lambda: 0.0)
+
+    clock[0] = START + 80 * 3600
+    ge.apply_offline_progress(state)
+
+    assert drop_calls == []
+    assert state["flower_shop"]["shop_buff_until"] == 0
+    assert state["cat_state"]["next_outing_at"] == START + 81 * 3600
+
+
 def test_flower_growth_after_resume_counts_only_new_time(environment):
     clock, api = environment
     state = make_cat("home")

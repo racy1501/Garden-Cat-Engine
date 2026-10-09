@@ -1023,6 +1023,15 @@ function renderBouquetWorkshop(body) {
   } else {
     const status = document.createElement("small");
     status.textContent = shop.launched ? (shop.is_open ? "营业中" : "已闭店，等待下一次营业") : "已建成，尚未正式开业";
+    const buff = document.createElement("div");
+    buff.className = "flower-shop-buff";
+    if (shop.shop_buff_active) {
+      const buffTitle = document.createElement("strong");
+      buffTitle.textContent = "🐾 猫咪好运";
+      const buffText = document.createElement("small");
+      buffText.textContent = `成交金额 +10%｜剩余 ${formatDuration(shop.shop_buff_remaining_seconds || 0)}`;
+      buff.append(buffTitle, buffText);
+    }
     const shelves = document.createElement("div");
     shelves.className = "flower-shop-shelves";
     for (const slot of shop.slots || []) {
@@ -1091,7 +1100,9 @@ function renderBouquetWorkshop(body) {
     hours.append(timeInput, setHours);
     const next = document.createElement("small");
     next.textContent = shop.next_business_cycle_at ? `下次营业周期：${formatBouquetTimestamp(shop.next_business_cycle_at)}` : "请先设置营业开始时间";
-    shopSection.append(status, shelves, facilities, hours, next);
+    shopSection.append(status);
+    if (shop.shop_buff_active) shopSection.append(buff);
+    shopSection.append(shelves, facilities, hours, next);
     if (!shop.launched) shopSection.append(makeButton("正式开业", "launch_flower_shop", "mini-btn gold", !Number.isInteger(shop.business_start_minute)));
   }
   panel.append(shopSection);

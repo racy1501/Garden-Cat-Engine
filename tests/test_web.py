@@ -420,3 +420,8 @@ def test_flower_shop_3b_frontend_lists_bouquets_without_exposing_sale_odds():
     assert "shop.slots || []" in js
     assert "不延长24小时报废时间" in js
     assert ".flower-shop-facilities" in css
+    assert "shop.shop_buff_active" in js
+    assert "猫咪好运" in js
+    assert "成交金额 +10%" in js
+    assert "12%" not in js
+    assert ".flower-shop-buff" in css

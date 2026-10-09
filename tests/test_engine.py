@@ -1,7 +1,9 @@
+import copy
 import time
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
+import game_engine as ge
 from game_engine import (
     BOUQUETS,
     DISPLAY_TIMEZONE,
@@ -354,6 +356,246 @@ def _listed_shop_state(listed_at, *, will_sell, remaining):
     }
     normalize_state(state, now=listed_at)
     return state
+
+
+def _prepare_adopted_cat_return(state, return_at):
+    state["cat"] = {"name": "栗子"}
+    state["cat_stats"] = ge._default_v5_cat_stats()
+    state["cat_collectibles_unlocked"] = True
+    state["cat_state"].update(
+        phase=ge.CAT_PHASE_ADOPTED,
+        location=ge.CAT_LOCATION_AWAY,
+        outing_return_at=return_at,
+        next_outing_at=0,
+        last_lifecycle_settled_at=return_at - 1,
+    )
+
+
+def test_cat_shop_buff_only_rolls_after_adopted_return_collectible():
+    return_at = int(time.time())
+    state = fresh_state()
+    state["flower_shop"] = {
+        **ge._default_flower_shop_state(),
+        "established_at": return_at - 100,
+        "shelf_capacity": 3,
+        "slots": [None, None, None],
+    }
+    _prepare_adopted_cat_return(state, return_at)
+    windows = []
+    with patch("game_engine.maybe_drop_cat_collectible", return_value=None), patch(
+        "game_engine.random.random"
+    ) as buff_roll:
+        ge.settle_cat_lifecycle(state, return_at, shop_buff_windows=windows)
+    buff_roll.assert_not_called()
+    assert state["flower_shop"]["shop_buff_until"] == 0
+    assert windows == []
+
+    _prepare_adopted_cat_return(state, return_at + 60)
+    with patch("game_engine.maybe_drop_cat_collectible", return_value="🎁 带回藏品"), patch(
+        "game_engine.random.random", return_value=0.01
+    ) as buff_roll:
+        ge.settle_cat_lifecycle(state, return_at + 60, shop_buff_windows=windows)
+        ge.settle_cat_lifecycle(state, return_at + 60, shop_buff_windows=windows)
+    buff_roll.assert_called_once_with()
+    assert state["flower_shop"]["shop_buff_until"] == return_at + 60 + 4 * 3600
+    assert windows == [{"start_at": return_at + 60, "until_at": return_at + 60 + 4 * 3600}]
+    with patch("game_engine.random.random") as summary_roll:
+        normalize_state(state, now=return_at + 60)
+        get_flower_shop_public_summary(state, return_at + 60)
+        get_flower_shop_public_summary(state, return_at + 61)
+    summary_roll.assert_not_called()
+
+    previous_until = state["flower_shop"]["shop_buff_until"]
+    _prepare_adopted_cat_return(state, return_at + 120)
+    with patch("game_engine.maybe_drop_cat_collectible", return_value="🎁 带回藏品"), patch(
+        "game_engine.random.random", return_value=0.50
+    ) as buff_roll:
+        ge.settle_cat_lifecycle(state, return_at + 120, shop_buff_windows=windows)
+    buff_roll.assert_called_once_with()
+    assert state["flower_shop"]["shop_buff_until"] == previous_until
+
+
+def test_visitor_collectible_never_triggers_cat_shop_buff():
+    leave_at = int(time.time())
+    state = fresh_state()
+    state["flower_shop"] = {
+        **ge._default_flower_shop_state(),
+        "established_at": leave_at - 100,
+        "shelf_capacity": 3,
+        "slots": [None, None, None],
+    }
+    state["cat"] = {"name": "栗子"}
+    state["cat_stats"] = ge._default_v5_cat_stats()
+    state["cat_state"].update(
+        phase=ge.CAT_PHASE_VISITOR,
+        location=ge.CAT_LOCATION_GARDEN,
+        current_visit_leave_at=leave_at,
+        stay_deadline_at=leave_at + 3600,
+        last_lifecycle_settled_at=leave_at - 1,
+    )
+    with patch("game_engine.maybe_drop_cat_collectible", return_value="🎁 带回藏品"), patch(
+        "game_engine.random.random"
+    ) as buff_roll:
+        ge.settle_cat_lifecycle(state, leave_at, shop_buff_windows=[])
+    buff_roll.assert_not_called()
+    assert state["flower_shop"]["shop_buff_until"] == 0
+
+
+def test_cat_shop_buff_refreshes_from_second_return_without_stacking():
+    first_return = int(time.time())
+    state = fresh_state()
+    state["flower_shop"] = {
+        **ge._default_flower_shop_state(),
+        "established_at": first_return - 100,
+        "shelf_capacity": 3,
+        "slots": [None, None, None],
+    }
+    windows = []
+    with patch("game_engine.maybe_drop_cat_collectible", return_value="🎁 带回藏品"), patch(
+        "game_engine.random.random", return_value=0.0
+    ):
+        _prepare_adopted_cat_return(state, first_return)
+        ge.settle_cat_lifecycle(state, first_return, shop_buff_windows=windows)
+        second_return = first_return + 3600
+        _prepare_adopted_cat_return(state, second_return)
+        ge.settle_cat_lifecycle(state, second_return, shop_buff_windows=windows)
+
+    assert state["flower_shop"]["shop_buff_until"] == second_return + 4 * 3600
+    assert windows == [
+        {"start_at": first_return, "until_at": first_return + 4 * 3600},
+        {"start_at": second_return, "until_at": second_return + 4 * 3600},
+    ]
+
+
+def test_one_cat_lifecycle_pass_can_emit_multiple_temporary_buff_windows():
+    first_return = int(time.time())
+    target_at = first_return + 50
+    state = fresh_state()
+    state["flower_shop"] = {
+        **ge._default_flower_shop_state(),
+        "established_at": first_return - 100,
+        "shelf_capacity": 3,
+        "slots": [None, None, None],
+    }
+    _prepare_adopted_cat_return(state, first_return)
+    windows = []
+    with patch("game_engine.maybe_drop_cat_collectible", return_value="🎁 带回藏品"), patch(
+        "game_engine.random.random", return_value=0.0
+    ) as buff_roll, patch(
+        "game_engine._schedule_next_adopted_outing",
+        side_effect=lambda cat_state, base_time: cat_state.__setitem__("next_outing_at", base_time + 10),
+    ), patch("game_engine._roll_cat_outing_duration_seconds", return_value=10):
+        ge.settle_cat_lifecycle(state, target_at, shop_buff_windows=windows)
+
+    assert buff_roll.call_count == 3
+    assert [window["start_at"] for window in windows] == [
+        first_return,
+        first_return + 20,
+        first_return + 40,
+    ]
+    assert state["flower_shop"]["shop_buff_until"] == first_return + 40 + 4 * 3600
+
+
+def test_cat_shop_buff_requires_established_shop_and_summary_never_rolls():
+    return_at = int(time.time())
+    state = fresh_state()
+    _prepare_adopted_cat_return(state, return_at)
+    with patch("game_engine.maybe_drop_cat_collectible", return_value="🎁 带回藏品"), patch(
+        "game_engine.random.random"
+    ) as buff_roll:
+        ge.settle_cat_lifecycle(state, return_at, shop_buff_windows=[])
+        normalize_state(state, now=return_at)
+        summary = get_flower_shop_public_summary(state, return_at)
+    buff_roll.assert_not_called()
+    assert summary["shop_buff_active"] is False
+    assert summary["shop_buff_until"] is None
+
+
+def test_flower_shop_sale_buff_uses_real_sold_at_without_changing_sale_plan():
+    listed_dt = datetime(2026, 10, 9, 7, 0, tzinfo=DISPLAY_TIMEZONE)
+    listed_at = int(listed_dt.timestamp())
+    cases = (
+        (9, 2 * 3600, 10, 61),
+        (10, 1 * 3600, 12, 55),
+        (9, 6 * 3600, 15, 48),
+    )
+    for return_hour, sale_wait, target_hour, expected_price in cases:
+        state = _listed_shop_state(listed_at, will_sell=True, remaining=sale_wait)
+        return_at = int(listed_dt.replace(hour=return_hour).timestamp())
+        target_at = int(listed_dt.replace(hour=target_hour).timestamp())
+        _prepare_adopted_cat_return(state, return_at)
+        original_profile = list(state["flower_shop"]["slots"][0]["pricing_profile"])
+        before_direct = state["direct_flower_sale_earned"]
+        with patch("game_engine.maybe_drop_cat_collectible", return_value="🎁 带回藏品"), patch(
+            "game_engine.random.random", return_value=0.0
+        ), patch("game_engine._schedule_next_adopted_outing") as schedule_next:
+            schedule_next.side_effect = lambda cat_state, base_time: cat_state.__setitem__(
+                "next_outing_at", target_at + 3600
+            )
+            _, results = ge._settle_cat_then_flower_shop(state, target_at)
+        assert results[0]["sold_at"] == listed_at + 3600 + sale_wait
+        assert results[0]["price"] == expected_price
+        assert state["direct_flower_sale_earned"] == before_direct
+        assert state["total_earned"] == expected_price
+        assert original_profile == ge._default_flower_shop_pricing_profile()
+
+
+def test_flower_shop_buff_windows_do_not_stack_and_old_buff_starts_at_slot_boundary():
+    listed_dt = datetime(2026, 10, 9, 7, 0, tzinfo=DISPLAY_TIMEZONE)
+    listed_at = int(listed_dt.timestamp())
+    state = _listed_shop_state(listed_at, will_sell=True, remaining=2 * 3600)
+    sold_at = int(listed_dt.replace(hour=10).timestamp())
+    result = settle_flower_shop(
+        state,
+        sold_at,
+        previous_shop_buff_until=0,
+        shop_buff_windows=[
+            {"start_at": sold_at - 10, "until_at": sold_at + 100},
+            {"start_at": sold_at - 5, "until_at": sold_at + 200},
+        ],
+    )
+    assert result[0]["price"] == 61
+
+    state = _listed_shop_state(listed_at, will_sell=True, remaining=3600)
+    state["flower_shop"]["slots"][0]["last_settled_at"] = int(listed_dt.replace(hour=9).timestamp())
+    result = settle_flower_shop(
+        state,
+        int(listed_dt.replace(hour=10).timestamp()),
+        previous_shop_buff_until=int(listed_dt.replace(hour=11).timestamp()),
+    )
+    assert result[0]["price"] == 61
+
+
+def test_online_and_offline_entry_points_apply_same_cat_shop_buff_result():
+    listed_dt = datetime(2026, 10, 9, 7, 0, tzinfo=DISPLAY_TIMEZONE)
+    listed_at = int(listed_dt.timestamp())
+    return_at = int(listed_dt.replace(hour=9).timestamp())
+    target_at = int(listed_dt.replace(hour=12).timestamp())
+    base = _listed_shop_state(listed_at, will_sell=True, remaining=2 * 3600)
+    _prepare_adopted_cat_return(base, return_at)
+    base["last_active_at"] = listed_at
+    base["last_update"] = listed_at
+    base["weather_change_time"] = target_at + 3600
+    base["next_butterfly_at"] = target_at + 3600
+    online = copy.deepcopy(base)
+    offline = copy.deepcopy(base)
+
+    with patch("game_engine.time.time", return_value=target_at), patch(
+        "game_engine.maybe_drop_cat_collectible", return_value="🎁 带回藏品"
+    ), patch("game_engine.random.random", return_value=0.0), patch(
+        "game_engine._schedule_next_adopted_outing"
+    ) as schedule_next:
+        schedule_next.side_effect = lambda cat_state, base_time: cat_state.__setitem__(
+            "next_outing_at", target_at + 3600
+        )
+        process_command(online, "status")
+        ge.apply_offline_progress(offline, target_at)
+
+    for state in (online, offline):
+        assert state["money"] == 50 + 61
+        assert state["total_earned"] == 61
+        assert state["flower_shop"]["slots"][0] is None
+        assert state["flower_shop"]["shop_buff_until"] == return_at + 4 * 3600
 
 
 def test_flower_shop_business_seconds_are_exact_across_closed_time_and_midnight():
