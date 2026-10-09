@@ -1145,6 +1145,7 @@ def _summary(state: dict[str, Any], *, events_before: list | None = None) -> dic
         "permanent_items": state.get("permanent_items", []),
         "pots": pots,
         "vase": {"capacity": VASE_CAPACITY, "flowers": vase},
+        "bouquet_options": get_bouquet_options(state),
         "bouquet_gifts": [
             {
                 **gift,

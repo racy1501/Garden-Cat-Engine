@@ -133,14 +133,18 @@ FLOWERS = {
 }
 
 BOUQUETS = {
-    "first_meeting": {"name": "初见", "components": {"tulip": 2, "rose": 2}},
-    "warm_sun": {"name": "暖阳", "components": {"sunflower": 1, "rose": 2, "lily": 1}},
-    "soft_cloud": {"name": "柔云", "components": {"rose": 2, "hydrangea": 1, "lily": 1}},
-    "purple_mist": {"name": "紫雾", "components": {"daisy": 2, "lavender": 1, "lily": 1}},
-    "blue_letter": {"name": "蓝信", "components": {"iris": 1, "rose": 2, "lily": 1}},
-    "spring_banquet": {"name": "春宴", "components": {"peony": 1, "hydrangea": 1, "rose": 2}},
-    "little_garden": {"name": "小花园", "components": {"daisy": 2, "rose": 2}},
-    "cherry_branch": {"name": "樱枝", "components": {"cherry_blossom": 3}},
+    "first_meeting": {"name": "初见", "components": {"tulip": 2, "baby_breath": 1}},
+    "morning_light": {"name": "晨光", "components": {"sunflower": 1, "carnation": 1, "daisy": 1}},
+    "sunny_field": {"name": "晴野", "components": {"pansy": 1, "daisy": 1, "baby_breath": 1}},
+    "heart_note": {"name": "心笺", "components": {"rose": 1, "carnation": 1, "tulip": 1}},
+    "evening_breeze": {"name": "晚风", "components": {"lisianthus": 1, "lavender": 2}},
+    "soft_cloud": {"name": "柔云", "components": {"hydrangea": 1, "lily": 1, "baby_breath": 1}},
+    "blue_letter": {"name": "蓝信", "components": {"iris": 1, "lisianthus": 1, "rose": 1}},
+    "cherry_branch": {"name": "樱枝", "components": {"cherry_blossom": 1, "lisianthus": 1, "baby_breath": 1}},
+    "spring_banquet": {"name": "春宴", "components": {"peony": 1, "rose": 1, "lily": 1}},
+    "spring_mountain": {"name": "春山", "components": {"camellia": 1, "hydrangea": 1, "tulip": 1}},
+    "moonlit_book": {"name": "月下书", "components": {"moonflower": 1, "lily": 1, "lavender": 1}},
+    "higan_poem": {"name": "彼岸诗", "components": {"red_spider_lily": 1, "peony": 1, "iris": 1}},
 }
 
 
@@ -2968,10 +2972,20 @@ def get_flower_unlock_requirement(flower_id):
     return {"encyclopedia": value, "harvests": 0}
 
 
+def is_bouquet_discovered(state, bouquet_id):
+    bouquet = BOUQUETS.get(bouquet_id)
+    if not bouquet:
+        return False
+    encyclopedia = set(state.get("encyclopedia", []))
+    return all(flower_id in encyclopedia for flower_id in bouquet["components"])
+
+
 def get_bouquet_options(state):
     inventory = state.get("inventory", {}).get("flowers", {})
     options = []
     for bouquet_id, bouquet in BOUQUETS.items():
+        if not is_bouquet_discovered(state, bouquet_id):
+            continue
         missing = {}
         for flower_id, required in bouquet["components"].items():
             available = int(inventory.get(flower_id, 0) or 0)
@@ -3887,8 +3901,10 @@ def process_command(state, command, *, event_source="system"):
         else:
             bouquet = BOUQUETS[bouquet_id]
             options = {item["bouquet_id"]: item for item in get_bouquet_options(state)}
-            option = options[bouquet_id]
-            if not option["can_make"]:
+            option = options.get(bouquet_id)
+            if option is None:
+                result = f"❌ 还没有发现「{bouquet['name']}」的配方，先收获所需花材吧。"
+            elif not option["can_make"]:
                 missing = "、".join(
                     f"{FLOWERS.get(flower_id, {'name': flower_id})['name']}×{quantity}"
                     for flower_id, quantity in option["missing"].items()

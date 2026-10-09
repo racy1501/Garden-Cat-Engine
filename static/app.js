@@ -900,22 +900,25 @@ function getBouquetImageUrl(bouquetId) {
   return `/static/assets/v5/bouquets/${encodeURIComponent(bouquetId)}.png`;
 }
 
-function renderBouquetArtwork(parent, bouquetId, unlocked, label) {
-  const imageUrl = getBouquetImageUrl(bouquetId);
-  if (unlocked) {
+function renderBouquetArtwork(parent, bouquetId, showColor, label) {
+  const renderFallback = () => {
+    parent.innerHTML = "";
+    const fallback = document.createElement("span");
+    fallback.className = "bouquet-artwork bouquet-artwork-fallback";
+    fallback.setAttribute("aria-label", `${label} 暂无正式素材`);
+    fallback.textContent = "💐";
+    parent.append(fallback);
+  };
+  if (showColor) {
     const image = document.createElement("img");
     image.className = "bouquet-artwork bouquet-artwork-color";
-    image.src = imageUrl;
     image.alt = label;
+    image.addEventListener("error", renderFallback, { once: true });
+    image.src = getBouquetImageUrl(bouquetId);
     parent.append(image);
     return;
   }
-  const silhouette = document.createElement("span");
-  silhouette.className = "bouquet-artwork bouquet-artwork-silhouette";
-  silhouette.setAttribute("aria-hidden", "true");
-  silhouette.style.maskImage = `url("${imageUrl}")`;
-  silhouette.style.webkitMaskImage = `url("${imageUrl}")`;
-  parent.append(silhouette);
+  renderFallback();
 }
 
 function renderBouquetTabs(activeTab) {
@@ -1061,22 +1064,43 @@ function renderBouquetPage(activeTab = "bouquets") {
   } else {
     const grid = document.createElement("div");
     grid.className = "bouquet-shelf-grid";
+    const discoveredOptions = new Map(
+      (Array.isArray(currentState?.bouquet_options) ? currentState.bouquet_options : [])
+        .map((option) => [option.bouquet_id, option]),
+    );
     for (const [bouquetId, bouquet] of Object.entries(catalog?.bouquets || {})) {
       const records = gifts.filter((gift) => gift.bouquet_id === bouquetId);
+      const option = discoveredOptions.get(bouquetId);
+      const discovered = Boolean(option);
       const hasNewGift = gifts.some(
         (gift, index) => gift.bouquet_id === bouquetId && bouquetVisitNewGiftIndexes.has(index),
       );
       const card = document.createElement("button");
       card.type = "button";
-      card.className = `bouquet-shelf-card ${records.length ? "received" : "locked"}`;
+      card.className = `bouquet-shelf-card ${records.length ? "received" : discovered ? "discovered" : "locked"}`;
       const name = document.createElement("strong");
-      name.textContent = bouquet.name;
+      name.textContent = discovered || records.length ? bouquet.name : "尚未发现";
       const count = document.createElement("small");
-      count.textContent = records.length ? `×${records.length}` : "尚未收到";
+      if (records.length) count.textContent = `×${records.length}`;
+      else if (!discovered) count.textContent = "配方未发现";
+      else if (option.can_make) count.textContent = "已发现，尚未赠送";
+      else {
+        const missing = Object.entries(option.missing || {})
+          .map(([flowerId, quantity]) => `${catalog.flowers?.[flowerId]?.name || flowerId} ×${quantity}`)
+          .join("、");
+        count.textContent = `已发现，缺少：${missing}`;
+      }
       card.append(name);
+      if (discovered && !records.length) {
+        const components = document.createElement("small");
+        components.textContent = Object.entries(option.components || {})
+          .map(([flowerId, quantity]) => `${catalog.flowers?.[flowerId]?.name || flowerId} ×${quantity}`)
+          .join("、");
+        card.append(components);
+      }
       const artwork = document.createElement("span");
       artwork.className = "bouquet-card-artwork";
-      renderBouquetArtwork(artwork, bouquetId, Boolean(records.length), bouquet.name);
+      renderBouquetArtwork(artwork, bouquetId, discovered || Boolean(records.length), bouquet.name);
       card.append(artwork);
       card.append(count);
       if (hasNewGift) card.append(createBouquetNewBadge());

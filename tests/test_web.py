@@ -42,7 +42,9 @@ def test_bouquet_main_page_keeps_tabs_and_unread_badge():
     assert "markBouquetGiftsRead" in js
     assert "/web/bouquets/read" in js
     assert 'name.textContent = bouquet.name' in js
-    assert 'count.textContent = records.length ? `×${records.length}` : "尚未收到"' in js
+    assert "const discoveredOptions = new Map(" in js
+    assert 'count.textContent = "配方未发现";' in js
+    assert 'count.textContent = "已发现，尚未赠送";' in js
     assert ".bouquet-main-tab.has-unread::after" in css
 
 
@@ -105,17 +107,14 @@ def test_garden_notice_does_not_promote_old_history_to_notification():
     assert "let notice = latestNotice;" in notice
 
 
-def test_bouquet_artwork_uses_id_derived_assets_and_mask():
+def test_bouquet_artwork_uses_id_derived_assets_and_fallback():
     root = Path(__file__).resolve().parents[1]
     asset_dir = root / "static" / "assets" / "v5" / "bouquets"
     bouquet_ids = [
         "first_meeting",
-        "warm_sun",
         "soft_cloud",
-        "purple_mist",
         "blue_letter",
         "spring_banquet",
-        "little_garden",
         "cherry_branch",
     ]
     assert all((asset_dir / f"{bouquet_id}.png").is_file() for bouquet_id in bouquet_ids)
@@ -123,8 +122,8 @@ def test_bouquet_artwork_uses_id_derived_assets_and_mask():
     css = (root / "static" / "style.css").read_text(encoding="utf-8")
     assert "/static/assets/v5/bouquets/" in js
     assert "getBouquetImageUrl" in js
-    assert "maskImage" in js and "webkitMaskImage" in js
-    assert "bouquet-artwork-silhouette" in css
+    assert "const renderFallback = () =>" in js
+    assert "bouquet-artwork-fallback" in js
 
 
 def test_web_garden_uses_private_per_garden_token(tmp_path):

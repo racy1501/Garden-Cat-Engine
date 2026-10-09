@@ -465,7 +465,8 @@ def test_ai_bouquet_command_and_web_collection_state(api):
     module, client = api
     session_id, human_headers = create_human_garden(client)
     state = module.db_load_state(session_id)
-    state["inventory"]["flowers"] = {"tulip": 2, "rose": 2}
+    state["encyclopedia"] = ["tulip", "baby_breath"]
+    state["inventory"]["flowers"] = {"tulip": 2, "baby_breath": 1}
     module.db_save_state(session_id, state)
     ai_headers = {"X-API-Key": "test-key"}
 
@@ -479,14 +480,15 @@ def test_ai_bouquet_command_and_web_collection_state(api):
     )
     assert created.status_code == 200
     assert created.get_json()["ok"] is True
-    assert len(created.get_json()["state"]["bouquet_options"]) == 8
+    assert len(created.get_json()["state"]["bouquet_options"]) == 1
 
     web_state = client.get(
         f"/web/status?session_id={session_id}", headers=human_headers
     ).get_json()["state"]
     assert len(web_state["bouquet_gifts"]) == 1
     assert web_state["bouquet_gifts"][0]["message"] == "给你的春天"
-    assert web_state["bouquet_gifts"][0]["components"] == {"tulip": 2, "rose": 2}
+    assert web_state["bouquet_options"] == created.get_json()["state"]["bouquet_options"]
+    assert web_state["bouquet_gifts"][0]["components"] == {"tulip": 2, "baby_breath": 1}
     assert web_state["recent_events"][-1] == "💐 小机送给你一束「初见」，还附了一张小卡片。"
     gift_events = [
         event["text"]
@@ -497,7 +499,7 @@ def test_ai_bouquet_command_and_web_collection_state(api):
     assert all("返回面测试花园" not in event for event in gift_events)
 
     catalog = client.get("/api/catalog").get_json()
-    assert len(catalog["bouquets"]) == 8
+    assert len(catalog["bouquets"]) == 12
 
 
 def test_bouquet_unread_cursor_is_durable_and_legacy_gifts_are_read(api):
@@ -526,7 +528,8 @@ def test_bouquet_unread_cursor_is_durable_and_legacy_gifts_are_read(api):
     assert old_event_text in legacy["recent_events"]
 
     state = module.db_load_state(session_id)
-    state["inventory"]["flowers"] = {"tulip": 2, "rose": 2}
+    state["encyclopedia"] = ["tulip", "baby_breath"]
+    state["inventory"]["flowers"] = {"tulip": 2, "baby_breath": 1}
     module.db_save_state(session_id, state)
     created = client.post(
         "/api/cmd",
@@ -561,7 +564,7 @@ def test_bouquet_unread_cursor_is_durable_and_legacy_gifts_are_read(api):
     ).get_json()["state"]["has_unread_bouquet_gifts"] is False
 
     state = module.db_load_state(session_id)
-    state["inventory"]["flowers"] = {"tulip": 2, "rose": 2}
+    state["inventory"]["flowers"] = {"tulip": 2, "baby_breath": 1}
     module.db_save_state(session_id, state)
     client.post(
         "/api/cmd",

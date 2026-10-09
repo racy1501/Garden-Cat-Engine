@@ -8,7 +8,9 @@ from game_engine import (
     VASE_LIFESPAN_SECONDS,
     WEATHER,
     get_default_state,
+    get_bouquet_options,
     get_vase_flower_status,
+    is_bouquet_discovered,
     is_flower_unlocked,
     normalize_state,
     process_command,
@@ -85,15 +87,16 @@ def test_make_bouquet_is_atomic_and_records_each_gift():
     normalize_state(state)
     assert state["bouquet_gifts"] == []
 
-    state["inventory"]["flowers"] = {"tulip": 2, "rose": 2}
+    state["encyclopedia"] = ["tulip", "baby_breath"]
+    state["inventory"]["flowers"] = {"tulip": 2, "baby_breath": 1}
     listing = process_command(state, "make_bouquet")
     assert "first_meeting" in listing
     assert "可以制作" in listing
-    assert "warm_sun" in listing and "缺少" in listing
+    assert "first_meeting" in listing and "可以制作" in listing
 
     before = dict(state["inventory"]["flowers"])
-    failed = process_command(state, "make_bouquet bouquet_id=warm_sun")
-    assert failed.startswith("❌")
+    failed = process_command(state, "make_bouquet bouquet_id=morning_light")
+    assert "还没有发现" in failed
     assert state["inventory"]["flowers"] == before
     assert state["bouquet_gifts"] == []
 
@@ -111,10 +114,59 @@ def test_make_bouquet_is_atomic_and_records_each_gift():
         "message": "给你的春天",
     }
 
-    state["inventory"]["flowers"] = {"tulip": 2, "rose": 2}
+    state["inventory"]["flowers"] = {"tulip": 2, "baby_breath": 1}
     process_command(state, "make_bouquet bouquet_id=first_meeting")
     assert len(state["bouquet_gifts"]) == 2
     assert all(gift["bouquet_id"] == "first_meeting" for gift in state["bouquet_gifts"])
+
+
+def test_bouquet_recipes_and_discovery_are_derived_from_encyclopedia():
+    expected = {
+        "first_meeting": {"tulip": 2, "baby_breath": 1},
+        "morning_light": {"sunflower": 1, "carnation": 1, "daisy": 1},
+        "sunny_field": {"pansy": 1, "daisy": 1, "baby_breath": 1},
+        "heart_note": {"rose": 1, "carnation": 1, "tulip": 1},
+        "evening_breeze": {"lisianthus": 1, "lavender": 2},
+        "soft_cloud": {"hydrangea": 1, "lily": 1, "baby_breath": 1},
+        "blue_letter": {"iris": 1, "lisianthus": 1, "rose": 1},
+        "cherry_branch": {"cherry_blossom": 1, "lisianthus": 1, "baby_breath": 1},
+        "spring_banquet": {"peony": 1, "rose": 1, "lily": 1},
+        "spring_mountain": {"camellia": 1, "hydrangea": 1, "tulip": 1},
+        "moonlit_book": {"moonflower": 1, "lily": 1, "lavender": 1},
+        "higan_poem": {"red_spider_lily": 1, "peony": 1, "iris": 1},
+    }
+    assert {bouquet_id: bouquet["components"] for bouquet_id, bouquet in BOUQUETS.items()} == expected
+    assert all(sum(components.values()) == 3 for components in expected.values())
+    assert set().union(*[set(components) for components in expected.values()]) == set(FLOWERS)
+
+    state = fresh_state()
+    state["encyclopedia"] = ["tulip"]
+    state["inventory"]["flowers"] = {"tulip": 2}
+    assert not is_bouquet_discovered(state, "first_meeting")
+    assert get_bouquet_options(state) == []
+    before = dict(state["inventory"]["flowers"])
+    assert "还没有发现" in process_command(state, "make_bouquet first_meeting")
+    assert state["inventory"]["flowers"] == before
+
+    state["encyclopedia"].append("baby_breath")
+    options = get_bouquet_options(state)
+    assert options == [{"bouquet_id": "first_meeting", "name": "初见", "components": {"tulip": 2, "baby_breath": 1}, "can_make": False, "missing": {"baby_breath": 1}}]
+    state["inventory"]["flowers"] = {"tulip": 2, "baby_breath": 1}
+    assert get_bouquet_options(state)[0]["can_make"] is True
+
+
+def test_bouquet_duplicate_component_shortage_and_deduction():
+    state = fresh_state()
+    state["encyclopedia"] = ["tulip", "baby_breath", "lisianthus", "lavender"]
+    state["inventory"]["flowers"] = {"tulip": 1, "baby_breath": 1, "lisianthus": 1, "lavender": 1}
+    options = {option["bouquet_id"]: option for option in get_bouquet_options(state)}
+    assert options["first_meeting"]["missing"] == {"tulip": 1}
+    assert options["evening_breeze"]["missing"] == {"lavender": 1}
+    state["inventory"]["flowers"] = {"tulip": 2, "baby_breath": 1, "lisianthus": 1, "lavender": 2}
+    assert "初见" in process_command(state, "make_bouquet first_meeting")
+    assert state["inventory"]["flowers"] == {"lisianthus": 1, "lavender": 2}
+    assert "晚风" in process_command(state, "make_bouquet evening_breeze")
+    assert state["inventory"]["flowers"] == {}
 
 
 def test_seventeen_flower_configuration_matches_the_first_development_batch():
