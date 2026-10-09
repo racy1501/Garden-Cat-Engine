@@ -400,3 +400,18 @@ def test_flower_shop_3a_uses_bouquet_page_without_a_separate_shop_screen():
     assert "launch_flower_shop" in js
     assert ".flower-shop-panel" in css
     assert "flower-shop-panel" not in html
+
+
+def test_flower_shop_3b_frontend_lists_bouquets_without_exposing_sale_odds():
+    root = Path(__file__).resolve().parents[1]
+    js = (root / "static" / "app.js").read_text(encoding="utf-8")
+    css = (root / "static" / "style.css").read_text(encoding="utf-8")
+
+    assert "list_bouquet instance_id=" in js
+    assert "slot.current_price" in js
+    assert "slot.expires_in_seconds" in js
+    assert "闭店中 · 继续老化" in js
+    assert "sale_business_seconds_remaining" not in js
+    assert "will_sell" not in js
+    assert "82%" not in js
+    assert ".flower-shop-shelves article" in css

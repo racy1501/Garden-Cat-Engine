@@ -329,6 +329,17 @@ DISPLAY_TIMEZONE_NAME = "Asia/Shanghai"
 FLOWER_SHOP_ESTABLISH_COST = 3500
 FLOWER_SHOP_SHELF_CAPACITY = 3
 FLOWER_SHOP_BUSINESS_DURATION_MINUTES = 10 * 60
+FLOWER_SHOP_SALE_CHANCE = 0.82
+FLOWER_SHOP_SALE_WAIT_MAX_SECONDS = 10 * 60 * 60
+FLOWER_SHOP_SALE_WAIT_MODE_SECONDS = 3 * 60 * 60
+FLOWER_SHOP_BOUQUET_LIFETIME_SECONDS = 24 * 60 * 60
+FLOWER_SHOP_BASE_PRICE_MULTIPLIER = 1.60
+FLOWER_SHOP_BASE_PRICING_PROFILE = (
+    (4 * 60 * 60, 1.15, "新鲜加价"),
+    (10 * 60 * 60, 1.00, "标准售价"),
+    (18 * 60 * 60, 0.85, "轻微折价"),
+    (24 * 60 * 60, 0.65, "临期折价"),
+)
 
 # v4.7: 害虫死亡时间（真实分钟）
 PEST_DEATH_REAL_MINUTES = 10
@@ -2504,6 +2515,88 @@ def _nullable_positive_int(value):
     return value if value > 0 else None
 
 
+def _default_flower_shop_pricing_profile():
+    return [
+        {"until_seconds": until_seconds, "multiplier": multiplier, "label": label}
+        for until_seconds, multiplier, label in FLOWER_SHOP_BASE_PRICING_PROFILE
+    ]
+
+
+def _normalize_flower_shop_pricing_profile(raw_profile):
+    if not isinstance(raw_profile, list) or not raw_profile:
+        return _default_flower_shop_pricing_profile()
+    profile = []
+    previous_until = 0
+    for entry in raw_profile:
+        if not isinstance(entry, dict):
+            return _default_flower_shop_pricing_profile()
+        try:
+            until_seconds = int(entry.get("until_seconds", 0))
+            multiplier = float(entry.get("multiplier", 0))
+        except (TypeError, ValueError):
+            return _default_flower_shop_pricing_profile()
+        if until_seconds <= previous_until or multiplier <= 0:
+            return _default_flower_shop_pricing_profile()
+        profile.append(
+            {
+                "until_seconds": until_seconds,
+                "multiplier": multiplier,
+                "label": str(entry.get("label", "") or ""),
+            }
+        )
+        previous_until = until_seconds
+    if profile[-1]["until_seconds"] != FLOWER_SHOP_BOUQUET_LIFETIME_SECONDS:
+        return _default_flower_shop_pricing_profile()
+    return profile
+
+
+def _normalize_flower_shop_slot(raw_slot):
+    if not isinstance(raw_slot, dict):
+        return None
+    instance_id = str(raw_slot.get("instance_id", "") or "").strip()
+    bouquet_id = str(raw_slot.get("bouquet_id", "") or "").strip()
+    components = raw_slot.get("components")
+    if not instance_id or not bouquet_id or not isinstance(components, dict):
+        return None
+    component_snapshot = {}
+    for flower_id, quantity in components.items():
+        try:
+            quantity = int(quantity)
+        except (TypeError, ValueError):
+            continue
+        if quantity > 0:
+            component_snapshot[str(flower_id)] = quantity
+    if not component_snapshot:
+        return None
+    listed_at = _nullable_positive_int(raw_slot.get("listed_at"))
+    last_settled_at = _nullable_positive_int(raw_slot.get("last_settled_at"))
+    try:
+        base_price = int(raw_slot.get("base_price", 0))
+    except (TypeError, ValueError):
+        base_price = 0
+    will_sell = raw_slot.get("will_sell")
+    if listed_at is None or last_settled_at is None or base_price <= 0 or not isinstance(will_sell, bool):
+        return None
+    try:
+        remaining = int(raw_slot.get("sale_business_seconds_remaining", 0))
+    except (TypeError, ValueError):
+        return None
+    if remaining < 0 or (not will_sell and remaining != 0):
+        return None
+    expires_at = listed_at + FLOWER_SHOP_BOUQUET_LIFETIME_SECONDS
+    return {
+        "instance_id": instance_id,
+        "bouquet_id": bouquet_id,
+        "components": component_snapshot,
+        "listed_at": listed_at,
+        "last_settled_at": min(expires_at, max(listed_at, last_settled_at)),
+        "base_price": base_price,
+        "pricing_profile": _normalize_flower_shop_pricing_profile(raw_slot.get("pricing_profile")),
+        "will_sell": will_sell,
+        "sale_business_seconds_remaining": remaining,
+    }
+
+
 def _normalize_flower_shop(raw_shop):
     raw_shop = raw_shop if isinstance(raw_shop, dict) else {}
     established_at = _nullable_positive_int(raw_shop.get("established_at"))
@@ -2530,6 +2623,12 @@ def _normalize_flower_shop(raw_shop):
         pending_start_minute = None
         pending_effective_at = None
     launched_at = _nullable_positive_int(raw_shop.get("launched_at")) if start_minute is not None else None
+    raw_slots = raw_shop.get("slots", [])
+    slots = []
+    if isinstance(raw_slots, list):
+        slots = [_normalize_flower_shop_slot(slot) for slot in raw_slots[:FLOWER_SHOP_SHELF_CAPACITY]]
+    while len(slots) < FLOWER_SHOP_SHELF_CAPACITY:
+        slots.append(None)
     return {
         "established_at": established_at,
         "launched_at": launched_at,
@@ -2537,8 +2636,7 @@ def _normalize_flower_shop(raw_shop):
         "business_start_minute": start_minute,
         "pending_business_start_minute": pending_start_minute,
         "pending_business_effective_at": pending_effective_at,
-        # 3A 尚未开放上架，货架必须保持为空。
-        "slots": [None] * FLOWER_SHOP_SHELF_CAPACITY,
+        "slots": slots,
     }
 
 
@@ -3190,9 +3288,171 @@ def _flower_shop_local_cycle_start(start_minute, now):
 def _flower_shop_is_open_for_start(start_minute, now):
     if start_minute is None:
         return False
-    local_minute = datetime.fromtimestamp(now, DISPLAY_TIMEZONE).hour * 60 + datetime.fromtimestamp(now, DISPLAY_TIMEZONE).minute
+    local_now = datetime.fromtimestamp(now, DISPLAY_TIMEZONE)
+    local_minute = local_now.hour * 60 + local_now.minute
     elapsed_minutes = (local_minute - start_minute) % (24 * 60)
     return elapsed_minutes < FLOWER_SHOP_BUSINESS_DURATION_MINUTES
+
+
+def _iter_flower_shop_business_windows(from_timestamp, to_timestamp, start_minute):
+    if to_timestamp <= from_timestamp:
+        return
+    local_from = datetime.fromtimestamp(from_timestamp, DISPLAY_TIMEZONE)
+    local_to = datetime.fromtimestamp(to_timestamp, DISPLAY_TIMEZONE)
+    day = local_from.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
+    last_day = local_to.replace(hour=0, minute=0, second=0, microsecond=0)
+    while day <= last_day:
+        window_start = int((day + timedelta(minutes=start_minute)).timestamp())
+        window_end = window_start + FLOWER_SHOP_BUSINESS_DURATION_MINUTES * 60
+        overlap_start = max(from_timestamp, window_start)
+        overlap_end = min(to_timestamp, window_end)
+        if overlap_end > overlap_start:
+            yield overlap_start, overlap_end
+        day += timedelta(days=1)
+
+
+def get_flower_shop_business_seconds(from_timestamp, to_timestamp, start_minute):
+    try:
+        from_timestamp = int(from_timestamp)
+        to_timestamp = int(to_timestamp)
+        start_minute = int(start_minute)
+    except (TypeError, ValueError):
+        return 0
+    if to_timestamp <= from_timestamp or not 0 <= start_minute < 24 * 60:
+        return 0
+    return sum(
+        overlap_end - overlap_start
+        for overlap_start, overlap_end in _iter_flower_shop_business_windows(
+            from_timestamp, to_timestamp, start_minute
+        )
+    )
+
+
+def _locate_flower_shop_business_timestamp(from_timestamp, to_timestamp, start_minute, seconds_needed):
+    seconds_needed = max(0, int(seconds_needed))
+    if seconds_needed == 0:
+        return int(from_timestamp)
+    for overlap_start, overlap_end in _iter_flower_shop_business_windows(
+        int(from_timestamp), int(to_timestamp), int(start_minute)
+    ):
+        available = overlap_end - overlap_start
+        if seconds_needed <= available:
+            return overlap_start + seconds_needed
+        seconds_needed -= available
+    return None
+
+
+def _round_flower_shop_price(value):
+    return max(1, int(float(value) + 0.5))
+
+
+def get_flower_shop_base_price(components):
+    direct_sale_value = sum(
+        FLOWERS[flower_id]["sell_price"] * int(quantity)
+        for flower_id, quantity in components.items()
+        if flower_id in FLOWERS and int(quantity) > 0
+    )
+    return _round_flower_shop_price(direct_sale_value * FLOWER_SHOP_BASE_PRICE_MULTIPLIER)
+
+
+def _roll_flower_shop_sale_plan():
+    will_sell = random.random() < FLOWER_SHOP_SALE_CHANCE
+    if not will_sell:
+        return False, 0
+    return True, int(
+        round(
+            random.triangular(
+                0,
+                FLOWER_SHOP_SALE_WAIT_MAX_SECONDS,
+                FLOWER_SHOP_SALE_WAIT_MODE_SECONDS,
+            )
+        )
+    )
+
+
+def _get_flower_shop_price_details(slot, at_timestamp):
+    age_seconds = max(0, int(at_timestamp) - int(slot["listed_at"]))
+    profile = slot.get("pricing_profile") or _default_flower_shop_pricing_profile()
+    stage = profile[-1]
+    for candidate in profile:
+        if age_seconds < int(candidate["until_seconds"]):
+            stage = candidate
+            break
+    return {
+        "price": _round_flower_shop_price(int(slot["base_price"]) * float(stage["multiplier"])),
+        "stage": str(stage.get("label", "") or ""),
+    }
+
+
+def settle_flower_shop(state, now=None):
+    if now is None:
+        now = int(time.time())
+    now = int(now)
+    shop = state.get("flower_shop")
+    if not isinstance(shop, dict) or not shop.get("launched_at"):
+        return []
+    start_minute = shop.get("business_start_minute")
+    if not isinstance(start_minute, int):
+        return []
+    slots = shop.get("slots")
+    if not isinstance(slots, list):
+        return []
+
+    results = []
+    for slot_index, slot in enumerate(slots):
+        if not isinstance(slot, dict):
+            continue
+        listed_at = int(slot["listed_at"])
+        expires_at = listed_at + FLOWER_SHOP_BOUQUET_LIFETIME_SECONDS
+        from_timestamp = max(listed_at, int(slot["last_settled_at"]))
+        target_timestamp = min(now, expires_at)
+        if target_timestamp < from_timestamp:
+            continue
+
+        sold_at = None
+        if slot["will_sell"]:
+            remaining = int(slot["sale_business_seconds_remaining"])
+            if remaining <= 0:
+                sold_at = from_timestamp
+            else:
+                business_seconds = get_flower_shop_business_seconds(
+                    from_timestamp, target_timestamp, start_minute
+                )
+                if business_seconds >= remaining:
+                    sold_at = _locate_flower_shop_business_timestamp(
+                        from_timestamp, target_timestamp, start_minute, remaining
+                    )
+                else:
+                    slot["sale_business_seconds_remaining"] = remaining - business_seconds
+
+        if sold_at is not None and sold_at < expires_at:
+            price_details = _get_flower_shop_price_details(slot, sold_at)
+            sale_price = price_details["price"]
+            state["money"] += sale_price
+            state["total_earned"] += sale_price
+            bouquet_name = BOUQUETS.get(slot["bouquet_id"], {}).get("name", slot["bouquet_id"])
+            add_event(
+                state,
+                f"🏪 货架{slot_index + 1}的「{bouquet_name}」以{sale_price}块成交，货架重新空出来了。",
+                now=sold_at,
+            )
+            slots[slot_index] = None
+            results.append(
+                {"type": "sold", "slot": slot_index + 1, "sold_at": sold_at, "price": sale_price}
+            )
+            continue
+
+        slot["last_settled_at"] = target_timestamp
+        if now >= expires_at:
+            bouquet_name = BOUQUETS.get(slot["bouquet_id"], {}).get("name", slot["bouquet_id"])
+            add_event(
+                state,
+                f"🥀 货架{slot_index + 1}的「{bouquet_name}」超过24小时仍未售出，已经报废。",
+                now=expires_at,
+            )
+            slots[slot_index] = None
+            results.append({"type": "expired", "slot": slot_index + 1, "expired_at": expires_at})
+    return results
 
 
 def get_next_flower_shop_cycle_at(state, now=None, start_minute=None):
@@ -3239,20 +3499,49 @@ def get_flower_shop_public_summary(state, now=None):
         and _flower_shop_is_open_for_start(start_minute, now)
     )
     slots = shop.get("slots", []) if isinstance(shop.get("slots"), list) else []
+    public_slots = []
+    for index, slot in enumerate(slots):
+        if slot is None:
+            public_slots.append({"slot": index + 1, "empty": True})
+            continue
+        bouquet_id = str(slot.get("bouquet_id", "") or "")
+        bouquet = BOUQUETS.get(bouquet_id, {})
+        price_details = _get_flower_shop_price_details(slot, now)
+        public_slots.append(
+            {
+                "slot": index + 1,
+                "empty": False,
+                "bouquet_id": bouquet_id,
+                "name": str(bouquet.get("name", bouquet_id) or bouquet_id),
+                "components": dict(slot.get("components", {})),
+                "listed_at": int(slot.get("listed_at", 0) or 0),
+                "current_price": price_details["price"],
+                "price_stage": price_details["stage"],
+                "expires_in_seconds": max(
+                    0,
+                    int(slot.get("listed_at", 0) or 0)
+                    + FLOWER_SHOP_BOUQUET_LIFETIME_SECONDS
+                    - now,
+                ),
+                "is_open": is_open,
+            }
+        )
     return {
         "eligible": is_flower_shop_eligible(state),
         "eligibility_progress": get_flower_shop_eligibility_progress(state),
         "established": established,
         "launched": bool(shop.get("launched_at")),
         "capacity": int(shop.get("shelf_capacity", 0) or 0),
+        "shelf_capacity": int(shop.get("shelf_capacity", 0) or 0),
         "business_start_minute": start_minute,
         "business_duration_minutes": FLOWER_SHOP_BUSINESS_DURATION_MINUTES,
         "pending_business_start_minute": shop.get("pending_business_start_minute"),
         "pending_business_effective_at": shop.get("pending_business_effective_at"),
         "is_open": is_open,
         "next_business_cycle_at": get_next_flower_shop_cycle_at(state, now),
+        "occupied_slots": sum(1 for slot in slots if slot is not None),
         "empty_slots": sum(1 for slot in slots if slot is None),
-        "slots": [{"slot": index + 1, "empty": slot is None} for index, slot in enumerate(slots)],
+        "slots": public_slots,
     }
 
 
@@ -3737,12 +4026,14 @@ def apply_offline_progress(state, now=None):
     if now is None:
         now = int(time.time())
     normalize_state(state, now)
+    _refresh_flower_shop_schedule(state, now)
+    flower_shop_results = settle_flower_shop(state, now)
 
     last_active_at = _safe_nonnegative_int(state.get("last_active_at", state.get("last_update", now)), now)
     elapsed = max(0, now - last_active_at)
     if elapsed <= 0:
         state["last_active_at"] = now
-        return False
+        return bool(flower_shop_results)
 
     settled_seconds = min(elapsed, OFFLINE_PROGRESS_MAX_SECONDS)
     skipped_seconds = max(0, elapsed - settled_seconds)
@@ -3916,6 +4207,7 @@ def process_command(state, command, *, event_source="system"):
     now = int(time.time())
     normalize_state(state, now)
     _refresh_flower_shop_schedule(state, now)
+    settle_flower_shop(state, now)
     if state.get("is_frozen"):
         state["is_frozen"] = False
         state["garden_frozen_until"] = 0
@@ -4234,6 +4526,87 @@ def process_command(state, command, *, event_source="system"):
                 result = f"💐 已将{BOUQUETS[bouquet_instance['bouquet_id']]['name']}送给人类！"
                 if message:
                     result += " 已附上小卡片。"
+
+    elif action == "list_bouquet":
+        instance_id = ""
+        requested_slot = None
+        invalid_slot = False
+        for part in parts[1:]:
+            if part.startswith("instance_id="):
+                instance_id = part.split("=", 1)[1].strip()
+            elif part.startswith("slot="):
+                try:
+                    requested_slot = int(part.split("=", 1)[1])
+                except ValueError:
+                    invalid_slot = True
+            elif not instance_id:
+                instance_id = part
+            elif requested_slot is None:
+                try:
+                    requested_slot = int(part)
+                except ValueError:
+                    invalid_slot = True
+        shop = state["flower_shop"]
+        bouquet_inventory = state.setdefault("bouquet_inventory", [])
+        inventory_index = next(
+            (index for index, entry in enumerate(bouquet_inventory) if entry.get("instance_id") == instance_id),
+            None,
+        )
+        slots = shop.get("slots", [])
+        if not instance_id or invalid_slot:
+            result = "❌ 用法：list_bouquet instance_id=<花束实例ID> [slot=1]"
+        elif not shop.get("established_at"):
+            result = "❌ 请先建造花店。"
+        elif not shop.get("launched_at"):
+            result = "❌ 花店尚未正式开业。"
+        elif shop.get("pending_business_start_minute") is not None:
+            result = "❌ 新营业时间正在等待生效，请在生效后再上架花束。"
+        elif not _flower_shop_is_open_for_start(shop.get("business_start_minute"), now):
+            result = "❌ 当前是闭店时间，只能在营业时间内上架花束。"
+        elif inventory_index is None:
+            result = "❌ 花束背包里没有这个实例。"
+        else:
+            if requested_slot is None:
+                slot_index = next((index for index, slot in enumerate(slots) if slot is None), None)
+            elif 1 <= requested_slot <= len(slots):
+                slot_index = requested_slot - 1
+            else:
+                slot_index = None
+                invalid_slot = True
+            if invalid_slot:
+                result = f"❌ 货架位置应为1-{len(slots)}。"
+            elif slot_index is None:
+                result = "❌ 当前没有空货架。"
+            elif slots[slot_index] is not None:
+                result = f"❌ 货架{slot_index + 1}已经有在售花束。"
+            else:
+                bouquet_instance = bouquet_inventory[inventory_index]
+                will_sell, sale_wait = _roll_flower_shop_sale_plan()
+                slots[slot_index] = {
+                    "instance_id": bouquet_instance["instance_id"],
+                    "bouquet_id": bouquet_instance["bouquet_id"],
+                    "components": dict(bouquet_instance["components"]),
+                    "listed_at": now,
+                    "last_settled_at": now,
+                    "base_price": get_flower_shop_base_price(bouquet_instance["components"]),
+                    "pricing_profile": _default_flower_shop_pricing_profile(),
+                    "will_sell": will_sell,
+                    "sale_business_seconds_remaining": sale_wait,
+                }
+                bouquet_inventory.pop(inventory_index)
+                bouquet_name = BOUQUETS.get(bouquet_instance["bouquet_id"], {}).get(
+                    "name", bouquet_instance["bouquet_id"]
+                )
+                add_event(state, f"🏪 将「{bouquet_name}」放上货架{slot_index + 1}开始销售。")
+                settlement_results = settle_flower_shop(state, now)
+                immediate_sale = next(
+                    (entry for entry in settlement_results if entry.get("slot") == slot_index + 1),
+                    None,
+                )
+                if immediate_sale and immediate_sale["type"] == "sold":
+                    result = f"🏪 「{bouquet_name}」上架后立即以{immediate_sale['price']}块成交。"
+                else:
+                    result = f"🏪 已将「{bouquet_name}」上架到货架{slot_index + 1}。上架后不可撤回。"
 
     elif action == "establish_flower_shop":
         shop = state["flower_shop"]
@@ -4761,6 +5134,7 @@ harvest <盆号|all> - 收获一盆，或一键收获全部成熟花朵
 make_bouquet [bouquet_id=...] [message=...] - 查看或制作花束并送给人类
 craft_bouquet bouquet_id=<花束ID> - 制作一束花并放进花束背包
 gift_bouquet instance_id=<花束实例ID> [message=...] - 从花束背包赠送
+list_bouquet instance_id=<花束实例ID> [slot=1] - 营业时将花束上架到空货架
 establish_flower_shop - 满足条件后花费{FLOWER_SHOP_ESTABLISH_COST}块建造花店
 set_flower_shop_hours <HH:MM> - 设置每天固定10小时营业的开始时间
 launch_flower_shop - 在已建店并设置营业时间后正式开业

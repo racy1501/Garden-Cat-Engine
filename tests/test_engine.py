@@ -1,10 +1,11 @@
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import patch
 
 from game_engine import (
     BOUQUETS,
     DISPLAY_TIMEZONE,
+    FLOWER_SHOP_BOUQUET_LIFETIME_SECONDS,
     FLOWER_UNLOCK_REQUIREMENTS,
     FLOWERS,
     VASE_LIFESPAN_SECONDS,
@@ -13,12 +14,14 @@ from game_engine import (
     get_bouquet_options,
     get_bouquet_inventory_public,
     get_flower_shop_public_summary,
+    get_flower_shop_business_seconds,
     get_vase_flower_status,
     is_bouquet_discovered,
     is_flower_shop_eligible,
     is_flower_unlocked,
     normalize_state,
     process_command,
+    settle_flower_shop,
 )
 
 
@@ -207,6 +210,155 @@ def test_flower_shop_fixed_hours_cross_midnight_and_pending_change():
         assert "下一次营业周期生效" in process_command(state, "set_flower_shop_hours 09:00")
     assert state["flower_shop"]["business_start_minute"] == 22 * 60
     assert state["flower_shop"]["pending_business_start_minute"] == 9 * 60
+
+
+def _listed_shop_state(listed_at, *, will_sell, remaining):
+    state = fresh_state()
+    state["flower_shop"] = {
+        "established_at": listed_at - 100,
+        "launched_at": listed_at - 50,
+        "shelf_capacity": 3,
+        "business_start_minute": 8 * 60,
+        "pending_business_start_minute": None,
+        "pending_business_effective_at": None,
+        "slots": [
+            {
+                "instance_id": "listed-one",
+                "bouquet_id": "first_meeting",
+                "components": {"tulip": 2, "baby_breath": 1},
+                "listed_at": listed_at,
+                "last_settled_at": listed_at,
+                "base_price": 48,
+                "pricing_profile": [
+                    {"until_seconds": 4 * 3600, "multiplier": 1.15, "label": "新鲜加价"},
+                    {"until_seconds": 10 * 3600, "multiplier": 1.0, "label": "标准售价"},
+                    {"until_seconds": 18 * 3600, "multiplier": 0.85, "label": "轻微折价"},
+                    {"until_seconds": 24 * 3600, "multiplier": 0.65, "label": "临期折价"},
+                ],
+                "will_sell": will_sell,
+                "sale_business_seconds_remaining": remaining,
+            },
+            None,
+            None,
+        ],
+    }
+    normalize_state(state, now=listed_at)
+    return state
+
+
+def test_flower_shop_business_seconds_are_exact_across_closed_time_and_midnight():
+    day_one = datetime(2026, 10, 9, 21, 0, tzinfo=DISPLAY_TIMEZONE)
+    day_three = datetime(2026, 10, 11, 9, 0, tzinfo=DISPLAY_TIMEZONE)
+    assert get_flower_shop_business_seconds(
+        int(day_one.timestamp()), int(day_three.timestamp()), 22 * 60
+    ) == 20 * 3600
+    assert get_flower_shop_business_seconds(
+        int(day_one.timestamp()), int(day_one.timestamp()), 22 * 60
+    ) == 0
+    closed_start = datetime(2026, 10, 9, 9, 0, tzinfo=DISPLAY_TIMEZONE)
+    closed_end = datetime(2026, 10, 9, 21, 0, tzinfo=DISPLAY_TIMEZONE)
+    assert get_flower_shop_business_seconds(
+        int(closed_start.timestamp()), int(closed_end.timestamp()), 22 * 60
+    ) == 0
+
+
+def test_list_bouquet_rolls_once_and_public_summary_hides_sale_plan():
+    now_dt = datetime.now(DISPLAY_TIMEZONE).replace(second=0, microsecond=0)
+    now = int(now_dt.timestamp())
+    state = fresh_state()
+    state["flower_shop"] = {
+        "established_at": now - 100,
+        "launched_at": now - 50,
+        "shelf_capacity": 3,
+        "business_start_minute": (now_dt.hour * 60 + now_dt.minute - 60) % (24 * 60),
+        "pending_business_start_minute": None,
+        "pending_business_effective_at": None,
+        "slots": [None, None, None],
+    }
+    state["bouquet_inventory"] = [
+        {"instance_id": "bag-one", "bouquet_id": "first_meeting", "components": {"tulip": 2, "baby_breath": 1}}
+    ]
+    with patch("game_engine.time.time", return_value=now), patch(
+        "game_engine._roll_flower_shop_sale_plan", return_value=(True, 7200)
+    ) as sale_roll:
+        assert "上架到货架1" in process_command(state, "list_bouquet instance_id=bag-one slot=1")
+        normalize_state(state, now=now)
+        get_flower_shop_public_summary(state, now)
+        process_command(state, "status")
+    assert sale_roll.call_count == 1
+    assert state["bouquet_inventory"] == []
+    slot = state["flower_shop"]["slots"][0]
+    assert slot["instance_id"] == "bag-one"
+    assert slot["base_price"] == 48
+    public_slot = get_flower_shop_public_summary(state, now)["slots"][0]
+    assert public_slot["current_price"] == 55
+    assert "will_sell" not in public_slot
+    assert "sale_business_seconds_remaining" not in public_slot
+
+
+def test_list_bouquet_failure_does_not_consume_inventory_or_roll():
+    now_dt = datetime.now(DISPLAY_TIMEZONE).replace(second=0, microsecond=0)
+    now = int(now_dt.timestamp())
+    state = fresh_state()
+    state["flower_shop"] = {
+        "established_at": now - 100,
+        "launched_at": now - 50,
+        "shelf_capacity": 3,
+        "business_start_minute": (now_dt.hour * 60 + now_dt.minute + 11 * 60) % (24 * 60),
+        "pending_business_start_minute": None,
+        "pending_business_effective_at": None,
+        "slots": [None, None, None],
+    }
+    bouquet = {"instance_id": "kept", "bouquet_id": "first_meeting", "components": {"tulip": 2, "baby_breath": 1}}
+    state["bouquet_inventory"] = [bouquet]
+    with patch("game_engine.time.time", return_value=now), patch(
+        "game_engine._roll_flower_shop_sale_plan"
+    ) as sale_roll:
+        assert "闭店时间" in process_command(state, "list_bouquet instance_id=kept slot=1")
+    assert sale_roll.call_count == 0
+    assert state["bouquet_inventory"] == [bouquet]
+    assert state["flower_shop"]["slots"] == [None, None, None]
+
+
+def test_flower_shop_sale_uses_true_sold_at_price_and_is_idempotent():
+    listed_dt = datetime(2026, 10, 9, 7, 0, tzinfo=DISPLAY_TIMEZONE)
+    listed_at = int(listed_dt.timestamp())
+    state = _listed_shop_state(listed_at, will_sell=True, remaining=2 * 3600)
+    before_money = state["money"]
+    before_total = state["total_earned"]
+    before_direct = state["direct_flower_sale_earned"]
+
+    results = settle_flower_shop(state, int((listed_dt + timedelta(hours=5)).timestamp()))
+    assert results == [{"type": "sold", "slot": 1, "sold_at": int((listed_dt + timedelta(hours=3)).timestamp()), "price": 55}]
+    assert state["money"] == before_money + 55
+    assert state["total_earned"] == before_total + 55
+    assert state["direct_flower_sale_earned"] == before_direct
+    assert state["flower_shop"]["slots"][0] is None
+    assert settle_flower_shop(state, int((listed_dt + timedelta(hours=8)).timestamp())) == []
+    assert state["money"] == before_money + 55
+
+
+def test_flower_shop_closed_time_only_ages_and_unsold_bouquet_expires_at_24h():
+    listed_dt = datetime(2026, 10, 9, 18, 0, tzinfo=DISPLAY_TIMEZONE)
+    listed_at = int(listed_dt.timestamp())
+    state = _listed_shop_state(listed_at, will_sell=False, remaining=0)
+    assert settle_flower_shop(state, listed_at + 23 * 3600) == []
+    assert state["flower_shop"]["slots"][0] is not None
+    results = settle_flower_shop(state, listed_at + FLOWER_SHOP_BOUQUET_LIFETIME_SECONDS)
+    assert results == [{"type": "expired", "slot": 1, "expired_at": listed_at + 24 * 3600}]
+    assert state["flower_shop"]["slots"][0] is None
+
+
+def test_flower_shop_expiry_is_not_truncated_by_the_72_hour_offline_cap():
+    now = int(time.time())
+    listed_at = now - 100 * 3600
+    state = _listed_shop_state(listed_at, will_sell=False, remaining=0)
+    state["last_active_at"] = listed_at
+    assert state["flower_shop"]["slots"][0] is not None
+    from game_engine import apply_offline_progress
+    apply_offline_progress(state, now)
+    assert state["flower_shop"]["slots"][0] is None
+    assert any("已经报废" in event["text"] for event in state["events"])
 
 
 def test_bouquet_recipes_and_discovery_are_derived_from_encyclopedia():

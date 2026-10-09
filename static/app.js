@@ -977,6 +977,13 @@ function renderBouquetWorkshop(body) {
   }
   panel.append(craft);
 
+  const shop = currentState?.flower_shop || {};
+  const canListBouquet = Boolean(
+    shop.launched
+    && shop.is_open
+    && shop.pending_business_start_minute == null
+    && Number(shop.empty_slots || 0) > 0
+  );
   const bag = document.createElement("div");
   bag.className = "flower-shop-section";
   bag.innerHTML = "<strong>持有的花束</strong>";
@@ -991,12 +998,17 @@ function renderBouquetWorkshop(body) {
     row.className = "flower-shop-row";
     const text = document.createElement("span");
     text.textContent = `${bouquet.name}｜${flowerComponentText(bouquet.components)}`;
-    row.append(text, makeButton("赠送", `gift_bouquet instance_id=${bouquet.id}`));
+    const actions = document.createElement("div");
+    actions.className = "flower-shop-actions";
+    actions.append(
+      makeButton("赠送", `gift_bouquet instance_id=${bouquet.id}`),
+      makeButton("上架", `list_bouquet instance_id=${bouquet.id}`, "mini-btn gold", !canListBouquet),
+    );
+    row.append(text, actions);
     bag.append(row);
   }
   panel.append(bag);
 
-  const shop = currentState?.flower_shop || {};
   const shopSection = document.createElement("div");
   shopSection.className = "flower-shop-section";
   const progress = shop.eligibility_progress || {};
@@ -1014,8 +1026,22 @@ function renderBouquetWorkshop(body) {
     const shelves = document.createElement("div");
     shelves.className = "flower-shop-shelves";
     for (const slot of shop.slots || []) {
-      const shelf = document.createElement("span");
-      shelf.textContent = `货架 ${slot.slot}｜${slot.empty ? "空" : "已上架"}`;
+      const shelf = document.createElement("article");
+      if (slot.empty) {
+        shelf.innerHTML = `<strong>货架 ${slot.slot}</strong><small>空货架</small>`;
+      } else {
+        const name = document.createElement("strong");
+        name.textContent = `货架 ${slot.slot}｜${slot.name}`;
+        const components = document.createElement("small");
+        components.textContent = flowerComponentText(slot.components);
+        const price = document.createElement("small");
+        price.textContent = `当前售价 ${slot.current_price} 块${slot.price_stage ? `｜${slot.price_stage}` : ""}`;
+        const expiry = document.createElement("small");
+        expiry.textContent = `距报废 ${formatDuration(slot.expires_in_seconds || 0)}`;
+        const openState = document.createElement("small");
+        openState.textContent = slot.is_open ? "营业中" : "闭店中 · 继续老化";
+        shelf.append(name, components, price, expiry, openState);
+      }
       shelves.append(shelf);
     }
     const hours = document.createElement("div");

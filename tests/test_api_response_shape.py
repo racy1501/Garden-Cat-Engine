@@ -539,6 +539,48 @@ def test_flower_shop_and_bouquet_inventory_have_public_summary_only(api):
     assert ai_state["bouquet_inventory"][0]["id"] == item["id"]
 
 
+def test_flower_shop_listing_summary_exposes_price_but_hides_random_facts(api, monkeypatch):
+    module, client = api
+    session_id, _ = create_human_garden(client)
+    now = int(ge.time.time())
+    local_now = ge.datetime.fromtimestamp(now, ge.DISPLAY_TIMEZONE)
+    state = module.db_load_state(session_id)
+    state["flower_shop"] = {
+        "established_at": now - 100,
+        "launched_at": now - 50,
+        "shelf_capacity": 3,
+        "business_start_minute": (local_now.hour * 60 + local_now.minute - 60) % (24 * 60),
+        "pending_business_start_minute": None,
+        "pending_business_effective_at": None,
+        "slots": [None, None, None],
+    }
+    state["bouquet_inventory"] = [
+        {"instance_id": "api-listing", "bouquet_id": "first_meeting", "components": {"tulip": 2, "baby_breath": 1}}
+    ]
+    module.db_save_state(session_id, state)
+    monkeypatch.setattr(ge, "_roll_flower_shop_sale_plan", lambda: (True, 7200))
+
+    response = client.post(
+        "/api/cmd",
+        headers={"X-API-Key": "test-key"},
+        json={"session_id": session_id, "command": "list_bouquet instance_id=api-listing slot=1"},
+    )
+    assert response.status_code == 200
+    public_state = response.get_json()["state"]
+    public_slot = public_state["flower_shop"]["slots"][0]
+    assert public_slot["empty"] is False
+    assert public_slot["name"] == "初见"
+    assert public_slot["current_price"] == 55
+    assert public_slot["expires_in_seconds"] <= 24 * 3600
+    assert "will_sell" not in public_slot
+    assert "sale_business_seconds_remaining" not in public_slot
+    assert public_state["bouquet_inventory"] == []
+
+    saved_slot = module.db_load_state(session_id)["flower_shop"]["slots"][0]
+    assert saved_slot["will_sell"] is True
+    assert saved_slot["sale_business_seconds_remaining"] <= 7200
+
+
 def test_bouquet_unread_cursor_is_durable_and_legacy_gifts_are_read(api):
     module, client = api
     session_id, human_headers = create_human_garden(client)
