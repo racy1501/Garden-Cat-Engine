@@ -1044,6 +1044,41 @@ function renderBouquetWorkshop(body) {
       }
       shelves.append(shelf);
     }
+    const facilities = document.createElement("div");
+    facilities.className = "flower-shop-facilities";
+    const shelfUpgrade = document.createElement("div");
+    shelfUpgrade.className = "flower-shop-row";
+    const shelfText = document.createElement("span");
+    shelfText.textContent = `货架容量：${shop.shelf_capacity || 0} 格`;
+    shelfUpgrade.append(shelfText);
+    if (shop.can_upgrade_shelf && Number.isInteger(shop.next_shelf_capacity) && Number.isFinite(shop.next_shelf_upgrade_cost)) {
+      shelfUpgrade.append(makeButton(
+        `扩建至 ${shop.next_shelf_capacity} 格 · ${shop.next_shelf_upgrade_cost}`,
+        "upgrade_flower_shop_shelf",
+        "mini-btn gold",
+        Number(currentState.money || 0) < shop.next_shelf_upgrade_cost,
+      ));
+    } else {
+      const maxed = document.createElement("small");
+      maxed.textContent = "货架已扩至最大容量";
+      shelfUpgrade.append(maxed);
+    }
+    const freshener = document.createElement("div");
+    freshener.className = "flower-shop-row";
+    const freshenerText = document.createElement("span");
+    freshenerText.textContent = shop.has_freshener
+      ? "保鲜设备已安装"
+      : "保鲜设备：延后花束折价时间，不延长24小时报废时间";
+    freshener.append(freshenerText);
+    if (!shop.has_freshener && Number.isFinite(shop.freshener_cost)) {
+      freshener.append(makeButton(
+        `安装 · ${shop.freshener_cost}`,
+        "buy_flower_shop_freshener",
+        "mini-btn gold",
+        Number(currentState.money || 0) < shop.freshener_cost,
+      ));
+    }
+    facilities.append(shelfUpgrade, freshener);
     const hours = document.createElement("div");
     hours.className = "flower-shop-row";
     const timeInput = document.createElement("input");
@@ -1056,7 +1091,7 @@ function renderBouquetWorkshop(body) {
     hours.append(timeInput, setHours);
     const next = document.createElement("small");
     next.textContent = shop.next_business_cycle_at ? `下次营业周期：${formatBouquetTimestamp(shop.next_business_cycle_at)}` : "请先设置营业开始时间";
-    shopSection.append(status, shelves, hours, next);
+    shopSection.append(status, shelves, facilities, hours, next);
     if (!shop.launched) shopSection.append(makeButton("正式开业", "launch_flower_shop", "mini-btn gold", !Number.isInteger(shop.business_start_minute)));
   }
   panel.append(shopSection);

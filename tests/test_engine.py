@@ -212,6 +212,116 @@ def test_flower_shop_fixed_hours_cross_midnight_and_pending_change():
     assert state["flower_shop"]["pending_business_start_minute"] == 9 * 60
 
 
+def test_flower_shop_shelf_upgrades_preserve_listings_and_require_funds():
+    listed_at = int(time.time())
+    state = _listed_shop_state(listed_at, will_sell=True, remaining=7200)
+    state["money"] = 5000
+    original_slot = dict(state["flower_shop"]["slots"][0])
+
+    assert "扩建至6格" in process_command(state, "upgrade_flower_shop_shelf")
+    assert state["money"] == 3500
+    assert state["flower_shop"]["shelf_capacity"] == 6
+    assert state["flower_shop"]["slots"][0] == original_slot
+    assert state["flower_shop"]["slots"][3:] == [None, None, None]
+
+    assert "扩建至9格" in process_command(state, "upgrade_flower_shop_shelf")
+    assert state["money"] == 1000
+    assert state["flower_shop"]["shelf_capacity"] == 9
+    assert state["flower_shop"]["slots"][0] == original_slot
+    assert state["flower_shop"]["slots"][6:] == [None, None, None]
+    assert "最大容量" in process_command(state, "upgrade_flower_shop_shelf")
+    assert state["money"] == 1000
+    summary = get_flower_shop_public_summary(state, listed_at)
+    assert summary["can_upgrade_shelf"] is False
+    assert summary["next_shelf_capacity"] is None
+    assert summary["next_shelf_upgrade_cost"] is None
+
+    unbuilt = fresh_state()
+    before_money = unbuilt["money"]
+    assert "先建造" in process_command(unbuilt, "upgrade_flower_shop_shelf")
+    assert unbuilt["money"] == before_money
+
+    state["flower_shop"]["shelf_capacity"] = 3
+    state["flower_shop"]["slots"] = [None, None, None]
+    state["money"] = 1499
+    assert "金币不足" in process_command(state, "upgrade_flower_shop_shelf")
+    assert state["flower_shop"]["shelf_capacity"] == 3
+    assert state["flower_shop"]["slots"] == [None, None, None]
+
+
+def test_flower_shop_normalize_keeps_legal_capacity_and_preserves_occupied_slots():
+    listed_at = int(time.time())
+    state = _listed_shop_state(listed_at, will_sell=True, remaining=7200)
+    listing = dict(state["flower_shop"]["slots"][0])
+    state["flower_shop"]["shelf_capacity"] = 6
+    state["flower_shop"]["slots"] = [listing, None]
+    state["flower_shop"].pop("has_freshener", None)
+    normalize_state(state, now=listed_at)
+    assert state["flower_shop"]["shelf_capacity"] == 6
+    assert len(state["flower_shop"]["slots"]) == 6
+    assert state["flower_shop"]["slots"][0]["instance_id"] == "listed-one"
+    assert state["flower_shop"]["has_freshener"] is False
+
+    state["flower_shop"]["shelf_capacity"] = 3
+    state["flower_shop"]["slots"] = [None, None, None, listing]
+    normalize_state(state, now=listed_at)
+    assert state["flower_shop"]["shelf_capacity"] == 6
+    assert state["flower_shop"]["slots"][3]["instance_id"] == "listed-one"
+
+    state["flower_shop"]["shelf_capacity"] = 9
+    state["flower_shop"]["slots"] = [None] * 12
+    normalize_state(state, now=listed_at)
+    assert state["flower_shop"]["shelf_capacity"] == 9
+    assert len(state["flower_shop"]["slots"]) == 9
+
+
+def test_freshener_only_changes_profiles_of_later_listings():
+    now_dt = datetime.now(DISPLAY_TIMEZONE).replace(second=0, microsecond=0)
+    now = int(now_dt.timestamp())
+    state = fresh_state()
+    state["money"] = 5000
+    state["flower_shop"] = {
+        "established_at": now - 100,
+        "launched_at": now - 50,
+        "shelf_capacity": 3,
+        "business_start_minute": (now_dt.hour * 60 + now_dt.minute - 60) % (24 * 60),
+        "pending_business_start_minute": None,
+        "pending_business_effective_at": None,
+        "slots": [None, None, None],
+    }
+    state["bouquet_inventory"] = [
+        {"instance_id": "old", "bouquet_id": "first_meeting", "components": {"tulip": 2, "baby_breath": 1}},
+        {"instance_id": "new", "bouquet_id": "first_meeting", "components": {"tulip": 2, "baby_breath": 1}},
+    ]
+    with patch("game_engine.time.time", return_value=now), patch(
+        "game_engine._roll_flower_shop_sale_plan", side_effect=[(True, 7200), (False, 0)]
+    ):
+        assert "上架到货架1" in process_command(state, "list_bouquet instance_id=old slot=1")
+        old_slot = dict(state["flower_shop"]["slots"][0])
+        assert "已安装" in process_command(state, "buy_flower_shop_freshener")
+        assert state["money"] == 3200
+        assert state["flower_shop"]["slots"][0] == old_slot
+        assert "上架到货架2" in process_command(state, "list_bouquet instance_id=new slot=2")
+
+    assert [entry["until_seconds"] for entry in old_slot["pricing_profile"]] == [4 * 3600, 10 * 3600, 18 * 3600, 24 * 3600]
+    new_slot = state["flower_shop"]["slots"][1]
+    assert [entry["until_seconds"] for entry in new_slot["pricing_profile"]] == [6 * 3600, 12 * 3600, 20 * 3600, 24 * 3600]
+    assert [entry["multiplier"] for entry in new_slot["pricing_profile"]] == [1.15, 1.0, 0.85, 0.65]
+    assert old_slot["will_sell"] is True
+    assert old_slot["sale_business_seconds_remaining"] == 7200
+    assert "已经安装" in process_command(state, "buy_flower_shop_freshener")
+    assert state["money"] == 3200
+    expiry_results = settle_flower_shop(state, now + FLOWER_SHOP_BOUQUET_LIFETIME_SECONDS)
+    assert {entry["slot"] for entry in expiry_results if entry["type"] == "expired"} == {2}
+
+    unbuilt = fresh_state()
+    assert "先建造" in process_command(unbuilt, "buy_flower_shop_freshener")
+    established = _listed_shop_state(now, will_sell=False, remaining=0)
+    established["money"] = 1799
+    assert "金币不足" in process_command(established, "buy_flower_shop_freshener")
+    assert established["flower_shop"]["has_freshener"] is False
+
+
 def _listed_shop_state(listed_at, *, will_sell, remaining):
     state = fresh_state()
     state["flower_shop"] = {

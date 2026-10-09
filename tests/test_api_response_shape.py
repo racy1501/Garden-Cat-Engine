@@ -531,6 +531,11 @@ def test_flower_shop_and_bouquet_inventory_have_public_summary_only(api):
     assert shop["eligible"] is True
     assert shop["capacity"] == 3
     assert shop["empty_slots"] == 3
+    assert shop["can_upgrade_shelf"] is True
+    assert shop["next_shelf_capacity"] == 6
+    assert shop["next_shelf_upgrade_cost"] == 1500
+    assert shop["has_freshener"] is False
+    assert shop["freshener_cost"] == 1800
     assert "established_at" not in shop
     assert "flower_shop" not in established["inventory"]
 
@@ -574,6 +579,7 @@ def test_flower_shop_listing_summary_exposes_price_but_hides_random_facts(api, m
     assert public_slot["expires_in_seconds"] <= 24 * 3600
     assert "will_sell" not in public_slot
     assert "sale_business_seconds_remaining" not in public_slot
+    assert "pricing_profile" not in public_slot
     assert public_state["bouquet_inventory"] == []
 
     saved_slot = module.db_load_state(session_id)["flower_shop"]["slots"][0]

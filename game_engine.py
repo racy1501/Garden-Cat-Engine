@@ -328,6 +328,9 @@ DISPLAY_TIMEZONE_NAME = "Asia/Shanghai"
 # 花店 3A：只保存开店与营业安排，不在本批次处理上架或销售。
 FLOWER_SHOP_ESTABLISH_COST = 3500
 FLOWER_SHOP_SHELF_CAPACITY = 3
+FLOWER_SHOP_SHELF_CAPACITIES = (3, 6, 9)
+FLOWER_SHOP_SHELF_UPGRADE_COSTS = {3: 1500, 6: 2500}
+FLOWER_SHOP_FRESHENER_COST = 1800
 FLOWER_SHOP_BUSINESS_DURATION_MINUTES = 10 * 60
 FLOWER_SHOP_SALE_CHANCE = 0.82
 FLOWER_SHOP_SALE_WAIT_MAX_SECONDS = 10 * 60 * 60
@@ -338,6 +341,12 @@ FLOWER_SHOP_BASE_PRICING_PROFILE = (
     (4 * 60 * 60, 1.15, "新鲜加价"),
     (10 * 60 * 60, 1.00, "标准售价"),
     (18 * 60 * 60, 0.85, "轻微折价"),
+    (24 * 60 * 60, 0.65, "临期折价"),
+)
+FLOWER_SHOP_FRESHENER_PRICING_PROFILE = (
+    (6 * 60 * 60, 1.15, "新鲜加价"),
+    (12 * 60 * 60, 1.00, "标准售价"),
+    (20 * 60 * 60, 0.85, "轻微折价"),
     (24 * 60 * 60, 0.65, "临期折价"),
 )
 
@@ -1451,6 +1460,7 @@ def _default_flower_shop_state():
         "established_at": None,
         "launched_at": None,
         "shelf_capacity": 0,
+        "has_freshener": False,
         "business_start_minute": None,
         "pending_business_start_minute": None,
         "pending_business_effective_at": None,
@@ -2522,6 +2532,13 @@ def _default_flower_shop_pricing_profile():
     ]
 
 
+def _freshener_flower_shop_pricing_profile():
+    return [
+        {"until_seconds": until_seconds, "multiplier": multiplier, "label": label}
+        for until_seconds, multiplier, label in FLOWER_SHOP_FRESHENER_PRICING_PROFILE
+    ]
+
+
 def _normalize_flower_shop_pricing_profile(raw_profile):
     if not isinstance(raw_profile, list) or not raw_profile:
         return _default_flower_shop_pricing_profile()
@@ -2626,13 +2643,30 @@ def _normalize_flower_shop(raw_shop):
     raw_slots = raw_shop.get("slots", [])
     slots = []
     if isinstance(raw_slots, list):
-        slots = [_normalize_flower_shop_slot(slot) for slot in raw_slots[:FLOWER_SHOP_SHELF_CAPACITY]]
-    while len(slots) < FLOWER_SHOP_SHELF_CAPACITY:
+        slots = [_normalize_flower_shop_slot(slot) for slot in raw_slots]
+    try:
+        raw_capacity = int(raw_shop.get("shelf_capacity", FLOWER_SHOP_SHELF_CAPACITY))
+    except (TypeError, ValueError):
+        raw_capacity = FLOWER_SHOP_SHELF_CAPACITY
+    occupied_count = max((index + 1 for index, slot in enumerate(slots) if slot is not None), default=0)
+    capacity = raw_capacity if raw_capacity in FLOWER_SHOP_SHELF_CAPACITIES else FLOWER_SHOP_SHELF_CAPACITY
+    required_capacity = max(FLOWER_SHOP_SHELF_CAPACITY, occupied_count)
+    for candidate in FLOWER_SHOP_SHELF_CAPACITIES:
+        if candidate >= required_capacity:
+            capacity = max(capacity, candidate) if capacity >= required_capacity else candidate
+            break
+    if occupied_count > FLOWER_SHOP_SHELF_CAPACITIES[-1]:
+        # 没有合法容量能容下这些在售商品时，宁可保留异常 slots，也不能静默丢失商品。
+        capacity = FLOWER_SHOP_SHELF_CAPACITIES[-1]
+    if occupied_count <= FLOWER_SHOP_SHELF_CAPACITIES[-1]:
+        slots = slots[:capacity]
+    while len(slots) < capacity:
         slots.append(None)
     return {
         "established_at": established_at,
         "launched_at": launched_at,
-        "shelf_capacity": FLOWER_SHOP_SHELF_CAPACITY,
+        "shelf_capacity": capacity,
+        "has_freshener": bool(raw_shop.get("has_freshener", False)),
         "business_start_minute": start_minute,
         "pending_business_start_minute": pending_start_minute,
         "pending_business_effective_at": pending_effective_at,
@@ -3499,6 +3533,11 @@ def get_flower_shop_public_summary(state, now=None):
         and _flower_shop_is_open_for_start(start_minute, now)
     )
     slots = shop.get("slots", []) if isinstance(shop.get("slots"), list) else []
+    shelf_capacity = int(shop.get("shelf_capacity", 0) or 0)
+    next_shelf_capacity = next(
+        (capacity for capacity in FLOWER_SHOP_SHELF_CAPACITIES if capacity > shelf_capacity),
+        None,
+    )
     public_slots = []
     for index, slot in enumerate(slots):
         if slot is None:
@@ -3531,8 +3570,13 @@ def get_flower_shop_public_summary(state, now=None):
         "eligibility_progress": get_flower_shop_eligibility_progress(state),
         "established": established,
         "launched": bool(shop.get("launched_at")),
-        "capacity": int(shop.get("shelf_capacity", 0) or 0),
-        "shelf_capacity": int(shop.get("shelf_capacity", 0) or 0),
+        "capacity": shelf_capacity,
+        "shelf_capacity": shelf_capacity,
+        "can_upgrade_shelf": bool(established and next_shelf_capacity is not None),
+        "next_shelf_capacity": next_shelf_capacity,
+        "next_shelf_upgrade_cost": FLOWER_SHOP_SHELF_UPGRADE_COSTS.get(shelf_capacity),
+        "has_freshener": bool(shop.get("has_freshener", False)),
+        "freshener_cost": None if shop.get("has_freshener", False) else FLOWER_SHOP_FRESHENER_COST,
         "business_start_minute": start_minute,
         "business_duration_minutes": FLOWER_SHOP_BUSINESS_DURATION_MINUTES,
         "pending_business_start_minute": shop.get("pending_business_start_minute"),
@@ -4589,7 +4633,11 @@ def process_command(state, command, *, event_source="system"):
                     "listed_at": now,
                     "last_settled_at": now,
                     "base_price": get_flower_shop_base_price(bouquet_instance["components"]),
-                    "pricing_profile": _default_flower_shop_pricing_profile(),
+                    "pricing_profile": (
+                        _freshener_flower_shop_pricing_profile()
+                        if shop.get("has_freshener")
+                        else _default_flower_shop_pricing_profile()
+                    ),
                     "will_sell": will_sell,
                     "sale_business_seconds_remaining": sale_wait,
                 }
@@ -4631,6 +4679,40 @@ def process_command(state, command, *, event_source="system"):
             }
             add_event(state, "建好了花店，准备了3个空货架")
             result = "🏪 花店建好了！现在有3个空货架，请先设置每天的营业开始时间。"
+
+    elif action == "upgrade_flower_shop_shelf":
+        shop = state["flower_shop"]
+        current_capacity = int(shop.get("shelf_capacity", 0) or 0)
+        next_capacity = next(
+            (capacity for capacity in FLOWER_SHOP_SHELF_CAPACITIES if capacity > current_capacity),
+            None,
+        )
+        upgrade_cost = FLOWER_SHOP_SHELF_UPGRADE_COSTS.get(current_capacity)
+        if not shop.get("established_at"):
+            result = "❌ 请先建造花店。"
+        elif next_capacity is None or upgrade_cost is None:
+            result = "❌ 货架已经扩至最大容量。"
+        elif state["money"] < upgrade_cost:
+            result = f"❌ 金币不足，扩建至{next_capacity}格需要{upgrade_cost}块。"
+        else:
+            slots = shop.setdefault("slots", [])
+            state["money"] -= upgrade_cost
+            shop["shelf_capacity"] = next_capacity
+            slots.extend([None] * (next_capacity - len(slots)))
+            result = f"🏪 货架已扩建至{next_capacity}格，花费{upgrade_cost}块。"
+
+    elif action == "buy_flower_shop_freshener":
+        shop = state["flower_shop"]
+        if not shop.get("established_at"):
+            result = "❌ 请先建造花店。"
+        elif shop.get("has_freshener"):
+            result = "❌ 保鲜设备已经安装好了。"
+        elif state["money"] < FLOWER_SHOP_FRESHENER_COST:
+            result = f"❌ 金币不足，保鲜设备需要{FLOWER_SHOP_FRESHENER_COST}块。"
+        else:
+            state["money"] -= FLOWER_SHOP_FRESHENER_COST
+            shop["has_freshener"] = True
+            result = "🏪 保鲜设备已安装；之后新上架的花束会更晚进入折价阶段，但仍会在24小时后报废。"
 
     elif action == "set_flower_shop_hours":
         shop = state["flower_shop"]
@@ -5136,6 +5218,8 @@ craft_bouquet bouquet_id=<花束ID> - 制作一束花并放进花束背包
 gift_bouquet instance_id=<花束实例ID> [message=...] - 从花束背包赠送
 list_bouquet instance_id=<花束实例ID> [slot=1] - 营业时将花束上架到空货架
 establish_flower_shop - 满足条件后花费{FLOWER_SHOP_ESTABLISH_COST}块建造花店
+upgrade_flower_shop_shelf - 将花店货架扩建至下一档容量
+buy_flower_shop_freshener - 安装保鲜设备，之后新上架花束更晚折价
 set_flower_shop_hours <HH:MM> - 设置每天固定10小时营业的开始时间
 launch_flower_shop - 在已建店并设置营业时间后正式开业
 sell <花> [数量] - 卖花，或 sell all

@@ -2159,6 +2159,7 @@ html, body { min-width: 0; }
 .flower-shop-row { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
 .flower-shop-row span { font-size: 12px; line-height: 1.4; }
 .flower-shop-actions { display: flex; gap: 5px; flex: 0 0 auto; }
+.flower-shop-facilities { display: grid; gap: 6px; }
 .flower-shop-row input { min-width: 0; padding: 6px; border: 1px solid rgba(92,111,84,.22); border-radius: 8px; }
 .flower-shop-shelves { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .flower-shop-shelves article { display: grid; gap: 4px; align-content: start; padding: 8px 5px; border-radius: 9px; background: rgba(231,238,225,.72); color: var(--green-dark); font-size: 11px; text-align: center; }

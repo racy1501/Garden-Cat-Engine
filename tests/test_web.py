@@ -415,3 +415,8 @@ def test_flower_shop_3b_frontend_lists_bouquets_without_exposing_sale_odds():
     assert "will_sell" not in js
     assert "82%" not in js
     assert ".flower-shop-shelves article" in css
+    assert "upgrade_flower_shop_shelf" in js
+    assert "buy_flower_shop_freshener" in js
+    assert "shop.slots || []" in js
+    assert "不延长24小时报废时间" in js
+    assert ".flower-shop-facilities" in css
