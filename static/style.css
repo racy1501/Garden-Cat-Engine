@@ -2165,3 +2165,15 @@ html, body { min-width: 0; }
 .flower-shop-shelves { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .flower-shop-shelves article { display: grid; gap: 4px; align-content: start; padding: 8px 5px; border-radius: 9px; background: rgba(231,238,225,.72); color: var(--green-dark); font-size: 11px; text-align: center; }
 .flower-shop-shelves small { color: var(--muted); line-height: 1.35; }
+
+.cottage-panel { min-height: 420px; }
+.cottage-section { display: grid; gap: 8px; margin-top: 18px; }
+.cottage-section h3 { margin: 0; font-size: 15px; color: var(--green-dark); }
+.cottage-hint { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
+.cottage-card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.cottage-item-card { display: flex; min-height: 76px; gap: 9px; align-items: center; justify-content: space-between; padding: 10px; border: 1px solid rgba(92,111,84,.20); border-radius: 12px; background: rgba(255,255,255,.5); }
+.cottage-item-card.owned { border-color: rgba(105,141,82,.45); background: rgba(231,238,225,.72); }
+.cottage-item-card.locked { opacity: .58; }
+.cottage-item-card div { display: grid; gap: 4px; }
+.cottage-item-card small { color: var(--muted); font-size: 11px; line-height: 1.35; }
+.cottage-item-icon { font-size: 25px; }

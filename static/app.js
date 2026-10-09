@@ -634,6 +634,7 @@ function renderAll() {
   renderPots();
   renderVase();
   renderCatHouseV5();
+  renderCottage();
   renderSeedShop();
   renderCatShop();
   renderInventory();
@@ -651,6 +652,112 @@ function makeButton(label, command, className = "mini-btn", disabled = false) {
   button.disabled = disabled;
   if (!disabled && command) button.addEventListener("click", () => runCommand(command, button));
   return button;
+}
+
+const COTTAGE_CATEGORY_FALLBACK = {
+  furniture: "🪑",
+  decoration: "✨",
+  legacy: "📦",
+};
+
+function renderCottage() {
+  const root = $("#cottageContent");
+  if (!root) return;
+  root.innerHTML = "";
+  const cottage = currentState?.cottage || {};
+  const ownedItems = cottage.owned_items || [];
+  const purchasableItems = cottage.purchasable_items || [];
+
+  const intro = document.createElement("p");
+  intro.className = "cottage-hint";
+  intro.textContent = "小屋正在慢慢安顿下来；正式素材与固定布局会在后续版本补上。";
+  root.append(intro);
+
+  const ownedSection = document.createElement("section");
+  ownedSection.className = "cottage-section";
+  const ownedTitle = document.createElement("h3");
+  ownedTitle.textContent = `已经拥有 · ${Number(cottage.total_owned || 0)} 件`;
+  const ownedGrid = document.createElement("div");
+  ownedGrid.className = "cottage-card-grid";
+  if (!ownedItems.length) {
+    const empty = document.createElement("p");
+    empty.className = "muted";
+    empty.textContent = "小屋现在还是空的，慢慢添置喜欢的家具吧。";
+    ownedGrid.append(empty);
+  } else {
+    for (const item of ownedItems) {
+      const card = document.createElement("article");
+      card.className = "cottage-item-card owned";
+      const icon = document.createElement("span");
+      icon.className = "cottage-item-icon";
+      icon.textContent = COTTAGE_CATEGORY_FALLBACK[item.category] || "🏠";
+      const meta = document.createElement("div");
+      const title = document.createElement("strong");
+      title.textContent = item.name;
+      const source = document.createElement("small");
+      source.textContent = ({ human: "人类添置", ai: "AI 添置", system: "纪念奖励" })[item.source] || "已拥有";
+      meta.append(title, source);
+      card.append(icon, meta);
+      ownedGrid.append(card);
+    }
+  }
+  ownedSection.append(ownedTitle, ownedGrid);
+
+  const shopSection = document.createElement("section");
+  shopSection.className = "cottage-section";
+  const shopTitle = document.createElement("h3");
+  shopTitle.textContent = "添置主家具";
+  const shopGrid = document.createElement("div");
+  shopGrid.className = "cottage-card-grid";
+  for (const item of purchasableItems) {
+    const card = document.createElement("article");
+    card.className = "cottage-item-card";
+    const meta = document.createElement("div");
+    const title = document.createElement("strong");
+    title.textContent = item.name;
+    const description = document.createElement("small");
+    description.textContent = item.description;
+    meta.append(title, description);
+    const action = makeButton(
+      item.owned ? "已拥有" : `${item.price} 块 · 添置`,
+      `buy_cottage_furniture ${item.id}`,
+      "mini-btn gold",
+      Boolean(item.owned) || Number(currentState.money || 0) < Number(item.price || 0),
+    );
+    card.append(meta, action);
+    shopGrid.append(card);
+  }
+  shopSection.append(shopTitle, shopGrid);
+
+  const rewards = ["small_photo_frame", "small_wall_art", "small_vase", "eternal_flower"];
+  const ownedIds = new Set(ownedItems.map((item) => item.id));
+  const rewardSection = document.createElement("section");
+  rewardSection.className = "cottage-section";
+  const rewardTitle = document.createElement("h3");
+  rewardTitle.textContent = "纪念装饰";
+  const rewardGrid = document.createElement("div");
+  rewardGrid.className = "cottage-card-grid";
+  for (const id of rewards) {
+    const item = (catalog.cottage_items || []).find((entry) => entry.id === id);
+    if (!item) continue;
+    const card = document.createElement("article");
+    card.className = `cottage-item-card ${ownedIds.has(id) ? "owned" : "locked"}`;
+    card.innerHTML = `<strong>${item.name}</strong><small>${ownedIds.has(id) ? "已经留在小屋里" : "尚未获得"}</small>`;
+    rewardGrid.append(card);
+  }
+  rewardSection.append(rewardTitle, rewardGrid);
+
+  const catArea = cottage.cat_area || {};
+  const catSection = document.createElement("section");
+  catSection.className = "cottage-section";
+  const catTitle = document.createElement("h3");
+  catTitle.textContent = "猫咪生活区";
+  const catMeta = document.createElement("p");
+  catMeta.className = "cottage-hint";
+  catMeta.textContent = `猫窝：${catArea.bed?.is_default ? "普通猫窝" : "高级猫窝"}　粮碗：${Number(catArea.food_bowl?.remaining_portions || 0)} / ${Number(catArea.food_bowl?.capacity || 0)}　水碗：${Number(catArea.water_bowl?.remaining_portions || 0)} / ${Number(catArea.water_bowl?.capacity || 0)}`;
+  catSection.append(catTitle, catMeta);
+
+  root.append(ownedSection, shopSection, rewardSection, catSection);
 }
 
 function seedOptions(select) {
@@ -3220,6 +3327,7 @@ for(const button of document.querySelectorAll('.sticky-tab')){
       renderBouquetPage();
       markBouquetGiftsRead();
     }
+    if (button.dataset.mainPane === 'cottage') renderCottage();
   });
 }
 for(const button of document.querySelectorAll('.cat-sticky-tab')){

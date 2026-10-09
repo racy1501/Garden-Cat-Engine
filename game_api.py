@@ -28,6 +28,7 @@ from game_engine import (
     CAT_LOCATION_GARDEN,
     CAT_LOCATION_HOME,
     BOUQUETS,
+    COTTAGE_ITEM_CATALOG,
     DISPLAY_TIMEZONE,
     DISPLAY_TIMEZONE_NAME,
     FLOWERS,
@@ -50,6 +51,7 @@ from game_engine import (
     get_collectible_unlock_hint,
     get_game_time_info,
     get_flower_shop_public_summary,
+    get_cottage_public_summary,
     get_next_pot_cost,
     refresh_garden_events,
     is_collectible_unlocked,
@@ -60,6 +62,7 @@ from game_engine import (
     is_pot_withered,
     normalize_state,
     process_command,
+    sync_cottage_rewards,
 )
 
 try:
@@ -219,7 +222,8 @@ def db_load_state(session_id: str, *, events_before: list | None = None, live_ev
     if events_before is not None and live_events:
         events_before.extend(state.get("events", []))
     normalized = normalize_state(state)
-    if apply_offline_progress(normalized):
+    cottage_rewards = sync_cottage_rewards(normalized)
+    if apply_offline_progress(normalized) or cottage_rewards:
         db_save_state(session_id, normalized)
     if events_before is not None and not live_events:
         # 首次恢复和AI调用：补算完成后才开始收集操作产生的新事件。
@@ -991,6 +995,7 @@ def _ai_summary(state: dict[str, Any], *, events_before: list | None = None) -> 
         "bouquet_options": get_bouquet_options(state),
         "bouquet_inventory": get_bouquet_inventory_public(state),
         "flower_shop": get_flower_shop_public_summary(state, now),
+        "cottage": get_cottage_public_summary(state),
         "latest_event": latest_event,
     }
 
@@ -1153,6 +1158,7 @@ def _summary(state: dict[str, Any], *, events_before: list | None = None) -> dic
         "bouquet_options": get_bouquet_options(state),
         "bouquet_inventory": get_bouquet_inventory_public(state),
         "flower_shop": get_flower_shop_public_summary(state, now),
+        "cottage": get_cottage_public_summary(state),
         "bouquet_gifts": [
             {
                 **gift,
@@ -1342,6 +1348,7 @@ def catalog():
                 for bouquet_id, bouquet in BOUQUETS.items()
             },
             "items": ITEMS,
+            "cottage_items": [dict(item) for item in COTTAGE_ITEM_CATALOG.values()],
             "collectibles": [
                 {
                     **item,

@@ -68,11 +68,12 @@
 </section>
 <section class="main-grid">
 <div class="main-column">
-<div aria-label="花园、商店与花束切换" class="main-switch-strip" role="tablist">
+<div aria-label="花园、商店、花束与小屋切换" class="main-switch-strip" role="tablist">
 <div class="sticky-title-tabs">
 <button class="sticky-tab active" data-main-pane="garden" type="button"><span>THE GARDEN</span>花园</button>
 <button class="sticky-tab" data-main-pane="store" type="button"><span>THE SHOP</span>商店</button>
 <button class="sticky-tab bouquet-main-tab" data-main-pane="bouquet" type="button"><span>THE BOUQUET</span>花束</button>
+<button class="sticky-tab" data-main-pane="cottage" type="button"><span>THE COTTAGE</span>小屋</button>
 </div>
 <div class="main-strip-actions"><button class="mini-btn backpack-open-btn" id="backpackBtn" type="button">背包</button><button class="mini-btn gold main-harvest-btn" id="harvestAllBtn" type="button">暂无成熟花</button><button class="mini-btn notes-open-btn" id="notesBtn" type="button">便签</button></div>
 </div>
@@ -112,6 +113,13 @@
 <div><p class="section-kicker">THE BOUQUET</p><h2>花束</h2></div>
 </div>
 <div id="bouquetPageContent"></div>
+</article>
+<article class="panel cottage-panel main-switch-pane">
+<div class="panel-heading compact">
+<div><p class="section-kicker">THE COTTAGE</p><h2>共同小屋</h2></div>
+<span class="muted">功能型 v1-A</span>
+</div>
+<div id="cottageContent"></div>
 </article>
 <article class="panel cat-panel">
 <div class="panel-heading cat-house-heading">

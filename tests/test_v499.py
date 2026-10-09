@@ -167,14 +167,20 @@ def test_new_seed_first_rewards_are_applied_once_only(flower_id):
 
 
 @pytest.mark.parametrize("flower_id", ["baby_breath", "lisianthus", "camellia"])
-def test_future_hut_decor_rewards_are_not_put_in_a_temporary_inventory(flower_id):
+def test_hut_decor_rewards_are_added_to_cottage_not_temporary_inventory(flower_id):
     now = int(time.time())
     state = get_default_state()
     state["pots"][0] = _ready_pot(flower_id, now)
 
     result = _harvest_one_pot(state, 0, now, WEATHER["cloudy"])
 
-    assert "解锁奖励" not in result
+    expected_item = {
+        "baby_breath": "small_photo_frame",
+        "lisianthus": "small_wall_art",
+        "camellia": "small_vase",
+    }[flower_id]
+    assert "小屋获得纪念物" in result
+    assert expected_item in state["cottage"]["items"]
     assert state["inventory"]["items"] == {}
     assert state["garden_collectibles"] == {}
 

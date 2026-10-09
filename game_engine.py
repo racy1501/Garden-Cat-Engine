@@ -234,6 +234,33 @@ ITEMS = {
     "feather_wand": {"name": "逗猫棒", "price": 12, "type": "toy", "effect": {"mood": 20}},
 }
 
+# 共同小屋只把“是否拥有、何时获得、由谁获得”写入存档；展示位置和素材始终由
+# catalog 决定。当前 slot_key 只是稳定语义标识，不代表视觉坐标或层级。
+COTTAGE_ITEM_CATALOG = {
+    "rug": {"id": "rug", "name": "地毯", "category": "furniture", "price": 900, "slot_key": "rug", "asset_key": "cottage_rug", "description": "让生活区更温暖的地毯。"},
+    "curtains": {"id": "curtains", "name": "窗帘", "category": "furniture", "price": 1100, "slot_key": "curtains", "asset_key": "cottage_curtains", "description": "挂在窗边的柔软窗帘。"},
+    "coffee_table": {"id": "coffee_table", "name": "茶几", "category": "furniture", "price": 1300, "slot_key": "coffee_table", "asset_key": "cottage_coffee_table", "description": "适合放下茶杯与小花束的茶几。"},
+    "floor_lamp": {"id": "floor_lamp", "name": "落地灯", "category": "furniture", "price": 1500, "slot_key": "floor_lamp", "asset_key": "cottage_floor_lamp", "description": "在傍晚亮起的落地灯。"},
+    "flower_stand": {"id": "flower_stand", "name": "花架", "category": "furniture", "price": 1700, "slot_key": "flower_stand", "asset_key": "cottage_flower_stand", "description": "留给喜欢的花与绿意的花架。"},
+    "storage_sideboard": {"id": "storage_sideboard", "name": "储物边柜", "category": "furniture", "price": 1900, "slot_key": "storage_sideboard", "asset_key": "cottage_storage_sideboard", "description": "收好日常小物的边柜。"},
+    "wardrobe": {"id": "wardrobe", "name": "衣柜", "category": "furniture", "price": 2100, "slot_key": "wardrobe", "asset_key": "cottage_wardrobe", "description": "安静立在角落的衣柜。"},
+    "bookshelf": {"id": "bookshelf", "name": "书架", "category": "furniture", "price": 2300, "slot_key": "bookshelf", "asset_key": "cottage_bookshelf", "description": "可以慢慢填满的书架。"},
+    "sofa": {"id": "sofa", "name": "沙发", "category": "furniture", "price": 2600, "slot_key": "sofa", "asset_key": "cottage_sofa", "description": "一起休息的沙发。"},
+    "dining_set": {"id": "dining_set", "name": "餐桌椅", "category": "furniture", "price": 2900, "slot_key": "dining_set", "asset_key": "cottage_dining_set", "description": "留给日常用餐的餐桌椅。"},
+    "bed": {"id": "bed", "name": "床", "category": "furniture", "price": 3200, "slot_key": "bed", "asset_key": "cottage_bed", "description": "让小屋真正安顿下来的床。"},
+    "small_photo_frame": {"id": "small_photo_frame", "name": "小相框", "category": "decoration", "reward_only": True, "slot_key": "small_photo_frame", "asset_key": "cottage_small_photo_frame", "description": "一件小小的首次收获纪念。"},
+    "small_wall_art": {"id": "small_wall_art", "name": "小挂画", "category": "decoration", "reward_only": True, "slot_key": "small_wall_art", "asset_key": "cottage_small_wall_art", "description": "一幅安静陪伴小屋的挂画。"},
+    "small_vase": {"id": "small_vase", "name": "小花瓶", "category": "decoration", "reward_only": True, "slot_key": "small_vase", "asset_key": "cottage_small_vase", "description": "盛放回忆的小花瓶。"},
+    "eternal_flower": {"id": "eternal_flower", "name": "永生花", "category": "decoration", "reward_only": True, "slot_key": "eternal_flower", "asset_key": "cottage_eternal_flower", "description": "两种传说花相遇后留下的纪念。"},
+}
+
+COTTAGE_REWARD_REQUIREMENTS = {
+    "small_photo_frame": {"flowers": {"baby_breath"}},
+    "small_wall_art": {"flowers": {"lisianthus"}},
+    "small_vase": {"flowers": {"camellia"}},
+    "eternal_flower": {"flowers": {"moonflower", "red_spider_lily"}},
+}
+
 # v4.6.6: 天气系统 - 浇水开关版
 # 雨天生长最快并自动浇水；晴天小幅加速且需手动浇水；多云为标准速度
 WEATHER = {
@@ -1509,6 +1536,7 @@ def get_default_state():
         "cat": None,
         "cat_stats": None,
         "permanent_items": [],
+        "cottage": {"items": {}},
         "last_update": now,
         "last_active_at": now,
         "cat_last_pet": 0,
@@ -2926,6 +2954,21 @@ def normalize_state(data, now=None):
         data["permanent_items"] = []
     data["permanent_items"] = [item for item in data["permanent_items"] if item in ITEMS]
 
+    raw_cottage = data.get("cottage")
+    if not isinstance(raw_cottage, dict):
+        raw_cottage = {}
+    raw_cottage_items = raw_cottage.get("items")
+    cottage_items = {}
+    if isinstance(raw_cottage_items, dict):
+        for item_id, record in raw_cottage_items.items():
+            item_id = str(item_id or "").strip()
+            if not item_id or not isinstance(record, dict):
+                continue
+            acquired_at = _safe_nonnegative_int(record.get("acquired_at", 0), 0)
+            source = normalize_event_source(record.get("source"))
+            cottage_items[item_id] = {"acquired_at": acquired_at, "source": source}
+    data["cottage"] = {"items": cottage_items}
+
     if not isinstance(data.get("encyclopedia"), list):
         data["encyclopedia"] = []
     data["encyclopedia"] = list(dict.fromkeys(fid for fid in data["encyclopedia"] if fid in FLOWERS))
@@ -3815,6 +3858,81 @@ def _auto_water_pots(state, now):
     return count
 
 
+def sync_cottage_rewards(state, now=None):
+    """按既有图鉴事实补齐确定性小屋奖励；返回本次新获得的 item id。"""
+    if now is None:
+        now = int(time.time())
+    cottage = state.setdefault("cottage", {"items": {}})
+    items = cottage.setdefault("items", {})
+    encyclopedia = set(state.get("encyclopedia", []))
+    granted = []
+    for item_id, requirement in COTTAGE_REWARD_REQUIREMENTS.items():
+        if item_id in items or not requirement["flowers"].issubset(encyclopedia):
+            continue
+        items[item_id] = {"acquired_at": int(now), "source": "system"}
+        granted.append(item_id)
+    return granted
+
+
+def get_cottage_public_summary(state):
+    """返回网页与 AI 共用的小屋公开摘要，不泄露原始存档。"""
+    cottage_items = state.get("cottage", {}).get("items", {})
+    if not isinstance(cottage_items, dict):
+        cottage_items = {}
+
+    owned_items = []
+    for item_id, record in cottage_items.items():
+        catalog_item = COTTAGE_ITEM_CATALOG.get(item_id)
+        if catalog_item is None:
+            # 兼容未来 catalog 变更留下的合法历史 ownership，不将原始 record 直接公开。
+            catalog_item = {
+                "id": item_id,
+                "name": "历史小屋物品",
+                "category": "legacy",
+                "slot_key": item_id,
+                "asset_key": "",
+            }
+        owned_items.append(
+            {
+                "id": item_id,
+                "name": catalog_item["name"],
+                "category": catalog_item["category"],
+                "acquired_at": _safe_nonnegative_int(record.get("acquired_at", 0), 0),
+                "source": normalize_event_source(record.get("source")),
+                "slot_key": catalog_item["slot_key"],
+                "asset_key": catalog_item["asset_key"],
+            }
+        )
+
+    purchasable_items = [
+        {
+            "id": item_id,
+            "name": item["name"],
+            "price": item["price"],
+            "owned": item_id in cottage_items,
+            "description": item["description"],
+            "slot_key": item["slot_key"],
+            "asset_key": item["asset_key"],
+        }
+        for item_id, item in COTTAGE_ITEM_CATALOG.items()
+        if not item.get("reward_only", False) and "price" in item
+    ]
+
+    care = state.get("cat_care", {}) if isinstance(state.get("cat_care"), dict) else {}
+    cat_area = {
+        "bed": dict(care.get("bed", {})) if isinstance(care.get("bed"), dict) else {},
+        "food_bowl": dict(care.get("food_bowl", {})) if isinstance(care.get("food_bowl"), dict) else {},
+        "water_bowl": dict(care.get("water_bowl", {})) if isinstance(care.get("water_bowl"), dict) else {},
+        "permanent_items": list(state.get("permanent_items", [])),
+    }
+    return {
+        "owned_items": owned_items,
+        "purchasable_items": purchasable_items,
+        "total_owned": len(owned_items),
+        "cat_area": cat_area,
+    }
+
+
 def add_event(state, event_text, *, now=None, source="system"):
     state["events"].append({
         "time": int(time.time() if now is None else now),
@@ -4357,6 +4475,7 @@ def process_command(state, command, *, event_source="system"):
     event_source = normalize_event_source(event_source)
     now = int(time.time())
     normalize_state(state, now)
+    sync_cottage_rewards(state, now)
     _refresh_flower_shop_schedule(state, now)
     if state.get("is_frozen"):
         state["is_frozen"] = False
@@ -4447,6 +4566,27 @@ def process_command(state, command, *, event_source="system"):
                         result = f"✅ 买了{quantity}个{item_data['name']}！(-{price}块)"
             else:
                 result = "❌ 商店没有这个东西"
+
+    elif action == "buy_cottage_furniture":
+        if len(parts) != 2:
+            result = "❌ 用法：buy_cottage_furniture <furniture_id>"
+        else:
+            item_id = parts[1].lower()
+            item = COTTAGE_ITEM_CATALOG.get(item_id)
+            cottage_items = state["cottage"]["items"]
+            if item is None:
+                result = "❌ 小屋里没有这件家具"
+            elif item.get("reward_only") or "price" not in item:
+                result = f"❌ {item['name']}是纪念奖励，不能购买"
+            elif item_id in cottage_items:
+                result = f"❌ 已经拥有{item['name']}了"
+            elif state["money"] < item["price"]:
+                result = f"❌ 金币不足，{item['name']}需要{item['price']}块。"
+            else:
+                state["money"] -= item["price"]
+                cottage_items[item_id] = {"acquired_at": now, "source": event_source}
+                add_event(state, f"为小屋添置了{item['name']}", now=now, source=event_source)
+                result = f"🏠 添置了{item['name']}！(-{item['price']}块)"
 
     elif action == "plant":
         if len(parts) != 3:
@@ -5320,6 +5460,7 @@ def process_command(state, command, *, event_source="system"):
         result = f"""💡 命令帮助：
 shop - 查看商店
 buy <商品ID> [数量] - 买东西；商品ID必须使用catalog中flowers/items的key（如daisy、basic_food），数量必须是正整数
+buy_cottage_furniture <furniture_id> - 用共同余额为小屋添置一件主家具
 plant <花> <盆号> - 种花（雨天自动浇水，否则需手动浇水才能生长）
 water <盆号|all> - 给花浇水（浇一次永久有效，直到收获）
 harvest <盆号|all> - 收获一盆，或一键收获全部成熟花朵
@@ -5671,6 +5812,11 @@ def _harvest_one_pot(state, pot_idx, now, weather_data):
             reward_text.append(f"{ITEMS[item_id]['name']}x{qty}")
     if reward_text:
         result += "\n🎁 解锁奖励：" + ", ".join(reward_text)
+    cottage_rewards = sync_cottage_rewards(state, now)
+    if cottage_rewards:
+        result += "\n🏠 小屋获得纪念物：" + "、".join(
+            COTTAGE_ITEM_CATALOG[item_id]["name"] for item_id in cottage_rewards
+        )
     newly_unlocked = get_stage_unlocks(
         before_count,
         after_count,
