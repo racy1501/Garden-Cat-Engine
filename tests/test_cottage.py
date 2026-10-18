@@ -19,39 +19,94 @@ def test_normalize_adds_cottage_and_keeps_only_legal_item_record_fields():
     }
 
 
+def test_normalize_upgrades_legacy_reward_ids_and_keeps_earliest_record_idempotently():
+    state = ge.get_default_state()
+    state["cottage"] = {
+        "items": {
+            "small_photo_frame": {"acquired_at": 12, "source": "human"},
+            "potted_plant": {"acquired_at": 20, "source": "system"},
+            "small_wall_art": {"acquired_at": 30, "source": "ai"},
+            "small_vase": {"acquired_at": 40, "source": "system"},
+            "eternal_flower": {"acquired_at": 50, "source": "human"},
+        }
+    }
+    ge.normalize_state(state)
+    assert state["cottage"]["items"] == {
+        "potted_plant": {"acquired_at": 12, "source": "human"},
+        "wall_art": {"acquired_at": 30, "source": "ai"},
+        "hanging_plant": {"acquired_at": 40, "source": "system"},
+        "beanbag_reward": {"acquired_at": 50, "source": "human"},
+    }
+    normalized_once = dict(state["cottage"]["items"])
+    ge.normalize_state(state)
+    assert state["cottage"]["items"] == normalized_once
+    state["encyclopedia"] = ["baby_breath", "lisianthus", "camellia", "moonflower", "red_spider_lily"]
+    assert ge.sync_cottage_rewards(state, now=100) == []
+
+
 def test_cottage_purchase_uses_shared_money_once_and_records_source():
     state = ge.get_default_state()
     state["money"] = 5000
     purchasable = [item for item in ge.COTTAGE_ITEM_CATALOG.values() if "price" in item]
-    assert len(purchasable) == 11
-    assert sum(item["price"] for item in purchasable) == 21_500
+    assert len(purchasable) == 9
+    assert sum(item["price"] for item in purchasable) == 17_300
+    assert {item["id"]: item["price"] for item in purchasable} == {
+        "ottoman": 600,
+        "coffee_table": 900,
+        "floor_lamp": 1200,
+        "bookshelf": 1500,
+        "flower_stand": 1800,
+        "wardrobe": 2200,
+        "sofa": 2600,
+        "dining_set": 3000,
+        "bed": 3500,
+    }
 
-    assert "添置了地毯" in ge.process_command(state, "buy_cottage_furniture rug", event_source="human")
-    assert state["money"] == 4100
-    assert state["cottage"]["items"]["rug"]["source"] == "human"
-    assert "已经拥有" in ge.process_command(state, "buy_cottage_furniture rug", event_source="ai")
-    assert state["money"] == 4100
+    assert "添置了绿色格纹小脚凳" in ge.process_command(state, "buy_cottage_furniture ottoman", event_source="human")
+    assert state["money"] == 4400
+    assert state["cottage"]["items"]["ottoman"]["source"] == "human"
+    assert "已经拥有" in ge.process_command(state, "buy_cottage_furniture ottoman", event_source="ai")
+    assert state["money"] == 4400
 
-    assert "添置了窗帘" in ge.process_command(state, "buy_cottage_furniture curtains", event_source="ai")
-    assert state["cottage"]["items"]["curtains"]["source"] == "ai"
-    assert "纪念奖励" in ge.process_command(state, "buy_cottage_furniture small_photo_frame", event_source="human")
+    for item_id in ("rug", "curtains", "storage_sideboard"):
+        assert "停售" in ge.process_command(state, f"buy_cottage_furniture {item_id}", event_source="ai")
+    assert "纪念奖励" in ge.process_command(state, "buy_cottage_furniture potted_plant", event_source="human")
+
+
+def test_legacy_cottage_items_remain_in_old_save_but_not_active_collection():
+    state = ge.get_default_state()
+    state["cottage"]["items"] = {
+        "rug": {"acquired_at": 10, "source": "human"},
+        "curtains": {"acquired_at": 20, "source": "ai"},
+        "storage_sideboard": {"acquired_at": 30, "source": "human"},
+        "bed": {"acquired_at": 40, "source": "human"},
+    }
+    ge.normalize_state(state)
+    assert set(state["cottage"]["items"]) == {"rug", "curtains", "storage_sideboard", "bed"}
+    summary = ge.get_cottage_public_summary(state)
+    assert summary["total_owned"] == 1
+    assert [item["id"] for item in summary["owned_items"]] == ["bed"]
+    assert {item["id"] for item in summary["purchasable_items"]} == {
+        "ottoman", "coffee_table", "floor_lamp", "bookshelf", "flower_stand",
+        "wardrobe", "sofa", "dining_set", "bed",
+    }
 
 
 def test_cottage_rewards_are_idempotent_and_preserve_existing_record():
     state = ge.get_default_state()
     state["encyclopedia"] = ["baby_breath", "lisianthus", "camellia", "moonflower"]
     assert ge.sync_cottage_rewards(state, now=100) == [
-        "small_photo_frame", "small_wall_art", "small_vase"
+        "potted_plant", "wall_art", "hanging_plant"
     ]
-    assert "eternal_flower" not in state["cottage"]["items"]
+    assert "beanbag_reward" not in state["cottage"]["items"]
     assert ge.sync_cottage_rewards(state, now=200) == []
-    assert state["cottage"]["items"]["small_photo_frame"] == {
+    assert state["cottage"]["items"]["potted_plant"] == {
         "acquired_at": 100,
         "source": "system",
     }
 
     state["encyclopedia"].append("red_spider_lily")
-    assert ge.sync_cottage_rewards(state, now=300) == ["eternal_flower"]
+    assert ge.sync_cottage_rewards(state, now=300) == ["beanbag_reward"]
     assert ge.sync_cottage_rewards(state, now=400) == []
 
 
@@ -66,7 +121,7 @@ def test_first_harvest_immediately_syncs_cottage_reward():
         "last_growth_update": now,
     }
     ge._harvest_one_pot(state, 0, now, ge.WEATHER["cloudy"])
-    assert state["cottage"]["items"]["small_photo_frame"] == {
+    assert state["cottage"]["items"]["potted_plant"] == {
         "acquired_at": now,
         "source": "system",
     }
@@ -83,13 +138,13 @@ def test_api_and_web_share_cottage_summary_and_old_save_sync(api, cat_clock):
 
     web_payload = client.get(f"/web/status?session_id={session_id}", headers=web_headers).get_json()
     cottage = web_payload["state"]["cottage"]
-    assert cottage["owned_items"][0]["id"] == "small_photo_frame"
+    assert cottage["owned_items"][0]["id"] == "potted_plant"
     assert "cottage" not in web_payload["state"]["inventory"]
-    assert all(item["id"] != "small_photo_frame" for item in cottage["purchasable_items"])
+    assert all(item["id"] != "potted_plant" for item in cottage["purchasable_items"])
 
     bought = client.post(
         "/web/cmd", headers=web_headers,
-        json={"session_id": session_id, "command": "buy_cottage_furniture rug"},
+        json={"session_id": session_id, "command": "buy_cottage_furniture ottoman"},
     ).get_json()
     assert bought["state"]["cottage"]["owned_items"][-1]["source"] == "human"
 
@@ -98,7 +153,7 @@ def test_api_and_web_share_cottage_summary_and_old_save_sync(api, cat_clock):
         json={"session_id": session_id, "command": "status"},
     ).get_json()
     assert {item["id"] for item in ai_payload["state"]["cottage"]["owned_items"]} == {
-        "small_photo_frame", "rug"
+        "potted_plant", "ottoman"
     }
     assert ai_payload["state"]["cottage"]["cat_area"]["bed"]["facility_id"] == "basic_cat_bed"
 
@@ -112,4 +167,5 @@ def test_cottage_frontend_is_a_functional_entry_with_no_asset_image_dependency()
     assert "function renderCottage()" in js
     assert "COTTAGE_CATEGORY_FALLBACK" in js
     assert "buy_cottage_furniture ${item.id}" in js
+    assert "item.reward_only" in js
 

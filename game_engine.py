@@ -237,28 +237,37 @@ ITEMS = {
 # 共同小屋只把“是否拥有、何时获得、由谁获得”写入存档；展示位置和素材始终由
 # catalog 决定。当前 slot_key 只是稳定语义标识，不代表视觉坐标或层级。
 COTTAGE_ITEM_CATALOG = {
-    "rug": {"id": "rug", "name": "地毯", "category": "furniture", "price": 900, "slot_key": "rug", "asset_key": "cottage_rug", "description": "让生活区更温暖的地毯。"},
-    "curtains": {"id": "curtains", "name": "窗帘", "category": "furniture", "price": 1100, "slot_key": "curtains", "asset_key": "cottage_curtains", "description": "挂在窗边的柔软窗帘。"},
-    "coffee_table": {"id": "coffee_table", "name": "茶几", "category": "furniture", "price": 1300, "slot_key": "coffee_table", "asset_key": "cottage_coffee_table", "description": "适合放下茶杯与小花束的茶几。"},
-    "floor_lamp": {"id": "floor_lamp", "name": "落地灯", "category": "furniture", "price": 1500, "slot_key": "floor_lamp", "asset_key": "cottage_floor_lamp", "description": "在傍晚亮起的落地灯。"},
-    "flower_stand": {"id": "flower_stand", "name": "花架", "category": "furniture", "price": 1700, "slot_key": "flower_stand", "asset_key": "cottage_flower_stand", "description": "留给喜欢的花与绿意的花架。"},
-    "storage_sideboard": {"id": "storage_sideboard", "name": "储物边柜", "category": "furniture", "price": 1900, "slot_key": "storage_sideboard", "asset_key": "cottage_storage_sideboard", "description": "收好日常小物的边柜。"},
-    "wardrobe": {"id": "wardrobe", "name": "衣柜", "category": "furniture", "price": 2100, "slot_key": "wardrobe", "asset_key": "cottage_wardrobe", "description": "安静立在角落的衣柜。"},
-    "bookshelf": {"id": "bookshelf", "name": "书架", "category": "furniture", "price": 2300, "slot_key": "bookshelf", "asset_key": "cottage_bookshelf", "description": "可以慢慢填满的书架。"},
+    # v1-A 已售出的三项保留 catalog 身份，供旧存档识别；它们不再参与 v1-B 收藏或购买。
+    "rug": {"id": "rug", "name": "地毯", "category": "legacy", "legacy_only": True, "slot_key": "rug", "asset_key": "", "description": "v1-A 的固定场景记录。"},
+    "curtains": {"id": "curtains", "name": "窗帘", "category": "legacy", "legacy_only": True, "slot_key": "curtains", "asset_key": "", "description": "v1-A 的固定场景记录。"},
+    "storage_sideboard": {"id": "storage_sideboard", "name": "储物边柜", "category": "legacy", "legacy_only": True, "slot_key": "storage_sideboard", "asset_key": "", "description": "v1-A 的停售家具记录。"},
+    "ottoman": {"id": "ottoman", "name": "绿色格纹小脚凳", "category": "furniture", "price": 600, "slot_key": "ottoman", "asset_key": "ottoman", "description": "一件轻巧的绿色格纹小脚凳。"},
+    "coffee_table": {"id": "coffee_table", "name": "茶几", "category": "furniture", "price": 900, "slot_key": "coffee_table", "asset_key": "coffee_table", "description": "适合放下茶杯与小花束的茶几。"},
+    "floor_lamp": {"id": "floor_lamp", "name": "落地灯", "category": "furniture", "price": 1200, "slot_key": "floor_lamp", "asset_key": "floor_lamp", "description": "在傍晚亮起的落地灯。"},
+    "flower_stand": {"id": "flower_stand", "name": "花梯架", "category": "furniture", "price": 1800, "slot_key": "flower_stand", "asset_key": "plant_ladder", "description": "留给花盆与垂落枝叶的梯子式花架。"},
+    "wardrobe": {"id": "wardrobe", "name": "衣柜", "category": "furniture", "price": 2200, "slot_key": "wardrobe", "asset_key": "wardrobe", "description": "安静立在角落的衣柜。"},
+    "bookshelf": {"id": "bookshelf", "name": "矮书柜", "category": "furniture", "price": 1500, "slot_key": "bookshelf", "asset_key": "low_bookshelf", "description": "可以慢慢填满的低矮书柜。"},
     "sofa": {"id": "sofa", "name": "沙发", "category": "furniture", "price": 2600, "slot_key": "sofa", "asset_key": "cottage_sofa", "description": "一起休息的沙发。"},
-    "dining_set": {"id": "dining_set", "name": "餐桌椅", "category": "furniture", "price": 2900, "slot_key": "dining_set", "asset_key": "cottage_dining_set", "description": "留给日常用餐的餐桌椅。"},
-    "bed": {"id": "bed", "name": "床", "category": "furniture", "price": 3200, "slot_key": "bed", "asset_key": "cottage_bed", "description": "让小屋真正安顿下来的床。"},
-    "small_photo_frame": {"id": "small_photo_frame", "name": "小相框", "category": "decoration", "reward_only": True, "slot_key": "small_photo_frame", "asset_key": "cottage_small_photo_frame", "description": "一件小小的首次收获纪念。"},
-    "small_wall_art": {"id": "small_wall_art", "name": "小挂画", "category": "decoration", "reward_only": True, "slot_key": "small_wall_art", "asset_key": "cottage_small_wall_art", "description": "一幅安静陪伴小屋的挂画。"},
-    "small_vase": {"id": "small_vase", "name": "小花瓶", "category": "decoration", "reward_only": True, "slot_key": "small_vase", "asset_key": "cottage_small_vase", "description": "盛放回忆的小花瓶。"},
-    "eternal_flower": {"id": "eternal_flower", "name": "永生花", "category": "decoration", "reward_only": True, "slot_key": "eternal_flower", "asset_key": "cottage_eternal_flower", "description": "两种传说花相遇后留下的纪念。"},
+    "dining_set": {"id": "dining_set", "name": "餐桌椅", "category": "furniture", "price": 3000, "slot_key": "dining_set", "asset_key": "cottage_dining_set", "description": "留给日常用餐的餐桌椅。"},
+    "bed": {"id": "bed", "name": "床", "category": "furniture", "price": 3500, "slot_key": "bed", "asset_key": "cottage_bed", "description": "让小屋真正安顿下来的床。"},
+    "potted_plant": {"id": "potted_plant", "name": "白黄小花花器", "category": "decoration", "reward_only": True, "slot_key": "potted_plant", "asset_key": "potted_plant", "description": "满天星首次收获留下的小屋纪念。"},
+    "wall_art": {"id": "wall_art", "name": "小挂画", "category": "decoration", "reward_only": True, "slot_key": "wall_art", "asset_key": "wall_art", "description": "洋桔梗首次收获留下的小屋纪念。"},
+    "hanging_plant": {"id": "hanging_plant", "name": "墙上小搁板藤蔓盆栽", "category": "decoration", "reward_only": True, "slot_key": "hanging_plant", "asset_key": "hanging_plant", "description": "山茶花首次收获留下的小屋纪念。"},
+    "beanbag_reward": {"id": "beanbag_reward", "name": "豆袋懒人沙发", "category": "decoration", "reward_only": True, "slot_key": "beanbag_reward", "asset_key": "beanbag_reward", "description": "两种传说花相遇后留下的纪念。"},
 }
 
 COTTAGE_REWARD_REQUIREMENTS = {
-    "small_photo_frame": {"flowers": {"baby_breath"}},
-    "small_wall_art": {"flowers": {"lisianthus"}},
-    "small_vase": {"flowers": {"camellia"}},
-    "eternal_flower": {"flowers": {"moonflower", "red_spider_lily"}},
+    "potted_plant": {"flowers": {"baby_breath"}},
+    "wall_art": {"flowers": {"lisianthus"}},
+    "hanging_plant": {"flowers": {"camellia"}},
+    "beanbag_reward": {"flowers": {"moonflower", "red_spider_lily"}},
+}
+
+COTTAGE_REWARD_ID_ALIASES = {
+    "small_photo_frame": "potted_plant",
+    "small_wall_art": "wall_art",
+    "small_vase": "hanging_plant",
+    "eternal_flower": "beanbag_reward",
 }
 
 # v4.6.6: 天气系统 - 浇水开关版
@@ -2964,9 +2973,17 @@ def normalize_state(data, now=None):
             item_id = str(item_id or "").strip()
             if not item_id or not isinstance(record, dict):
                 continue
+            canonical_item_id = COTTAGE_REWARD_ID_ALIASES.get(item_id, item_id)
             acquired_at = _safe_nonnegative_int(record.get("acquired_at", 0), 0)
             source = normalize_event_source(record.get("source"))
-            cottage_items[item_id] = {"acquired_at": acquired_at, "source": source}
+            normalized_record = {"acquired_at": acquired_at, "source": source}
+            existing_record = cottage_items.get(canonical_item_id)
+            if (
+                existing_record is None
+                or acquired_at < existing_record["acquired_at"]
+                or (acquired_at == existing_record["acquired_at"] and item_id == canonical_item_id)
+            ):
+                cottage_items[canonical_item_id] = normalized_record
     data["cottage"] = {"items": cottage_items}
 
     if not isinstance(data.get("encyclopedia"), list):
@@ -3883,6 +3900,8 @@ def get_cottage_public_summary(state):
     owned_items = []
     for item_id, record in cottage_items.items():
         catalog_item = COTTAGE_ITEM_CATALOG.get(item_id)
+        if catalog_item is not None and catalog_item.get("legacy_only", False):
+            continue
         if catalog_item is None:
             # 兼容未来 catalog 变更留下的合法历史 ownership，不将原始 record 直接公开。
             catalog_item = {
@@ -3915,7 +3934,7 @@ def get_cottage_public_summary(state):
             "asset_key": item["asset_key"],
         }
         for item_id, item in COTTAGE_ITEM_CATALOG.items()
-        if not item.get("reward_only", False) and "price" in item
+        if not item.get("reward_only", False) and not item.get("legacy_only", False) and "price" in item
     ]
 
     care = state.get("cat_care", {}) if isinstance(state.get("cat_care"), dict) else {}
@@ -4576,6 +4595,8 @@ def process_command(state, command, *, event_source="system"):
             cottage_items = state["cottage"]["items"]
             if item is None:
                 result = "❌ 小屋里没有这件家具"
+            elif item.get("legacy_only", False):
+                result = f"❌ {item['name']}已在 v1-B 停售，不能购买"
             elif item.get("reward_only") or "price" not in item:
                 result = f"❌ {item['name']}是纪念奖励，不能购买"
             elif item_id in cottage_items:

@@ -729,7 +729,7 @@ function renderCottage() {
   }
   shopSection.append(shopTitle, shopGrid);
 
-  const rewards = ["small_photo_frame", "small_wall_art", "small_vase", "eternal_flower"];
+  const rewards = (catalog.cottage_items || []).filter((item) => item.reward_only);
   const ownedIds = new Set(ownedItems.map((item) => item.id));
   const rewardSection = document.createElement("section");
   rewardSection.className = "cottage-section";
@@ -737,9 +737,8 @@ function renderCottage() {
   rewardTitle.textContent = "纪念装饰";
   const rewardGrid = document.createElement("div");
   rewardGrid.className = "cottage-card-grid";
-  for (const id of rewards) {
-    const item = (catalog.cottage_items || []).find((entry) => entry.id === id);
-    if (!item) continue;
+  for (const item of rewards) {
+    const id = item.id;
     const card = document.createElement("article");
     card.className = `cottage-item-card ${ownedIds.has(id) ? "owned" : "locked"}`;
     card.innerHTML = `<strong>${item.name}</strong><small>${ownedIds.has(id) ? "已经留在小屋里" : "尚未获得"}</small>`;

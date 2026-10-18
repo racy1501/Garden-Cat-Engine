@@ -175,9 +175,9 @@ def test_hut_decor_rewards_are_added_to_cottage_not_temporary_inventory(flower_i
     result = _harvest_one_pot(state, 0, now, WEATHER["cloudy"])
 
     expected_item = {
-        "baby_breath": "small_photo_frame",
-        "lisianthus": "small_wall_art",
-        "camellia": "small_vase",
+        "baby_breath": "potted_plant",
+        "lisianthus": "wall_art",
+        "camellia": "hanging_plant",
     }[flower_id]
     assert "小屋获得纪念物" in result
     assert expected_item in state["cottage"]["items"]
