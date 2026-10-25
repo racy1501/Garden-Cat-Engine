@@ -47,6 +47,13 @@
 </div>
 </div>
 </header>
+<div aria-label="主地点切换" class="location-switch-strip" role="tablist">
+<div class="sticky-title-tabs location-tabs">
+<button class="sticky-tab active" data-main-pane="garden" type="button"><span>THE GARDEN</span>花园</button>
+<button class="sticky-tab bouquet-main-tab" data-main-pane="bouquet" type="button"><span>THE FLOWER SHOP</span>花店</button>
+<button class="sticky-tab" data-main-pane="cottage" type="button"><span>THE COTTAGE</span>小屋</button>
+</div>
+</div>
 <main>
 <section aria-label="花园概览" class="dashboard-grid">
 <article class="metric-card weather-card">
@@ -68,16 +75,15 @@
 </section>
 <section class="main-grid">
 <div class="main-column">
-<div aria-label="花园、商店、花束与小屋切换" class="main-switch-strip" role="tablist">
+<section class="garden-location-panel main-switch-pane active" data-location-pane="garden">
+<div aria-label="花园、商店与功能切换" class="main-switch-strip" role="tablist">
 <div class="sticky-title-tabs">
-<button class="sticky-tab active" data-main-pane="garden" type="button"><span>THE GARDEN</span>花园</button>
-<button class="sticky-tab" data-main-pane="store" type="button"><span>THE SHOP</span>商店</button>
-<button class="sticky-tab bouquet-main-tab" data-main-pane="bouquet" type="button"><span>THE BOUQUET</span>花束</button>
-<button class="sticky-tab" data-main-pane="cottage" type="button"><span>THE COTTAGE</span>小屋</button>
+<button class="sticky-tab active" data-garden-tab="garden" type="button"><span>THE GARDEN</span>花园</button>
+<button class="sticky-tab" data-garden-tab="store" type="button"><span>THE SHOP</span>商店</button>
 </div>
 <div class="main-strip-actions"><button class="mini-btn backpack-open-btn" id="backpackBtn" type="button">背包</button><button class="mini-btn gold main-harvest-btn" id="harvestAllBtn" type="button">暂无成熟花</button><button class="mini-btn notes-open-btn" id="notesBtn" type="button">便签</button></div>
 </div>
-<article class="panel garden-panel main-switch-pane active">
+<article class="panel garden-panel garden-switch-pane active" data-garden-pane="garden">
 <div class="panel-heading">
 <div><p class="section-kicker">THE GARDEN</p><h2>花园</h2></div>
 <div class="garden-heading-actions">
@@ -89,8 +95,15 @@
 <span id="gardenNoticeText">花园很安静，风从花叶间穿过去。</span>
 </div>
 <div class="pots-grid" id="potsGrid"></div>
+<article class="panel vase-panel">
+<div class="panel-heading">
+<div><p class="section-kicker">FLOWER VASE</p><h2>今日插花</h2></div>
+<div class="vase-heading-actions"><span class="muted">鲜花保鲜约12小时</span></div>
+</div>
+<div class="vase-grid" id="vaseGrid"></div>
 </article>
-<article class="panel store-panel main-switch-pane">
+</article>
+<article class="panel store-panel garden-switch-pane" data-garden-pane="store">
 <div class="panel-heading compact">
 <div><p class="section-kicker">GARDEN SHOP</p><h2>商店</h2></div>
 <span class="muted">购买后会进入背包</span>
@@ -108,24 +121,24 @@
 <div class="shop-card-grid" id="catShopGrid"></div>
 </div>
 </article>
-<article class="panel bouquet-panel main-switch-pane">
+</section>
+<article class="panel bouquet-panel main-switch-pane" data-location-pane="bouquet">
 <div class="panel-heading compact">
-<div><p class="section-kicker">THE BOUQUET</p><h2>花束</h2></div>
+<div><p class="section-kicker">THE FLOWER SHOP</p><h2>花店</h2></div>
 </div>
 <div id="bouquetPageContent"></div>
 </article>
-<article class="panel cottage-panel main-switch-pane">
+<article class="panel cottage-panel main-switch-pane" data-location-pane="cottage">
 <div class="panel-heading compact">
 <div><p class="section-kicker">THE COTTAGE</p><h2>共同小屋</h2></div>
-<span class="muted">功能型 v1-A</span>
+<span class="muted">收藏型 v1-B</span>
 </div>
 <div id="cottageContent"></div>
-</article>
 <article class="panel cat-panel">
 <div class="panel-heading cat-house-heading">
-<div class="cat-heading-title"><p class="section-kicker">THE CAT</p><div class="cat-title-row"><h2>猫屋</h2><button class="mini-btn cat-backpack-btn" id="catBackpackBtn" type="button">背包</button></div></div>
-<div aria-label="猫屋内容切换" class="cat-sticky-tabs" role="tablist">
-<button class="cat-sticky-tab active" data-cat-pane="cat" type="button">猫屋</button>
+<div class="cat-heading-title"><p class="section-kicker">THE CAT</p><div class="cat-title-row"><h2>猫咪生活区</h2><button class="mini-btn cat-backpack-btn" id="catBackpackBtn" type="button">背包</button></div></div>
+<div aria-label="猫咪生活区内容切换" class="cat-sticky-tabs" role="tablist">
+<button class="cat-sticky-tab active" data-cat-pane="cat" type="button">猫窝</button>
 <button class="cat-sticky-tab" data-cat-pane="letters" type="button">信件</button>
 <button class="cat-sticky-tab" data-cat-pane="collection" type="button">收藏</button>
 </div>
@@ -134,12 +147,6 @@
 <div class="cat-switch-pane" id="catLettersContent"></div>
 <div class="cat-switch-pane" id="catCollectionContent"></div>
 </article>
-<article class="panel vase-panel">
-<div class="panel-heading">
-<div><p class="section-kicker">FLOWER VASE</p><h2>今日插花</h2></div>
-<div class="vase-heading-actions"><span class="muted">鲜花保鲜约12小时</span></div>
-</div>
-<div class="vase-grid" id="vaseGrid"></div>
 </article>
 </div>
 <aside class="side-column">

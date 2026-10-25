@@ -605,10 +605,10 @@ function renderNotesButton() {
 }
 
 function renderBouquetMainButton() {
-  const button = document.querySelector('[data-main-pane="bouquet"]');
+  const button = document.querySelector('.location-switch-strip [data-main-pane="bouquet"]');
   if (!button) return;
   button.classList.toggle("has-unread", hasUnreadBouquetGifts);
-  button.setAttribute("aria-label", hasUnreadBouquetGifts ? "花束（有新内容）" : "花束");
+  button.setAttribute("aria-label", hasUnreadBouquetGifts ? "花店（有新内容）" : "花店");
 }
 
 function renderAll() {
@@ -666,17 +666,40 @@ function renderCottage() {
   root.innerHTML = "";
   const cottage = currentState?.cottage || {};
   const ownedItems = cottage.owned_items || [];
-  const purchasableItems = cottage.purchasable_items || [];
+  const ownedIds = new Set(ownedItems.map((item) => item.id));
+  const sceneItems = (catalog.cottage_items || []).filter(
+    (item) => item.asset_key && !item.legacy_only,
+  );
 
-  const intro = document.createElement("p");
-  intro.className = "cottage-hint";
-  intro.textContent = "小屋正在慢慢安顿下来；正式素材与固定布局会在后续版本补上。";
-  root.append(intro);
+  const scene = document.createElement("div");
+  scene.className = "cottage-scene";
+  const base = document.createElement("img");
+  base.className = "cottage-scene-base";
+  base.src = "/static/assets/v5/cottage/base.png";
+  base.alt = "共同小屋";
+  scene.append(base);
+  for (const item of sceneItems) {
+    if (ownedIds.has(item.id)) continue;
+    const overlay = document.createElement("img");
+    overlay.className = "cottage-locked-overlay";
+    overlay.src = `/static/assets/v5/cottage/locked/${item.asset_key}.png`;
+    overlay.addEventListener(
+      "error",
+      () => {
+        overlay.src = `/static/assets/v5/cottage/locked/${item.asset_key}.svg`;
+      },
+      { once: true },
+    );
+    overlay.alt = "";
+    overlay.setAttribute("aria-hidden", "true");
+    scene.append(overlay);
+  }
+  root.append(scene);
 
   const ownedSection = document.createElement("section");
   ownedSection.className = "cottage-section";
   const ownedTitle = document.createElement("h3");
-  ownedTitle.textContent = `已经拥有 · ${Number(cottage.total_owned || 0)} 件`;
+  ownedTitle.textContent = `收藏进度 · ${Number(cottage.total_owned || 0)} / ${sceneItems.length}`;
   const ownedGrid = document.createElement("div");
   ownedGrid.className = "cottage-card-grid";
   if (!ownedItems.length) {
@@ -703,34 +726,7 @@ function renderCottage() {
   }
   ownedSection.append(ownedTitle, ownedGrid);
 
-  const shopSection = document.createElement("section");
-  shopSection.className = "cottage-section";
-  const shopTitle = document.createElement("h3");
-  shopTitle.textContent = "添置主家具";
-  const shopGrid = document.createElement("div");
-  shopGrid.className = "cottage-card-grid";
-  for (const item of purchasableItems) {
-    const card = document.createElement("article");
-    card.className = "cottage-item-card";
-    const meta = document.createElement("div");
-    const title = document.createElement("strong");
-    title.textContent = item.name;
-    const description = document.createElement("small");
-    description.textContent = item.description;
-    meta.append(title, description);
-    const action = makeButton(
-      item.owned ? "已拥有" : `${item.price} 块 · 添置`,
-      `buy_cottage_furniture ${item.id}`,
-      "mini-btn gold",
-      Boolean(item.owned) || Number(currentState.money || 0) < Number(item.price || 0),
-    );
-    card.append(meta, action);
-    shopGrid.append(card);
-  }
-  shopSection.append(shopTitle, shopGrid);
-
   const rewards = (catalog.cottage_items || []).filter((item) => item.reward_only);
-  const ownedIds = new Set(ownedItems.map((item) => item.id));
   const rewardSection = document.createElement("section");
   rewardSection.className = "cottage-section";
   const rewardTitle = document.createElement("h3");
@@ -756,7 +752,7 @@ function renderCottage() {
   catMeta.textContent = `猫窝：${catArea.bed?.is_default ? "普通猫窝" : "高级猫窝"}　粮碗：${Number(catArea.food_bowl?.remaining_portions || 0)} / ${Number(catArea.food_bowl?.capacity || 0)}　水碗：${Number(catArea.water_bowl?.remaining_portions || 0)} / ${Number(catArea.water_bowl?.capacity || 0)}`;
   catSection.append(catTitle, catMeta);
 
-  root.append(ownedSection, shopSection, rewardSection, catSection);
+  root.append(ownedSection, rewardSection, catSection);
 }
 
 function seedOptions(select) {
@@ -3317,10 +3313,16 @@ setInterval(() => {
 }, 60_000);
 
 
-for(const button of document.querySelectorAll('.sticky-tab')){
+for(const button of document.querySelectorAll('.garden-location-panel .main-switch-strip .sticky-tab')){
   button.addEventListener('click',()=>{
-    document.querySelectorAll('.sticky-tab').forEach(b=>b.classList.toggle('active',b===button));
-    document.querySelectorAll('.main-switch-pane').forEach(pane=>pane.classList.toggle('active',pane.classList.contains(`${button.dataset.mainPane}-panel`)));
+    document.querySelectorAll('.garden-location-panel .main-switch-strip .sticky-tab').forEach(b=>b.classList.toggle('active',b===button));
+    document.querySelectorAll('.garden-location-panel .garden-switch-pane').forEach(pane=>pane.classList.toggle('active',pane.dataset.gardenPane===button.dataset.gardenTab));
+  });
+}
+for(const button of document.querySelectorAll('.location-switch-strip .sticky-tab')){
+  button.addEventListener('click',()=>{
+    document.querySelectorAll('.location-switch-strip .sticky-tab').forEach(b=>b.classList.toggle('active',b===button));
+    document.querySelectorAll('.main-column > .main-switch-pane').forEach(pane=>pane.classList.toggle('active',pane.dataset.locationPane===button.dataset.mainPane));
     if (button.dataset.mainPane === 'bouquet') {
       captureUnreadBouquetGiftIndexes();
       renderBouquetPage();

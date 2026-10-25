@@ -158,14 +158,17 @@ def test_api_and_web_share_cottage_summary_and_old_save_sync(api, cat_clock):
     assert ai_payload["state"]["cottage"]["cat_area"]["bed"]["facility_id"] == "basic_cat_bed"
 
 
-def test_cottage_frontend_is_a_functional_entry_with_no_asset_image_dependency():
+def test_cottage_frontend_renders_the_v1_b_scene_from_catalog_asset_keys():
     root = Path(__file__).resolve().parents[1]
     html = (root / "templates" / "index.html").read_text(encoding="utf-8")
     js = (root / "static" / "app.js").read_text(encoding="utf-8")
     assert 'data-main-pane="cottage"' in html
     assert 'id="cottageContent"' in html
     assert "function renderCottage()" in js
-    assert "COTTAGE_CATEGORY_FALLBACK" in js
-    assert "buy_cottage_furniture ${item.id}" in js
-    assert "item.reward_only" in js
+    assert '"/static/assets/v5/cottage/base.png"' in js
+    assert "item.asset_key && !item.legacy_only" in js
+    assert "locked/${item.asset_key}.svg" in js
+    assert "if (ownedIds.has(item.id)) continue;" in js
+    assert "cottage-scene" in js
+    assert "THE FLOWER SHOP" in html
 

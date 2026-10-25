@@ -1477,11 +1477,14 @@ footer { padding: 22px 4px 34px; display: flex; justify-content: space-between; 
 .main-switch-strip { display:flex; align-items:flex-end; justify-content:space-between; gap:14px; margin:0 0 -1px 16px; position:relative; z-index:3; }
 .sticky-title-tabs { display:flex; gap:8px; align-items:flex-end; }
 .sticky-tab { min-width:92px; padding:9px 18px 10px; border:1px solid rgba(80,97,77,.17); border-bottom-color:#cfc8b9; border-radius:14px 14px 7px 7px; color:var(--muted); background:#ece8dc; font-weight:800; box-shadow:0 5px 12px rgba(72,63,47,.06); }
+.location-switch-strip { margin:0 0 14px; }
+.location-tabs { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); max-width:520px; }
+.location-tabs .sticky-tab { width:100%; min-width:0; }
 .sticky-tab span { display:block; margin-bottom:3px; font-size:8px; letter-spacing:.22em; opacity:.75; }
 .sticky-tab.active { color:#fff; background:var(--green); border-color:var(--green); transform:translateY(1px); }
 .main-harvest-btn { margin:0 16px 8px 0; }
-.main-switch-pane { display:none; }
-.main-switch-pane.active { display:block; }
+.main-switch-pane, .garden-switch-pane { display:none; }
+.main-switch-pane.active, .garden-switch-pane.active { display:block; }
 .garden-panel > .panel-heading, .store-panel > .panel-heading, .bouquet-panel > .panel-heading { display:none; }
 .garden-panel, .store-panel, .bouquet-panel { border-top-left-radius:10px; }
 .cat-house-heading { align-items:flex-end; }
@@ -1531,7 +1534,7 @@ footer { padding: 22px 4px 34px; display: flex; justify-content: space-between; 
 .vase-stage img { position:absolute; left:50%; top:0; transform:translateX(-50%); width:66px; height:66px; object-fit:contain; z-index:2; }
 .vase-stage.empty img { display:none; }
 @media (max-width:900px) { .cat-collection-grid,.cat-letter-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
-@media (max-width:620px) { .main-switch-strip { margin-left:5px; } .sticky-tab { min-width:72px; padding:8px 12px; } .main-harvest-btn { margin-right:5px; } .cat-collection-grid,.cat-letter-grid { grid-template-columns:1fr; } .backpack-item { grid-template-columns:38px minmax(0,1fr); } .backpack-actions { grid-column:1/-1; justify-content:flex-start; } }
+@media (max-width:620px) { .main-switch-strip { margin-left:5px; } .sticky-tab { min-width:72px; padding:8px 12px; } .location-tabs .sticky-tab { min-width:0; padding:8px 6px; } .main-harvest-btn { margin-right:5px; } .cat-collection-grid,.cat-letter-grid { grid-template-columns:1fr; } .backpack-item { grid-template-columns:38px minmax(0,1fr); } .backpack-actions { grid-column:1/-1; justify-content:flex-start; } }
 
 
 
@@ -2167,6 +2170,9 @@ html, body { min-width: 0; }
 .flower-shop-shelves small { color: var(--muted); line-height: 1.35; }
 
 .cottage-panel { min-height: 420px; }
+.cottage-scene { position: relative; width: 100%; aspect-ratio: 3 / 2; overflow: hidden; border: 1px solid rgba(92,111,84,.22); border-radius: 16px; background: rgba(231,238,225,.46); box-shadow: 0 10px 24px rgba(72,63,47,.08); }
+.cottage-scene-base { display: block; width: 100%; height: 100%; object-fit: contain; }
+.cottage-locked-overlay { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
 .cottage-section { display: grid; gap: 8px; margin-top: 18px; }
 .cottage-section h3 { margin: 0; font-size: 15px; color: var(--green-dark); }
 .cottage-hint { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }

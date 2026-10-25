@@ -1,4 +1,5 @@
 from pathlib import Path
+from html.parser import HTMLParser
 import importlib
 import os
 
@@ -20,13 +21,91 @@ def test_home_serves_visual_frontend(tmp_path):
     assert "/static/app.js" in response.get_data(as_text=True)
 
 
-def test_bouquet_collection_is_a_main_page_not_a_vase_modal():
+def test_three_locations_keep_the_original_garden_function_strip():
     root = Path(__file__).resolve().parents[1]
     html = (root / "templates" / "index.html").read_text(encoding="utf-8")
     js = (root / "static" / "app.js").read_text(encoding="utf-8")
-    assert 'data-main-pane="garden"' in html
-    assert 'data-main-pane="store"' in html
-    assert 'data-main-pane="bouquet"' in html
+    css = (root / "static" / "style.css").read_text(encoding="utf-8")
+
+    class Elements(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.stack = []
+            self.nodes = []
+
+        def handle_starttag(self, tag, attrs):
+            node = {"tag": tag, "attrs": dict(attrs), "parent": self.stack[-1] if self.stack else None}
+            self.nodes.append(node)
+            if tag not in {"area", "base", "br", "hr", "img", "input", "link", "meta", "source"}:
+                self.stack.append(node)
+
+        def handle_endtag(self, tag):
+            if self.stack and self.stack[-1]["tag"] == tag:
+                self.stack.pop()
+
+    elements = Elements()
+    elements.feed(html)
+
+    def by_class(name):
+        matches = [node for node in elements.nodes if name in node["attrs"].get("class", "").split()]
+        assert len(matches) == 1
+        return matches[0]
+
+    def by_id(name):
+        matches = [node for node in elements.nodes if node["attrs"].get("id") == name]
+        assert len(matches) == 1
+        return matches[0]
+
+    top = by_class("location-switch-strip")
+    garden = by_class("garden-location-panel")
+    strip = by_class("main-switch-strip")
+    garden_pane = by_class("garden-panel")
+    store_pane = by_class("store-panel")
+    bouquet = by_class("bouquet-panel")
+    cottage = by_class("cottage-panel")
+    assert garden["parent"] is bouquet["parent"] is cottage["parent"]
+    assert strip["parent"] is garden
+    assert garden_pane["parent"] is store_pane["parent"] is garden
+    assert by_class("vase-panel")["parent"] is garden_pane
+    assert by_class("cat-panel")["parent"] is cottage
+    assert [node["attrs"].get("data-main-pane") for node in elements.nodes if node["parent"] is by_class("location-tabs") and node["tag"] == "button"] == ["garden", "bouquet", "cottage"]
+    garden_tabs = [node for node in elements.nodes if node["parent"] is strip and "sticky-title-tabs" in node["attrs"].get("class", "").split()]
+    assert len(garden_tabs) == 1
+    assert [node["attrs"].get("data-garden-tab") for node in elements.nodes if node["parent"] is garden_tabs[0] and node["tag"] == "button"] == ["garden", "store"]
+    assert all(by_id(name)["parent"] is by_class("main-strip-actions") for name in ("backpackBtn", "harvestAllBtn", "notesBtn"))
+    assert 'id="gardenTitle"' in html
+    assert html.index("</header>") < html.index('class="location-switch-strip"') < html.index('class="dashboard-grid"')
+    assert html.count('data-main-pane="garden"') == 1
+    assert html.count('data-main-pane="bouquet"') == 1
+    assert html.count('data-main-pane="cottage"') == 1
+    assert 'data-main-pane="store"' not in html
+    assert 'class="main-switch-strip"' in html
+    assert 'class="main-strip-actions"' in html
+    assert 'class="garden-inner-tabs"' not in html
+    strip_start = html.index('class="main-switch-strip"')
+    location_start = html.index('class="garden-location-panel main-switch-pane active"')
+    garden_start = html.index('class="panel garden-panel garden-switch-pane active"')
+    store_start = html.index('class="panel store-panel garden-switch-pane"')
+    location_end = html.index("</section>", store_start)
+    bouquet_start = html.index('class="panel bouquet-panel main-switch-pane"')
+    assert location_start < strip_start < garden_start < store_start < location_end < bouquet_start
+    assert 'data-location-pane="garden"' in html
+    assert 'data-garden-pane="garden"' in html
+    assert 'data-garden-pane="store"' in html
+    assert ".main-switch-strip { display:flex;" in css
+    assert ".main-strip-actions {" in css
+    assert ".main-switch-pane, .garden-switch-pane { display:none; }" in css
+    assert "grid-template-columns:repeat(3,minmax(0,1fr))" in css
+    assert "'.garden-location-panel .main-switch-strip .sticky-tab'" in js
+    assert "'.location-switch-strip .sticky-tab'" in js
+    assert "'.garden-location-panel .garden-switch-pane'" in js
+    assert "'.main-column > .main-switch-pane'" in js
+    assert "pane.dataset.gardenPane===button.dataset.gardenTab" in js
+    assert "pane.dataset.locationPane===button.dataset.mainPane" in js
+    assert "document.querySelectorAll('.sticky-tab')" not in js
+    assert "document.querySelectorAll('.main-switch-pane')" not in js
+    assert "THE FLOWER SHOP" in html
+    assert "THE BOUQUET" not in html
     assert 'id="bouquetPageContent"' in html
     assert 'id="bouquetCollectionBtn"' not in html
     assert "renderBouquetCollectionModal" not in js
@@ -336,13 +415,24 @@ def test_v488_mobile_compact_layout():
     assert "display: none;" in css
 
 
-def test_v489_mobile_three_columns_and_cat_before_vase():
+def test_v489_cat_and_vase_belong_to_their_location_panes():
     from pathlib import Path
     root = Path(__file__).resolve().parents[1]
     html = (root / "templates" / "index.html").read_text(encoding="utf-8")
     css = (root / "static" / "style.css").read_text(encoding="utf-8")
+    garden_start = html.index('class="panel garden-panel garden-switch-pane active"')
+    bouquet_start = html.index('class="panel bouquet-panel main-switch-pane"')
+    cottage_start = html.index('class="panel cottage-panel main-switch-pane"')
+    side_column_start = html.index('<aside class="side-column">')
+    vase_start = html.index('class="panel vase-panel"')
+    cat_start = html.index('class="panel cat-panel"')
     assert '购买后进入背包，可在上方空花盆种植' in html
-    assert html.index('class="panel cat-panel"') < html.index('class="panel vase-panel"')
+    assert garden_start < vase_start < bouquet_start
+    assert cottage_start < cat_start < side_column_start
+    assert 'class="panel vase-panel"' not in html[bouquet_start:cottage_start]
+    assert 'class="panel cat-panel"' not in html[bouquet_start:cottage_start]
+    assert "猫咪生活区" in html
+    assert 'data-cat-pane="cat" type="button">猫窝</button>' in html
     assert 'grid-template-columns: repeat(3, minmax(0, 1fr));' in css
     assert '.utility-card' in css
 
