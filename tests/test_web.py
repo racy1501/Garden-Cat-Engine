@@ -312,6 +312,7 @@ def test_web_summary_includes_cat_name_and_readable_letters(tmp_path):
     state = game_api.db_load_state(sid)
     state["money"] = 200
     state["letters_received"] = [0, 1]
+    state["cat_state"].update(phase="stayed_waiting_name", location="garden")
     game_api.db_save_state(sid, state)
 
     adopted = client.post(
@@ -353,13 +354,12 @@ def test_v485_ui_assets_and_labels():
     html = (root / "templates" / "index.html").read_text(encoding="utf-8")
     js = (root / "static" / "app.js").read_text(encoding="utf-8")
     css = (root / "static" / "style.css").read_text(encoding="utf-8")
-    assert "👝" in html
+    assert 'id="backpackBtn"' in html
     assert "· ×1.1" not in html
-    assert "/static/orange_cat.png" in js
-    assert "/static/lavender.svg" in js
+    assert '"cat": "data:image/png;base64,' in js
+    assert 'lavender: "static/assets/v5/flowers/lavender.png"' in js
     assert ".mini-btn:disabled" in css
-    assert (root / "static" / "orange_cat.png").exists()
-    assert (root / "static" / "lavender.svg").exists()
+    assert (root / "static" / "assets" / "v5" / "flowers" / "lavender.png").exists()
 
 
 def test_v486_fixed_six_pot_layout_and_prices(tmp_path):
@@ -448,8 +448,8 @@ def test_v4810_compact_store_and_item_effects():
     assert 'data-store-tab="cat-items"' in html
     assert 'id="suppliesTab"' not in html
     assert "renderCatShop()" in js
-    assert "口渴下降速度减半" in js
-    assert "心情自然下降降低40%" in js
+    assert "只增加容量，不改变喝水效果" in js
+    assert "降低心情自然下降速度" in js
     assert "grid-template-columns: repeat(4, minmax(0, 1fr));" in css
     assert ".shop-square-card" in css
     assert ".vase-grid.real-vase" in css
@@ -462,10 +462,10 @@ def test_v4811_live_timers_encyclopedia_shortcut_and_lily_asset():
     css = (root / "static" / "style.css").read_text(encoding="utf-8")
 
     assert 'id="encyclopediaCard"' in html
-    assert 'lily: "/static/lily.svg"' in js
-    assert 'lily: "🪷"' not in js
-    assert (root / "static" / "lily.svg").exists()
-    assert "GAME_MINUTES_PER_REAL_SECOND" in js
+    assert 'lily: "static/assets/v5/flowers/lily.png"' in js
+    assert 'lily: "🌺"' in js
+    assert (root / "static" / "assets" / "v5" / "flowers" / "lily.png").exists()
+    assert "REAL_SECONDS_PER_DAY" in js
     assert "updateLiveGameTime()" in js
     assert "updateLiveCountdowns()" in js
     assert "dataset.livePotStatus" in js
