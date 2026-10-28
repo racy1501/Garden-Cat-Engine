@@ -1222,7 +1222,7 @@ function renderBouquetWorkshop(body) {
   saleRules.append(freshenerState, ruleSummary, stageRules);
   if (shop.has_freshener) {
     const freshenerNote = document.createElement("small");
-    freshenerNote.textContent = `保鲜设备已启用：延后折价节点，但不会延长${lifetimeText}报废时间；仅对安装后新上架的花束生效。`;
+    freshenerNote.textContent = `延后花束折价节点；${lifetimeText}报废时间不变。仅对安装后新上架的花束生效。`;
     saleRules.append(freshenerNote);
   }
   shopSection.append(saleRules, renderFlowerShopShelves(shop));

@@ -335,12 +335,13 @@ if(!commands.some(b=>b.command==='buy_flower_shop_freshener'&&b.textContent==='�
 const freshenerButtonsBefore=commands.filter(b=>b.command==='buy_flower_shop_freshener').length;
 ctx.currentState.flower_shop.has_freshener=true;ctx.currentState.flower_shop.freshener_cost=null;ctx.renderBouquetPage();
 let ruleNodes=walk(body);
-if(!ruleNodes.some(n=>n.textContent==='保鲜设备：已启用')||!ruleNodes.some(n=>n.textContent.includes('相对基础售价：0–6小时 ×1.15'))||!ruleNodes.some(n=>n.textContent.includes('仅对安装后新上架的花束生效')))throw Error('freshener pricing explanation');
-if(!ruleNodes.some(n=>/不.{0,2}延长.*报废时间/.test(n.textContent)&&n.textContent.includes('24小时')))throw Error('freshener lifetime explanation');
+if(!ruleNodes.some(n=>n.textContent==='保鲜设备：已启用')||!ruleNodes.some(n=>n.textContent.includes('相对基础售价：0–6小时 ×1.15'))||!ruleNodes.some(n=>n.textContent==='延后花束折价节点；24小时报废时间不变。仅对安装后新上架的花束生效。'))throw Error('freshener pricing explanation');
+if(walk(body).some(n=>n.textContent.includes('售价阶段暂不可用')))throw Error('pricing stages unexpectedly unavailable');
+if(!ruleNodes.some(n=>n.textContent.includes('24小时报废时间不变')))throw Error('freshener lifetime explanation');
 if(commands.filter(b=>b.command==='buy_flower_shop_freshener').length!==freshenerButtonsBefore)throw Error('installed freshener still offers purchase');
 ctx.currentState.flower_shop.pricing_profiles.freshener=[{until_seconds:7200,multiplier:1.23},{until_seconds:108000,multiplier:0.77}];ctx.currentState.flower_shop.bouquet_lifetime_seconds=108000;ctx.renderBouquetPage();
 ruleNodes=walk(body);
-if(!ruleNodes.some(n=>n.textContent.includes('0–2小时 ×1.23｜2–30小时 ×0.77'))||!ruleNodes.some(n=>n.textContent.includes('上架满30小时后报废'))||!ruleNodes.some(n=>/不.{0,2}延长.*报废时间/.test(n.textContent)&&n.textContent.includes('30小时')))throw Error('rules not derived from public data');
+if(!ruleNodes.some(n=>n.textContent.includes('0–2小时 ×1.23｜2–30小时 ×0.77'))||!ruleNodes.some(n=>n.textContent.includes('上架满30小时后报废'))||!ruleNodes.some(n=>n.textContent.includes('30小时报废时间不变')))throw Error('rules not derived from public data');
 ctx.currentState.flower_shop.has_freshener=false;ctx.currentState.flower_shop.freshener_cost=1800;
 tabs.children[1].listeners.click();
 if(!commands.some(b=>b.command==='craft_bouquet bouquet_id=first_meeting'))throw Error('craft missing');
