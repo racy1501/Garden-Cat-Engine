@@ -1003,6 +1003,16 @@ function getBouquetImageUrl(bouquetId) {
   return `/static/assets/v5/bouquets/${encodeURIComponent(bouquetId)}.png`;
 }
 
+const HISTORICAL_BOUQUET_DISPLAY = {
+  warm_sun: { name: "暖阳", imageId: "warm_sun" },
+  purple_mist: { name: "紫雾", imageId: "purple_mist" },
+  little_garden: { name: "小花园", imageId: "little_garden" },
+};
+
+function getBouquetDisplayMetadata(bouquetId) {
+  return catalog?.bouquets?.[bouquetId] || HISTORICAL_BOUQUET_DISPLAY[bouquetId] || null;
+}
+
 function renderBouquetArtwork(parent, bouquetId, showColor, label) {
   const renderFallback = () => {
     parent.innerHTML = "";
@@ -1232,7 +1242,7 @@ function createBouquetNewBadge() {
 }
 
 function showBouquetDetails(bouquetId) {
-  const bouquet = catalog?.bouquets?.[bouquetId];
+  const bouquet = getBouquetDisplayMetadata(bouquetId);
   const gifts = (currentState?.bouquet_gifts || [])
     .filter((gift) => gift.bouquet_id === bouquetId)
     .sort((left, right) => Number(right.sent_at) - Number(left.sent_at));
@@ -1291,7 +1301,9 @@ function showBouquetDetails(bouquetId) {
     time.textContent = formatBouquetTimestamp(gift.sent_at);
     const message = document.createElement("span");
     message.textContent = gift.message || "只送了花束";
-    row.append(time, message);
+    const snapshot = document.createElement("small");
+    snapshot.textContent = flowerComponentText(gift.components);
+    row.append(time, message, snapshot);
     history.append(row);
   }
   body.append(back, summary, components, first);
@@ -1322,7 +1334,7 @@ function renderBouquetPage(activeTab = "bouquets") {
         const card = document.createElement("article");
         card.className = "bouquet-message-card";
         const title = document.createElement("strong");
-        title.textContent = catalog.bouquets?.[gift.bouquet_id]?.name || gift.bouquet_id;
+        title.textContent = getBouquetDisplayMetadata(gift.bouquet_id)?.name || gift.bouquet_id;
         const date = document.createElement("time");
         date.textContent = formatBouquetTimestamp(gift.sent_at);
         const message = document.createElement("p");
@@ -1379,6 +1391,23 @@ function renderBouquetPage(activeTab = "bouquets") {
       if (hasNewGift) card.append(createBouquetNewBadge());
       if (records.length) card.addEventListener("click", () => showBouquetDetails(bouquetId));
       else card.disabled = true;
+      grid.append(card);
+    }
+    for (const [bouquetId, bouquet] of Object.entries(HISTORICAL_BOUQUET_DISPLAY)) {
+      const records = gifts.filter((gift) => gift.bouquet_id === bouquetId);
+      if (!records.length) continue;
+      const card = document.createElement("button");
+      card.type = "button";
+      card.className = "bouquet-shelf-card received historical";
+      const name = document.createElement("strong");
+      name.textContent = bouquet.name;
+      const artwork = document.createElement("span");
+      artwork.className = "bouquet-card-artwork";
+      renderBouquetArtwork(artwork, bouquet.imageId, true, bouquet.name);
+      const count = document.createElement("small");
+      count.textContent = `×${records.length}`;
+      card.append(name, artwork, count);
+      card.addEventListener("click", () => showBouquetDetails(bouquetId));
       grid.append(card);
     }
     body.append(grid);

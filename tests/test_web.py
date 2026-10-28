@@ -2,6 +2,7 @@ from pathlib import Path
 from html.parser import HTMLParser
 import importlib
 import os
+import subprocess
 
 
 def load_app(tmp_path):
@@ -156,6 +157,66 @@ def test_bouquet_detail_uses_its_latest_nonempty_card_and_compact_modal():
     assert "modal-card-bouquet-detail" in js
     assert ".modal-card-bouquet-detail" in css
     assert ".bouquet-detail-card" in css
+
+
+def test_historical_bouquets_render_only_from_gift_history_and_open_details():
+    root = Path(__file__).resolve().parents[1]
+    script = r"""
+const fs=require('fs'),vm=require('vm');
+const source=fs.readFileSync('static/app.js','utf8');
+const nodes={};
+function element(tag){const node={tag,className:'',textContent:'',children:[],listeners:{},classList:{add(){},remove(){}},
+ append(...items){this.children.push(...items)},addEventListener(name,fn){this.listeners[name]=fn},setAttribute(){}};
+ Object.defineProperty(node,'innerHTML',{get(){return this._html||''},set(value){this._html=value;this.children=[]}});return node}
+function get(selector){return nodes[selector]||(nodes[selector]=element('root'))}
+const formalIds=['first_meeting','morning_light','sunny_field','heart_note','evening_breeze','soft_cloud','blue_letter','cherry_branch','spring_banquet','spring_mountain','moonlit_book','higan_poem'];
+const bouquetCatalog=Object.fromEntries(formalIds.map((id)=>[id,{name:id,components:{daisy:1}}]));
+const options=formalIds.map((bouquet_id)=>({bouquet_id,name:bouquetCatalog[bouquet_id].name,components:{daisy:1},can_make:true}));
+const gifts=[
+ {bouquet_id:'warm_sun',components:{sunflower:1,rose:2,lily:1},sent_at:300,message:'\u6696\u6696\u7684\u9633\u5149\u9001\u7ed9\u4f60'},
+ {bouquet_id:'warm_sun',components:{sunflower:2,rose:1},sent_at:200,message:null},
+ {bouquet_id:'purple_mist',components:{daisy:2,lavender:1,lily:1},sent_at:100,message:'\u7d2b\u8272\u7684\u82b1'},
+ {bouquet_id:'little_garden',components:{daisy:2,rose:2},sent_at:50,message:'\u4e00\u5ea7\u5c0f\u82b1\u56ed'}
+];
+const madeCommands=[];
+const ctx={catalog:{bouquets:bouquetCatalog,flowers:{sunflower:{name:'\u5411\u65e5\u8475'},rose:{name:'\u73ab\u7470'},lily:{name:'\u767e\u5408'},daisy:{name:'\u96cf\u83ca'},lavender:{name:'\u85b0\u8863\u8349'}}},
+ currentState:{bouquet_gifts:gifts,bouquet_options:options,bouquet_inventory:[],flower_shop:{},money:0},bouquetVisitNewGiftIndexes:new Set(),
+ document:{createElement:element},$:get,formatBouquetTimestamp:(stamp)=>`time-${stamp}`,formatDuration:()=>'',
+ renderBouquetWorkshop(){},resetModalPresentation(){},closeModal(){},makeButton(label,command){madeCommands.push(command);const b=element('button');b.textContent=label;return b;}};
+vm.createContext(ctx);
+const ranges=[['function getBouquetImageUrl(', 'function renderBouquetArtwork('],
+ ['function renderBouquetArtwork(', 'function renderBouquetTabs('],
+ ['function renderBouquetTabs(', 'function getLatestBouquetCard('],
+ ['function getLatestBouquetCard(', 'function flowerComponentText('],
+ ['function flowerComponentText(', 'function formatShopStartMinute('],
+ ['function renderBouquetWorkshop(', 'function captureUnreadBouquetGiftIndexes('],
+ ['function showBouquetDetails(', 'function renderBouquetPage('],
+ ['function renderBouquetPage(', 'async function markBouquetGiftsRead(']];
+for(const [start,end] of ranges){const a=source.indexOf(start),b=source.indexOf(end,a);vm.runInContext(source.slice(a,b),ctx)}
+function cards(){return get('#bouquetPageContent').children.find((x)=>x.className==='bouquet-shelf-grid').children}
+ctx.renderBouquetPage();
+let grid=cards();
+for(const [id,name] of [['warm_sun','\u6696\u9633'],['purple_mist','\u7d2b\u96fe'],['little_garden','\u5c0f\u82b1\u56ed']]){
+ const card=grid.find((item)=>item.children.some((child)=>child.textContent===name));
+ if(!card||!card.className.includes('historical'))throw Error(`missing historical card ${id}`);
+ const image=card.children[1].children[0];if(image.src!==`/static/assets/v5/bouquets/${id}.png`)throw Error(`wrong image ${id}`);
+ card.listeners.click();
+ const body=get('#modalBody');const text=JSON.stringify(body.children.map((node)=>({text:node.textContent,children:node.children?.map((child)=>child.textContent)})));
+ if(!text.includes(name)||!text.includes('\u7d2f\u8ba1\u6536\u5230 \u00d7')||!text.includes('\u5411\u65e5\u8475')&&!text.includes('\u85b0\u8863\u8349')&&!text.includes('\u96cf\u83ca'))throw Error(`details incomplete ${id}`);
+ if(id==='warm_sun'&&(!text.includes('\u6696\u6696\u7684\u9633\u5149\u9001\u7ed9\u4f60')||!text.includes('time-300')||!text.includes('time-200')))throw Error('warm sun history missing card/time');
+ if(id==='purple_mist'&&!text.includes('\u7d2b\u8272\u7684\u82b1'))throw Error('purple mist message missing');
+ if(id==='little_garden'&&!text.includes('\u4e00\u5ea7\u5c0f\u82b1\u56ed'))throw Error('little garden message missing');
+}
+if(grid.filter((card)=>card.className.includes('historical')).length!==3)throw Error('historical count incorrect');
+if(madeCommands.some((command)=>/warm_sun|purple_mist|little_garden/.test(command)))throw Error('historical bouquet entered make commands');
+ctx.currentState.bouquet_gifts=[];ctx.renderBouquetPage();grid=cards();
+if(grid.some((card)=>card.className.includes('historical')))throw Error('history shown without matching gifts');
+if(grid.length!==12)throw Error(`formal catalog changed: ${grid.length}`);
+console.log('ok');
+"""
+    result = subprocess.run(["node", "-e", script], cwd=root, encoding="utf-8", capture_output=True)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "ok"
 
 
 def test_unlocked_bouquet_card_opens_existing_detail_modal():
