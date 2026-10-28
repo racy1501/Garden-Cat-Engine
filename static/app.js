@@ -46,6 +46,7 @@ let hasUnreadNotes = false;
 let hasUnreadBouquetGifts = false;
 let bouquetVisitNewGiftIndexes = new Set();
 let bouquetWorkshopTab = "shelf";
+let cottageTab = "cottage";
 
 Object.assign(CUSTOM_ASSETS, {
   basic_cat_bed: "static/assets/v5/cat_care/basic_cat_bed.png",
@@ -681,6 +682,44 @@ function renderCottage() {
   if (!root) return;
   root.innerHTML = "";
   const cottage = currentState?.cottage || {};
+  const catPanel = $(".cottage-panel > .cat-panel");
+  if (catPanel) catPanel.hidden = cottageTab === "shop";
+  const tabs = document.createElement("div");
+  tabs.className = "bouquet-collection-tabs bouquet-page-tabs";
+  tabs.setAttribute("role", "tablist");
+  tabs.setAttribute("aria-label", "小屋内容切换");
+  for (const [id, label] of [["cottage", "小屋"], ["shop", "家具商店"]]) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `bouquet-collection-tab ${cottageTab === id ? "active" : ""}`;
+    button.textContent = label;
+    button.setAttribute("role", "tab");
+    button.setAttribute("aria-selected", String(cottageTab === id));
+    button.addEventListener("click", () => { cottageTab = id; renderCottage(); });
+    tabs.append(button);
+  }
+  root.append(tabs);
+  if (cottageTab === "shop") {
+    const grid = document.createElement("div");
+    grid.className = "cat-collection-grid cottage-shop-grid";
+    for (const item of cottage.purchasable_items || []) {
+      const card = document.createElement("article");
+      card.className = "cat-collectible-card bouquet-craft-card cottage-shop-card";
+      const image = document.createElement("img");
+      image.src = `/static/assets/v5/cottage/items/${item.asset_key}.png`;
+      image.alt = item.name;
+      const name = document.createElement("strong");
+      name.textContent = item.name;
+      const price = document.createElement("small");
+      price.textContent = `价格：${item.price} 金币`;
+      const status = document.createElement("small");
+      status.textContent = item.owned ? "已拥有" : "未拥有";
+      card.append(image, name, price, status, makeButton(item.owned ? "已拥有" : "购买", `buy_cottage_furniture ${item.id}`, "mini-btn gold", item.owned));
+      grid.append(card);
+    }
+    root.append(grid);
+    return;
+  }
   const ownedItems = cottage.owned_items || [];
   const ownedIds = new Set(ownedItems.map((item) => item.id));
   const sceneItems = (catalog.cottage_items || []).filter(
@@ -3499,7 +3538,7 @@ for(const button of document.querySelectorAll('.location-switch-strip .sticky-ta
       renderBouquetPage();
       markBouquetGiftsRead();
     }
-    if (button.dataset.mainPane === 'cottage') renderCottage();
+    if (button.dataset.mainPane === 'cottage') { cottageTab = "cottage"; renderCottage(); }
   });
 }
 for(const button of document.querySelectorAll('.cat-sticky-tab')){
