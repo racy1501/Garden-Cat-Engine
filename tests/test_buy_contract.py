@@ -46,6 +46,10 @@ def test_buy_accepts_internal_item_id_and_rejects_display_name():
     assert "商店没有这个东西" in rejected
 
 
+def test_basic_cat_food_package_contains_five_servings():
+    assert ge.CAT_ITEM_PACKAGE_SIZES["basic_food"] == 5
+
+
 def test_help_and_shop_expose_executable_item_id():
     help_text = ge.process_command(ge.get_default_state(), "help")
     shop_text = ge.process_command(ge.get_default_state(), "shop")

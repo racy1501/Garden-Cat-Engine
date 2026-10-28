@@ -719,7 +719,7 @@ NOTE_HELP_TEXT = (
 def _new_state(name: str = "") -> dict[str, Any]:
     state = get_default_state()
     state["inventory"]["seeds"]["daisy"] = 3
-    state["inventory"]["items"]["basic_food"] = 3
+    state["inventory"]["items"]["basic_food"] = 5
     if name:
         state["garden_name"] = name[:30]
     return state
@@ -1587,7 +1587,7 @@ def register():
             "message": (
                 f"你的专属花园 ID：{session_id}\n"
                 "请保存好这个 ID，之后每次回来都需要带上它。\n\n"
-                "初始状态：50块钱 · 3个花盆 · 3包普通猫粮\n"
+                "初始状态：50块钱 · 3个花盆 · 5份普通猫粮\n"
                 "发送 help 查看玩法，发送 shop 购买第一批种子。\n\n"
                 "🌱 花盆已经摆好，泥土还是新的。"
             ),
@@ -1609,7 +1609,7 @@ def new_game():
         {
             "ok": True,
             "session_id": session_id,
-            "message": f"🌱 [{session_id}] 新游戏开始！你有50块钱、3个花盆和3包普通猫粮。",
+            "message": f"🌱 [{session_id}] 新游戏开始！你有50块钱、3个花盆和5份普通猫粮。",
             "state": _ai_summary(state),
         }
     )

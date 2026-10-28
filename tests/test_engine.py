@@ -1,4 +1,5 @@
 import copy
+import json
 import time
 from datetime import datetime, timedelta
 from unittest.mock import patch
@@ -33,6 +34,29 @@ def fresh_state():
     state = get_default_state()
     state["inventory"]["items"]["basic_food"] = 3
     return state
+
+
+def test_new_game_starts_with_five_cat_food_servings_and_other_resources_unchanged(tmp_path, monkeypatch):
+    save_path = tmp_path / "new-game.json"
+    monkeypatch.setattr(ge, "SAVE_FILE", str(save_path))
+
+    result = ge.new_game()
+    state = json.loads(save_path.read_text(encoding="utf-8"))
+
+    assert state["inventory"]["items"]["basic_food"] == 5
+    assert state["money"] == 50
+    assert state["max_pots"] == 3
+    assert state["inventory"]["seeds"]["daisy"] == 3
+    assert "5份普通猫粮" in result
+
+
+def test_normalize_state_preserves_existing_cat_food_inventory():
+    state = get_default_state()
+    state["inventory"]["items"]["basic_food"] = 2
+
+    normalize_state(state)
+
+    assert state["inventory"]["items"]["basic_food"] == 2
 
 
 def test_negative_or_zero_quantities_are_rejected():

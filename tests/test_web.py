@@ -22,6 +22,17 @@ def test_home_serves_visual_frontend(tmp_path):
     assert "/static/app.js" in response.get_data(as_text=True)
 
 
+def test_new_state_initial_resources_include_five_cat_food_servings(tmp_path):
+    game_api = load_app(tmp_path)
+
+    state = game_api._new_state()
+
+    assert state["inventory"]["items"]["basic_food"] == 5
+    assert state["money"] == 50
+    assert state["max_pots"] == 3
+    assert state["inventory"]["seeds"]["daisy"] == 3
+
+
 def test_three_locations_keep_the_original_garden_function_strip():
     root = Path(__file__).resolve().parents[1]
     html = (root / "templates" / "index.html").read_text(encoding="utf-8")

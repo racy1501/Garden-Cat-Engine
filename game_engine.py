@@ -3264,10 +3264,10 @@ def save_game(state):
 def new_game():
     state = get_default_state()
     state["inventory"]["seeds"]["daisy"] = 3
-    state["inventory"]["items"]["basic_food"] = 3
+    state["inventory"]["items"]["basic_food"] = 5
     save_game(state)
     return (
-        "🌱 新游戏开始！你有50块钱，3盆花，3包普通猫粮。\n"
+        "🌱 新游戏开始！你有50块钱，3盆花，5份普通猫粮。\n"
         "先种花、照料花园，耐心等猫咪来花园做客吧！\n\n"
         "🌤️ 当前天气：晴天 ☀️（花生长×1.1，需手动浇水）"
     )
