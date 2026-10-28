@@ -783,11 +783,19 @@ def add_affection(state, amount, now=None, source=None, allow_letter_check=True,
     if amount_value <= 0:
         return []
 
+    previous_max = get_cat_max_affection(state)
+    _, next_letter = _get_next_letter(state)
     _set_cat_stat(state, "affection", stats.get("affection", 0.0) + amount_value)
     update_cat_max_affection(state)
     _advance_cat_commitment_phase(state, now)
 
-    progress_gain = int(max(0.0, amount_value))
+    progress_gain = 0
+    if next_letter is not None:
+        threshold = int(next_letter.get("min_affection", 0) or 0)
+        if previous_max >= threshold:
+            progress_gain = int(amount_value)
+        else:
+            progress_gain = int(max(0.0, get_cat_max_affection(state) - threshold))
     if progress_gain > 0:
         state["letter_affection_progress"] = _safe_nonnegative_int(
             state.get("letter_affection_progress", 0),
@@ -4185,7 +4193,7 @@ def _hours_below_threshold(start_value, decay_per_hour, threshold, elapsed_hours
     return max(0.0, elapsed_hours - crossing_time)
 
 
-def update_cat_stats(state, now, weather_data):
+def update_cat_stats(state, now, weather_data, letter_context=None):
     if state["cat"] is None:
         return
 
@@ -4215,6 +4223,7 @@ def update_cat_stats(state, now, weather_data):
             source="stat_drop",
             food=should_food_roll,
             water=should_water_roll,
+            letter_context=letter_context,
         )
 
     mood_decay = MOOD_BASE_DECAY
@@ -4312,7 +4321,7 @@ def _advance_offline_weather(state, now):
     return weather_data
 
 
-def apply_offline_progress(state, now=None):
+def apply_offline_progress(state, now=None, *, letter_context=None):
     if now is None:
         now = int(time.time())
     normalize_state(state, now)
@@ -4328,6 +4337,8 @@ def apply_offline_progress(state, now=None):
     settled_seconds = min(elapsed, OFFLINE_PROGRESS_MAX_SECONDS)
     skipped_seconds = max(0, elapsed - settled_seconds)
     settle_at = last_active_at + settled_seconds
+    if letter_context is None:
+        letter_context = {"messages": [], "remaining_deliveries": 1}
 
     weather_data = _advance_offline_weather(state, settle_at)
     update_flower_growth(state, settle_at, weather_data)
@@ -4338,7 +4349,7 @@ def apply_offline_progress(state, now=None):
             starting_mood = float(state["cat_stats"].get("mood", 0.0))
         except (TypeError, ValueError):
             starting_mood = 0.0
-    update_cat_stats(state, settle_at, weather_data)
+    update_cat_stats(state, settle_at, weather_data, letter_context=letter_context)
     if starting_mood is not None:
         state["cat_stats"]["mood"] = min(starting_mood, float(state["cat_stats"].get("mood", starting_mood)))
         _sync_cat_stats_views(state)
@@ -4346,7 +4357,9 @@ def apply_offline_progress(state, now=None):
         state,
         settle_at,
         flower_shop_target_time=now,
+        letter_context=letter_context,
     )
+    _resolve_letter_progress(state, now=settle_at, letter_context=letter_context)
     if skipped_seconds > 0:
         # 超限时间不再执行：保留结算终点的状态和计划剩余等待。
         # 只移动尚未到期的计划，已发生事件及状态变化时间保持原值。
@@ -4484,7 +4497,7 @@ def _parse_flower_shop_start_minute(value):
 
 
 
-def process_command(state, command, *, event_source="system"):
+def process_command(state, command, *, event_source="system", letter_context=None):
     """在传入的存档字典上执行命令，并原地更新状态。
 
     该入口供 Flask API / 数据库存档调用，不读取或写入本地 JSON 文件。
@@ -4507,12 +4520,13 @@ def process_command(state, command, *, event_source="system"):
         state["garden_frozen_until"] = 0
         state["frozen_reason"] = ""
 
-    letter_context = {"messages": [], "remaining_deliveries": 1}
+    if letter_context is None:
+        letter_context = {"messages": [], "remaining_deliveries": 1}
 
     # 先按旧天气结算到当前时刻，再允许天气在此刻变化，避免追溯修改过去。
     previous_weather_data = WEATHER[state["weather"]]
     update_flower_growth(state, now, previous_weather_data)
-    update_cat_stats(state, now, previous_weather_data)
+    update_cat_stats(state, now, previous_weather_data, letter_context=letter_context)
     weather_data, weather_messages = get_weather_info(state, now)
     pest_messages = check_pests(state, now)
     lifecycle_messages, _ = _settle_cat_then_flower_shop(
@@ -5331,6 +5345,8 @@ def process_command(state, command, *, event_source="system"):
             result = "❌ 用法：pet"
         elif state["cat"] is None:
             result = "❌ 还没有猫"
+        elif not _is_cat_present_for_interaction(state):
+            result = f"❌ {get_current_cat_name(state)}现在不在这里，暂时不能摸猫。"
         else:
             last_pet_time = state.get("cat_last_pet_real_time", 0)
             cooldown_seconds = PET_COOLDOWN_REAL_MINUTES * 60
@@ -5561,6 +5577,8 @@ help - 显示帮助
     else:
         result = "❌ 未知命令，输入 help 查看帮助"
 
+    if action != "pet" or _is_cat_present_for_interaction(state):
+        _resolve_letter_progress(state, now=now, letter_context=letter_context)
     update_cat_max_affection(state)
 
     if all_event_messages:

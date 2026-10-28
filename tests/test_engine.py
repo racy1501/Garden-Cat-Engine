@@ -869,6 +869,99 @@ def test_cat_passive_stats_stop_at_twenty():
         assert value >= 20
 
 
+def _letter_test_cat(now, affection=100):
+    state = fresh_state()
+    ge.apply_move_with_cat_reset(state, "栗子", now=now)
+    state["cat_stats"].update(hunger=20.0, thirst=20.0, affection=float(affection))
+    state["cat_state"]["stats"] = dict(state["cat_stats"])
+    state["cat_max_affection"] = float(affection)
+    state["weather"] = "cloudy"
+    state["weather_change_time"] = now + 100000
+    state["next_butterfly_at"] = now + 100000
+    state["cat_state"]["next_outing_at"] = now + 100000
+    return state
+
+
+def test_pet_requires_cat_present_without_consuming_cooldown(monkeypatch):
+    now = 1800000000
+    monkeypatch.setattr(ge.time, "time", lambda: now)
+    state = _letter_test_cat(now, affection=35)
+    state["cat_state"].update(location="away", next_outing_at=0, outing_return_at=now + 1800)
+    state["letter_affection_progress"] = 8
+    before_stats = dict(state["cat_stats"])
+    before_cooldown = state["cat_last_pet_real_time"]
+
+    result = process_command(state, "pet")
+    assert "不在这里" in result
+    assert state["cat_stats"] == before_stats
+    assert state["cat_last_pet_real_time"] == before_cooldown
+    assert state["letter_affection_progress"] == 8
+    assert state["letters_received"] == []
+
+    state["cat_state"].update(location="home", outing_return_at=0, next_outing_at=now + 1800)
+    result = process_command(state, "pet")
+    assert "抚摸了" in result
+    assert state["cat_stats"]["mood"] == before_stats["mood"] + 3
+    assert state["cat_stats"]["affection"] == before_stats["affection"] + 1
+    assert state["cat_last_pet_real_time"] == now
+
+
+def test_letter_progress_starts_after_next_threshold_and_keeps_existing_progress(monkeypatch):
+    now = 1800000000
+    monkeypatch.setattr(ge.time, "time", lambda: now)
+    state = _letter_test_cat(now, affection=29)
+    state["letter_affection_progress"] = 2
+    ge.add_affection(state, 1, now=now)
+    assert state["letter_affection_progress"] == 2
+    ge.add_affection(state, 1, now=now)
+    assert state["letter_affection_progress"] == 3
+
+    state = _letter_test_cat(now, affection=29)
+    ge.add_affection(state, 3, now=now, allow_letter_check=False)
+    assert state["letter_affection_progress"] == 2
+    state["cat_stats"]["affection"] = 100
+    state["cat_max_affection"] = 100
+    ge.add_affection(state, 2, now=now, allow_letter_check=False)
+    assert state["letter_affection_progress"] == 4
+
+
+def test_one_command_delivers_at_most_one_letter_across_auto_care_and_pet(monkeypatch):
+    now = 1800000000
+    monkeypatch.setattr(ge.time, "time", lambda: now)
+    monkeypatch.setattr(ge.random, "random", lambda: 0.0)
+    state = _letter_test_cat(now)
+    state["last_update"] = now - 3600
+    state["letter_affection_progress"] = 40
+    state["cat_care"]["food_bowl"]["remaining_portions"] = 3
+    state["cat_care"]["water_bowl"]["remaining_portions"] = 3
+
+    process_command(state, "pet")
+    assert state["letters_received"] == [0]
+    assert state["letter_affection_progress"] == 43
+    process_command(state, "status")
+    assert state["letters_received"] == [0, 1]
+    assert state["letter_affection_progress"] == 39
+
+
+def test_one_offline_settlement_preserves_letter_history_and_extra_progress(monkeypatch):
+    now = 1800000000
+    monkeypatch.setattr(ge.time, "time", lambda: now)
+    monkeypatch.setattr(ge.random, "random", lambda: 0.0)
+    state = _letter_test_cat(now)
+    state["letters_received"] = [0, 1]
+    state["letter_affection_progress"] = 40
+    state["cat_care"]["food_bowl"]["remaining_portions"] = 3
+    state["cat_care"]["water_bowl"]["remaining_portions"] = 3
+
+    ge.apply_offline_progress(state, now=now + 3600)
+    assert state["letters_received"] == [0, 1, 2]
+    assert state["letter_affection_progress"] == 42
+    monkeypatch.setattr(ge.time, "time", lambda: now + 3600)
+    process_command(state, "status")
+    assert state["letters_received"] == [0, 1, 2, 3]
+    assert state["letter_affection_progress"] == 38
+
+
 def test_mature_flower_does_not_get_new_pests():
     state = fresh_state()
     now = int(time.time())

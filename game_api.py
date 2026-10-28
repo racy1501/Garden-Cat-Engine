@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from functools import wraps
 from typing import Any, Iterator
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, g, has_request_context, jsonify, render_template, request
 
 from game_engine import (
     CAT_COLLECTIBLES,
@@ -198,6 +198,14 @@ def _decode_state(value: Any) -> dict[str, Any] | None:
     return dict(value) if hasattr(value, "items") else None
 
 
+def _request_letter_context():
+    if not has_request_context():
+        return None
+    if not hasattr(g, "letter_context"):
+        g.letter_context = {"messages": [], "remaining_deliveries": 1}
+    return g.letter_context
+
+
 def db_load_state(session_id: str, *, events_before: list | None = None, live_events: bool = False) -> dict[str, Any] | None:
     ensure_schema()
     with _get_conn() as conn:
@@ -224,7 +232,7 @@ def db_load_state(session_id: str, *, events_before: list | None = None, live_ev
         events_before.extend(state.get("events", []))
     normalized = normalize_state(state)
     cottage_rewards = sync_cottage_rewards(normalized)
-    if apply_offline_progress(normalized) or cottage_rewards:
+    if apply_offline_progress(normalized, letter_context=_request_letter_context()) or cottage_rewards:
         db_save_state(session_id, normalized)
     if events_before is not None and not live_events:
         # 首次恢复和AI调用：补算完成后才开始收集操作产生的新事件。
@@ -960,7 +968,7 @@ def _ai_summary(state: dict[str, Any], *, events_before: list | None = None) -> 
     now = int(time.time())
     summary_events_before = list(state.get("events", []))
     normalize_state(state, now)
-    apply_offline_progress(state, now)
+    apply_offline_progress(state, now, letter_context=_request_letter_context())
     if events_before is None:
         events_before = list(state.get("events", []))
     else:
@@ -1005,7 +1013,7 @@ def _summary(state: dict[str, Any], *, events_before: list | None = None) -> dic
     """给网页或其他 AI 返回易用的结构化状态摘要。"""
     now = int(time.time())
     normalize_state(state, now)
-    apply_offline_progress(state, now)
+    apply_offline_progress(state, now, letter_context=_request_letter_context())
     weather_id = state.get("weather", "sunny")
     weather = WEATHER.get(weather_id, WEATHER["sunny"])
     garden_events = _build_garden_event_summary(state, now)
@@ -1411,7 +1419,7 @@ def web_status():
     )
     if state is None:
         return _web_auth_error()
-    result = process_command(state, "status")
+    result = process_command(state, "status", letter_context=_request_letter_context())
     db_save_state(session_id, state)
     notes = db_note_read_status(session_id)
     return jsonify(
@@ -1442,7 +1450,7 @@ def web_cmd():
         return _web_auth_error()
     result = _handle_note_command(session_id, command, "human")
     if result is None:
-        result = process_command(state, command, event_source="human")
+        result = process_command(state, command, event_source="human", letter_context=_request_letter_context())
         if command.strip().lower() == "help":
             result += NOTE_HELP_TEXT
         db_save_state(session_id, state)
@@ -1624,7 +1632,7 @@ def cmd_route():
     result = _handle_note_command(session_id, command, "ai")
     should_save_state = False
     if result is None:
-        result = process_command(state, command, event_source="ai")
+        result = process_command(state, command, event_source="ai", letter_context=_request_letter_context())
         if command.strip().lower() == "help":
             result += NOTE_HELP_TEXT
         should_save_state = True
@@ -1690,7 +1698,7 @@ def status():
         return error_response
     session_id = _safe_session_id(request.args.get("session_id", DEFAULT_SESSION))
     notice = _consume_ai_v5_update_notice(state)
-    result = process_command(state, "status")
+    result = process_command(state, "status", letter_context=_request_letter_context())
     result = _prepend_ai_notice(result, notice)
     if notice:
         state["ai_v5_update_notice_seen"] = True

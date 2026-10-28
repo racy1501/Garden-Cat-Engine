@@ -210,6 +210,56 @@ def test_return_care_collectible_and_letter_events_keep_node_time(cat_clock, mon
     assert state["events"][-1]["time"] == start + 6600
 
 
+@pytest.mark.parametrize("route", ["/api/cmd", "/web/cmd"])
+def test_api_request_shares_letter_limit_between_offline_and_command(cat_clock, monkeypatch, route):
+    import sqlite3
+    from contextlib import contextmanager
+
+    monkeypatch.setenv("SQLITE_PATH", ":memory:")
+    monkeypatch.setenv("GARDEN_API_KEY", "test-key")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.delitem(sys.modules, "game_api", raising=False)
+    api = importlib.import_module("game_api")
+    connection = sqlite3.connect(":memory:")
+    connection.row_factory = sqlite3.Row
+
+    @contextmanager
+    def memory_connection():
+        yield connection
+
+    monkeypatch.setattr(api, "_get_conn", memory_connection)
+    api.ensure_schema()
+    now = cat_clock[0]
+    state = ge.get_default_state()
+    ge.apply_move_with_cat_reset(state, "栗子", now=now)
+    state["cat_stats"].update(hunger=20.0, thirst=20.0, affection=100.0)
+    state["cat_state"]["stats"] = dict(state["cat_stats"])
+    state["cat_max_affection"] = 100.0
+    state["cat_state"]["next_outing_at"] = now + 100000
+    state["weather_change_time"] = state["next_butterfly_at"] = now + 100000
+    state["letter_affection_progress"] = 40
+    state["cat_care"]["food_bowl"]["remaining_portions"] = 3
+    state["cat_care"]["water_bowl"]["remaining_portions"] = 3
+    token = api._issue_web_token(state)
+    api.db_save_state("letter-test", state)
+    cat_clock[0] += 3600
+    monkeypatch.setattr(ge.random, "random", lambda: 0.0)
+    client = api.app.test_client()
+    headers = {"X-API-Key": "test-key", "X-Garden-Token": token}
+
+    response = client.post(route, json={"session_id": "letter-test", "command": "status"}, headers=headers)
+    assert response.status_code == 200
+    saved = api.db_load_state("letter-test")
+    assert saved["letters_received"] == [0]
+    assert saved["letter_affection_progress"] == 42
+    response = client.post(route, json={"session_id": "letter-test", "command": "status"}, headers=headers)
+    assert response.status_code == 200
+    saved = api.db_load_state("letter-test")
+    assert saved["letters_received"] == [0, 1]
+    assert saved["letter_affection_progress"] == 38
+    connection.close()
+
+
 @pytest.fixture()
 def api(tmp_path, monkeypatch):
     monkeypatch.setenv("SQLITE_PATH", str(tmp_path / "garden_test.db"))
