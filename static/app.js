@@ -45,6 +45,7 @@ let currentNotesPage = 1;
 let hasUnreadNotes = false;
 let hasUnreadBouquetGifts = false;
 let bouquetVisitNewGiftIndexes = new Set();
+let bouquetWorkshopTab = "shelf";
 
 Object.assign(CUSTOM_ASSETS, {
   basic_cat_bed: "static/assets/v5/cat_care/basic_cat_bed.png",
@@ -650,7 +651,12 @@ function renderAll() {
   renderInventory();
   renderCollection();
   renderEvents();
-  if (document.querySelector(".bouquet-panel.active")) renderBouquetPage();
+  if (document.querySelector(".bouquet-panel.active")) {
+    const activeBouquetTab = $("#bouquetPageContent")
+      .querySelector(":scope > .bouquet-collection-tabs:not(.bouquet-workshop-tabs) .active")
+      ?.textContent === "卡片" ? "cards" : "bouquets";
+    renderBouquetPage(activeBouquetTab);
+  }
   startPetCooldownTimer();
 }
 
@@ -1060,13 +1066,16 @@ function renderBouquetArtwork(parent, bouquetId, showColor, label) {
 
 function renderBouquetTabs(activeTab) {
   const tabs = document.createElement("div");
-  tabs.className = "bouquet-collection-tabs";
+  tabs.className = "bouquet-collection-tabs bouquet-page-tabs";
   for (const [tab, label] of [["bouquets", "花束"], ["cards", "卡片"]]) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = `bouquet-collection-tab ${activeTab === tab ? "active" : ""}`;
     button.textContent = label;
-    button.addEventListener("click", () => renderBouquetPage(tab));
+    button.addEventListener("click", () => {
+      if (tab === "bouquets") bouquetWorkshopTab = "shelf";
+      renderBouquetPage(tab);
+    });
     tabs.append(button);
   }
   return tabs;
@@ -1087,32 +1096,52 @@ function formatShopStartMinute(minute) {
   return `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
 }
 
+function renderFlowerShopShelves(shop) {
+  const shelves = document.createElement("div");
+  shelves.className = "flower-shop-shelves";
+  const slots = shop.slots || [];
+  for (let index = 0; index < 9; index++) {
+    const slot = slots[index];
+    const shelf = document.createElement("article");
+    const number = document.createElement("strong");
+    number.textContent = `货架 ${index + 1}`;
+    shelf.append(number);
+    if (index >= Number(shop.shelf_capacity || 0)) {
+      shelf.className = "locked";
+      const locked = document.createElement("small");
+      locked.textContent = shop.established ? "扩建货架解锁" : "建造花店后解锁";
+      shelf.append(locked);
+    } else if (!slot || slot.empty) {
+      const empty = document.createElement("small");
+      empty.textContent = "暂无上架";
+      shelf.append(empty);
+    } else {
+      const artwork = document.createElement("div");
+      artwork.className = "flower-shop-shelf-artwork";
+      renderBouquetArtwork(artwork, slot.bouquet_id, true, slot.name);
+      const name = document.createElement("strong");
+      name.textContent = `${slot.name} ×1`;
+      const price = document.createElement("small");
+      price.textContent = `基础价 ${slot.base_price} → 当前售价 ${slot.current_price} 块${slot.price_stage ? `｜${slot.price_stage}` : ""}`;
+      const expiry = document.createElement("small");
+      expiry.textContent = `距报废 ${formatDuration(slot.expires_in_seconds || 0)}`;
+      const openState = document.createElement("small");
+      openState.textContent = slot.is_open ? "营业中" : "闭店中 · 继续老化";
+      shelf.append(artwork, name, price, expiry, openState);
+    }
+    shelves.append(shelf);
+  }
+  return shelves;
+}
+
 function renderBouquetWorkshop(body) {
   const panel = document.createElement("section");
   panel.className = "flower-shop-panel";
   const title = document.createElement("h3");
-  title.textContent = "制作与花店";
+  title.textContent = bouquetWorkshopTab === "shelf" ? "售卖货架" : "制作花束";
   panel.append(title);
 
-  const options = Array.isArray(currentState?.bouquet_options) ? currentState.bouquet_options : [];
-  const craft = document.createElement("div");
-  craft.className = "flower-shop-section";
-  craft.innerHTML = "<strong>制作花束</strong>";
-  if (!options.length) {
-    const hint = document.createElement("small");
-    hint.textContent = "先收获配方所需的花材，才会发现花束配方。";
-    craft.append(hint);
-  }
-  for (const option of options) {
-    const row = document.createElement("div");
-    row.className = "flower-shop-row";
-    const text = document.createElement("span");
-    text.textContent = `${option.name}｜${flowerComponentText(option.components)}`;
-    row.append(text, makeButton("制作", `craft_bouquet bouquet_id=${option.bouquet_id}`, "mini-btn", !option.can_make));
-    craft.append(row);
-  }
-  panel.append(craft);
-
+  if (bouquetWorkshopTab === "craft") {
   const shop = currentState?.flower_shop || {};
   const canListBouquet = Boolean(
     shop.launched
@@ -1120,40 +1149,87 @@ function renderBouquetWorkshop(body) {
     && shop.pending_business_start_minute == null
     && Number(shop.empty_slots || 0) > 0
   );
-  const bag = document.createElement("div");
-  bag.className = "flower-shop-section";
-  bag.innerHTML = "<strong>持有的花束</strong>";
+  const options = new Map((currentState?.bouquet_options || []).map((option) => [option.bouquet_id, option]));
   const inventory = Array.isArray(currentState?.bouquet_inventory) ? currentState.bouquet_inventory : [];
-  if (!inventory.length) {
-    const hint = document.createElement("small");
-    hint.textContent = "这里会放入新制作、尚未赠送的花束。";
-    bag.append(hint);
-  }
-  for (const bouquet of inventory) {
-    const row = document.createElement("div");
-    row.className = "flower-shop-row";
-    const text = document.createElement("span");
-    text.textContent = `${bouquet.name}｜${flowerComponentText(bouquet.components)}`;
+  const grid = document.createElement("div");
+  grid.className = "cat-collection-grid bouquet-craft-grid";
+  for (const [bouquetId, bouquet] of Object.entries(catalog?.bouquets || {})) {
+    const option = options.get(bouquetId);
+    const instances = inventory.filter((entry) => entry.bouquet_id === bouquetId);
+    const card = document.createElement("article");
+    card.className = "cat-collectible-card bouquet-craft-card";
+    const artwork = document.createElement("div");
+    artwork.className = "bouquet-craft-artwork";
+    renderBouquetArtwork(artwork, bouquetId, true, bouquet.name);
+    const name = document.createElement("strong");
+    name.textContent = bouquet.name;
+    const recipe = document.createElement("small");
+    recipe.textContent = `配方：${flowerComponentText(bouquet.components)}`;
+    const count = document.createElement("small");
+    count.textContent = `库存 ×${instances.length}${option ? "" : " · 配方未发现"}`;
+    const basePrice = document.createElement("small");
+    basePrice.className = "bouquet-craft-base-price";
+    basePrice.textContent = `基础售价：${bouquet.base_price} 块`;
+    card.append(artwork, name, recipe, basePrice, count);
+    let selection = null;
+    if (instances.length > 1) {
+      selection = document.createElement("select");
+      selection.setAttribute("aria-label", `选择要上架的${bouquet.name}`);
+      for (const [index, instance] of instances.entries()) {
+        const item = document.createElement("option");
+        item.value = instance.id;
+        item.textContent = `第${index + 1}束 · ${flowerComponentText(instance.components)}`;
+        selection.append(item);
+      }
+      card.append(selection);
+    }
     const actions = document.createElement("div");
     actions.className = "flower-shop-actions";
-    actions.append(
-      makeButton("赠送", `gift_bouquet instance_id=${bouquet.id}`),
-      makeButton("上架", `list_bouquet instance_id=${bouquet.id}`, "mini-btn gold", !canListBouquet),
-    );
-    row.append(text, actions);
-    bag.append(row);
+    const list = makeButton("上架", selection ? null : `list_bouquet instance_id=${instances[0]?.id || ""}`, "mini-btn gold", !canListBouquet || !instances.length);
+    if (selection && canListBouquet) {
+      list.addEventListener("click", () => runCommand(`list_bouquet instance_id=${selection.value}`, list));
+    }
+    actions.append(makeButton("制作", `craft_bouquet bouquet_id=${bouquetId}`, "mini-btn", !option?.can_make), list);
+    card.append(actions);
+    grid.append(card);
   }
-  panel.append(bag);
+  panel.append(grid);
+  }
 
+  const shop = currentState?.flower_shop || {};
+  if (bouquetWorkshopTab === "shelf") {
   const shopSection = document.createElement("div");
   shopSection.className = "flower-shop-section";
   const progress = shop.eligibility_progress || {};
-  const heading = document.createElement("strong");
-  heading.textContent = "花店";
-  const progressText = document.createElement("small");
-  progressText.textContent = `条件：图鉴 ${progress.encyclopedia || 0}/10｜收获 ${progress.harvests || 0}/42｜直接卖花 ${progress.direct_flower_sale_earned || 0}/3000`;
-  shopSection.append(heading, progressText);
+  const saleRules = document.createElement("section");
+  saleRules.className = "flower-shop-sale-rules";
+  const freshenerState = document.createElement("strong");
+  freshenerState.textContent = shop.has_freshener ? "保鲜设备：已启用" : "保鲜设备：未安装";
+  const lifetimeSeconds = Number(shop.bouquet_lifetime_seconds);
+  const lifetimeText = Number.isFinite(lifetimeSeconds) && lifetimeSeconds > 0 ? `${lifetimeSeconds / 3600}小时` : "规定时间";
+  const ruleSummary = document.createElement("small");
+  ruleSummary.textContent = `新鲜花束售价更高，随上架时间逐步折价；上架满${lifetimeText}后报废。`;
+  const stageRules = document.createElement("small");
+  const profile = shop.pricing_profiles?.[shop.has_freshener ? "freshener" : "normal"] || [];
+  let previousHours = 0;
+  const stages = profile.map((stage) => {
+    const endHours = Number(stage.until_seconds) / 3600;
+    const text = `${previousHours}–${endHours}小时 ×${Number(stage.multiplier).toFixed(2)}`;
+    previousHours = endHours;
+    return text;
+  });
+  stageRules.textContent = stages.length ? `相对基础售价：${stages.join("｜")}。` : "售价阶段暂不可用。";
+  saleRules.append(freshenerState, ruleSummary, stageRules);
+  if (shop.has_freshener) {
+    const freshenerNote = document.createElement("small");
+    freshenerNote.textContent = `保鲜设备已启用：延后折价节点，但不会延长${lifetimeText}报废时间；仅对安装后新上架的花束生效。`;
+    saleRules.append(freshenerNote);
+  }
+  shopSection.append(saleRules, renderFlowerShopShelves(shop));
   if (!shop.established) {
+    const progressText = document.createElement("small");
+    progressText.textContent = `解锁条件：图鉴 ${progress.encyclopedia || 0}/10｜收获 ${progress.harvests || 0}/42｜直接卖花 ${progress.direct_flower_sale_earned || 0}/3000`;
+    shopSection.append(progressText);
     const button = makeButton("建造花店 · 3500金币", "establish_flower_shop", "mini-btn gold", !shop.eligible || currentState.money < 3500);
     shopSection.append(button);
   } else {
@@ -1167,27 +1243,6 @@ function renderBouquetWorkshop(body) {
       const buffText = document.createElement("small");
       buffText.textContent = `成交金额 +10%｜剩余 ${formatDuration(shop.shop_buff_remaining_seconds || 0)}`;
       buff.append(buffTitle, buffText);
-    }
-    const shelves = document.createElement("div");
-    shelves.className = "flower-shop-shelves";
-    for (const slot of shop.slots || []) {
-      const shelf = document.createElement("article");
-      if (slot.empty) {
-        shelf.innerHTML = `<strong>货架 ${slot.slot}</strong><small>空货架</small>`;
-      } else {
-        const name = document.createElement("strong");
-        name.textContent = `货架 ${slot.slot}｜${slot.name}`;
-        const components = document.createElement("small");
-        components.textContent = flowerComponentText(slot.components);
-        const price = document.createElement("small");
-        price.textContent = `当前售价 ${slot.current_price} 块${slot.price_stage ? `｜${slot.price_stage}` : ""}`;
-        const expiry = document.createElement("small");
-        expiry.textContent = `距报废 ${formatDuration(slot.expires_in_seconds || 0)}`;
-        const openState = document.createElement("small");
-        openState.textContent = slot.is_open ? "营业中" : "闭店中 · 继续老化";
-        shelf.append(name, components, price, expiry, openState);
-      }
-      shelves.append(shelf);
     }
     const facilities = document.createElement("div");
     facilities.className = "flower-shop-facilities";
@@ -1211,9 +1266,7 @@ function renderBouquetWorkshop(body) {
     const freshener = document.createElement("div");
     freshener.className = "flower-shop-row";
     const freshenerText = document.createElement("span");
-    freshenerText.textContent = shop.has_freshener
-      ? "保鲜设备已安装"
-      : "保鲜设备：延后花束折价时间，不延长24小时报废时间";
+    freshenerText.textContent = shop.has_freshener ? "保鲜设备已安装" : "保鲜设备";
     freshener.append(freshenerText);
     if (!shop.has_freshener && Number.isFinite(shop.freshener_cost)) {
       freshener.append(makeButton(
@@ -1238,10 +1291,11 @@ function renderBouquetWorkshop(body) {
     next.textContent = shop.next_business_cycle_at ? `下次营业周期：${formatBouquetTimestamp(shop.next_business_cycle_at)}` : "请先设置营业开始时间";
     shopSection.append(status);
     if (shop.shop_buff_active) shopSection.append(buff);
-    shopSection.append(shelves, facilities, hours, next);
+    shopSection.append(facilities, hours, next);
     if (!shop.launched) shopSection.append(makeButton("正式开业", "launch_flower_shop", "mini-btn gold", !Number.isInteger(shop.business_start_minute)));
   }
   panel.append(shopSection);
+  }
   body.append(panel);
 }
 
@@ -1265,7 +1319,30 @@ function createBouquetNewBadge() {
   return badge;
 }
 
-function showBouquetDetails(bouquetId) {
+function renderBouquetGifting(body) {
+  const section = document.createElement("section");
+  section.className = "flower-shop-section bouquet-gifting-section";
+  const heading = document.createElement("strong");
+  heading.textContent = "准备赠送";
+  section.append(heading);
+  const inventory = Array.isArray(currentState?.bouquet_inventory) ? currentState.bouquet_inventory : [];
+  if (!inventory.length) {
+    const empty = document.createElement("small");
+    empty.textContent = "目前没有可赠送的花束。可以先到「花束 → 制作」制作。";
+    section.append(empty);
+  }
+  for (const bouquet of inventory) {
+    const row = document.createElement("div");
+    row.className = "flower-shop-row";
+    const description = document.createElement("span");
+    description.textContent = `${bouquet.name}｜${flowerComponentText(bouquet.components)}`;
+    row.append(description, makeButton("赠送", `gift_bouquet instance_id=${bouquet.id}`));
+    section.append(row);
+  }
+  body.append(section);
+}
+
+function showBouquetDetails(bouquetId, returnToEncyclopedia = false) {
   const bouquet = getBouquetDisplayMetadata(bouquetId);
   const gifts = (currentState?.bouquet_gifts || [])
     .filter((gift) => gift.bouquet_id === bouquetId)
@@ -1282,7 +1359,8 @@ function showBouquetDetails(bouquetId) {
   back.textContent = "返回花束";
   back.addEventListener("click", () => {
     closeModal();
-    renderBouquetPage("bouquets");
+    if (returnToEncyclopedia) showEncyclopediaModal("bouquets");
+    else renderBouquetPage("bouquets");
   });
   const components = document.createElement("p");
   components.className = "bouquet-detail-components";
@@ -1336,12 +1414,80 @@ function showBouquetDetails(bouquetId) {
   $("#modal").classList.remove("hidden");
 }
 
+function renderBouquetEncyclopedia(root) {
+  const gifts = Array.isArray(currentState?.bouquet_gifts) ? currentState.bouquet_gifts : [];
+  const grid = document.createElement("div");
+  grid.className = "bouquet-shelf-grid";
+  const discoveredOptions = new Map(
+    (Array.isArray(currentState?.bouquet_options) ? currentState.bouquet_options : [])
+      .map((option) => [option.bouquet_id, option]),
+  );
+  for (const [bouquetId, bouquet] of Object.entries(catalog?.bouquets || {})) {
+    const records = gifts.filter((gift) => gift.bouquet_id === bouquetId);
+    const option = discoveredOptions.get(bouquetId);
+    const discovered = Boolean(option);
+    const hasNewGift = gifts.some(
+      (gift, index) => gift.bouquet_id === bouquetId && bouquetVisitNewGiftIndexes.has(index),
+    );
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = `bouquet-shelf-card ${records.length ? "received" : discovered ? "discovered" : "locked"}`;
+    const name = document.createElement("strong");
+    name.textContent = discovered || records.length ? bouquet.name : "尚未发现";
+    const count = document.createElement("small");
+    if (records.length) count.textContent = `×${records.length}`;
+    else if (!discovered) count.textContent = "配方未发现";
+    else if (option.can_make) count.textContent = "已发现，尚未赠送";
+    else {
+      const missing = Object.entries(option.missing || {})
+        .map(([flowerId, quantity]) => `${catalog.flowers?.[flowerId]?.name || flowerId} ×${quantity}`)
+        .join("、");
+      count.textContent = `已发现，缺少：${missing}`;
+    }
+    card.append(name);
+    if (discovered && !records.length) {
+      const components = document.createElement("small");
+      components.textContent = Object.entries(option.components || {})
+        .map(([flowerId, quantity]) => `${catalog.flowers?.[flowerId]?.name || flowerId} ×${quantity}`)
+        .join("、");
+      card.append(components);
+    }
+    const artwork = document.createElement("span");
+    artwork.className = "bouquet-card-artwork";
+    renderBouquetArtwork(artwork, bouquetId, discovered || Boolean(records.length), bouquet.name);
+    card.append(artwork, count);
+    if (hasNewGift) card.append(createBouquetNewBadge());
+    if (records.length) card.addEventListener("click", () => showBouquetDetails(bouquetId, true));
+    else card.disabled = true;
+    grid.append(card);
+  }
+  for (const [bouquetId, bouquet] of Object.entries(HISTORICAL_BOUQUET_DISPLAY)) {
+    const records = gifts.filter((gift) => gift.bouquet_id === bouquetId);
+    if (!records.length) continue;
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "bouquet-shelf-card received historical";
+    const name = document.createElement("strong");
+    name.textContent = bouquet.name;
+    const artwork = document.createElement("span");
+    artwork.className = "bouquet-card-artwork";
+    renderBouquetArtwork(artwork, bouquet.imageId, true, bouquet.name);
+    const count = document.createElement("small");
+    count.textContent = `×${records.length}`;
+    card.append(name, artwork, count);
+    card.addEventListener("click", () => showBouquetDetails(bouquetId, true));
+    grid.append(card);
+  }
+  root.append(grid);
+}
+
 function renderBouquetPage(activeTab = "bouquets") {
   const body = $("#bouquetPageContent");
   body.innerHTML = "";
   body.append(renderBouquetTabs(activeTab));
   const gifts = Array.isArray(currentState?.bouquet_gifts) ? currentState.bouquet_gifts : [];
   if (activeTab === "cards") {
+    renderBouquetGifting(body);
     const cards = gifts
       .map((gift, index) => ({ gift, index }))
       .filter(({ gift }) => String(gift.message || "").trim())
@@ -1370,71 +1516,18 @@ function renderBouquetPage(activeTab = "bouquets") {
       body.append(list);
     }
   } else {
+    const tabs = document.createElement("div");
+    tabs.className = "bouquet-collection-tabs bouquet-workshop-tabs";
+    for (const [tab, label] of [["shelf", "货架"], ["craft", "制作"]]) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = `bouquet-collection-tab ${bouquetWorkshopTab === tab ? "active" : ""}`;
+      button.textContent = label;
+      button.addEventListener("click", () => { bouquetWorkshopTab = tab; renderBouquetPage("bouquets"); });
+      tabs.append(button);
+    }
+    body.append(tabs);
     renderBouquetWorkshop(body);
-    const grid = document.createElement("div");
-    grid.className = "bouquet-shelf-grid";
-    const discoveredOptions = new Map(
-      (Array.isArray(currentState?.bouquet_options) ? currentState.bouquet_options : [])
-        .map((option) => [option.bouquet_id, option]),
-    );
-    for (const [bouquetId, bouquet] of Object.entries(catalog?.bouquets || {})) {
-      const records = gifts.filter((gift) => gift.bouquet_id === bouquetId);
-      const option = discoveredOptions.get(bouquetId);
-      const discovered = Boolean(option);
-      const hasNewGift = gifts.some(
-        (gift, index) => gift.bouquet_id === bouquetId && bouquetVisitNewGiftIndexes.has(index),
-      );
-      const card = document.createElement("button");
-      card.type = "button";
-      card.className = `bouquet-shelf-card ${records.length ? "received" : discovered ? "discovered" : "locked"}`;
-      const name = document.createElement("strong");
-      name.textContent = discovered || records.length ? bouquet.name : "尚未发现";
-      const count = document.createElement("small");
-      if (records.length) count.textContent = `×${records.length}`;
-      else if (!discovered) count.textContent = "配方未发现";
-      else if (option.can_make) count.textContent = "已发现，尚未赠送";
-      else {
-        const missing = Object.entries(option.missing || {})
-          .map(([flowerId, quantity]) => `${catalog.flowers?.[flowerId]?.name || flowerId} ×${quantity}`)
-          .join("、");
-        count.textContent = `已发现，缺少：${missing}`;
-      }
-      card.append(name);
-      if (discovered && !records.length) {
-        const components = document.createElement("small");
-        components.textContent = Object.entries(option.components || {})
-          .map(([flowerId, quantity]) => `${catalog.flowers?.[flowerId]?.name || flowerId} ×${quantity}`)
-          .join("、");
-        card.append(components);
-      }
-      const artwork = document.createElement("span");
-      artwork.className = "bouquet-card-artwork";
-      renderBouquetArtwork(artwork, bouquetId, discovered || Boolean(records.length), bouquet.name);
-      card.append(artwork);
-      card.append(count);
-      if (hasNewGift) card.append(createBouquetNewBadge());
-      if (records.length) card.addEventListener("click", () => showBouquetDetails(bouquetId));
-      else card.disabled = true;
-      grid.append(card);
-    }
-    for (const [bouquetId, bouquet] of Object.entries(HISTORICAL_BOUQUET_DISPLAY)) {
-      const records = gifts.filter((gift) => gift.bouquet_id === bouquetId);
-      if (!records.length) continue;
-      const card = document.createElement("button");
-      card.type = "button";
-      card.className = "bouquet-shelf-card received historical";
-      const name = document.createElement("strong");
-      name.textContent = bouquet.name;
-      const artwork = document.createElement("span");
-      artwork.className = "bouquet-card-artwork";
-      renderBouquetArtwork(artwork, bouquet.imageId, true, bouquet.name);
-      const count = document.createElement("small");
-      count.textContent = `×${records.length}`;
-      card.append(name, artwork, count);
-      card.addEventListener("click", () => showBouquetDetails(bouquetId));
-      grid.append(card);
-    }
-    body.append(grid);
   }
 }
 
@@ -2626,47 +2719,71 @@ function renderCatLetters(root){
   for(const letter of letters.slice(0,total)){const button=document.createElement("button"); button.type="button"; button.className=`cat-letter-card ${letter.received?"":"locked"}`; const image=document.createElement("img"); image.src=letter.received?CUSTOM_ASSETS.letter:CUSTOM_ASSETS.lock; image.alt=letter.received?"已收到的信":"尚未收到"; const meta=document.createElement("div"); const title=document.createElement("strong"); title.textContent=letter.received?(letter.title||`第 ${letter.index} 封信`):`第 ${letter.index} 封信`; const sub=document.createElement("small"); sub.textContent=letter.received?"点击拆开查看":"尚未收到"; meta.append(title,sub); button.append(image,meta); if(letter.received)button.addEventListener("click",()=>showLetterModal(letter)); else button.disabled=true; grid.append(button);} root.append(grid);
 }
 
-function showEncyclopediaModal() {
+function showEncyclopediaModal(activeTab = "flowers") {
   resetModalPresentation();
   $("#modal").classList.add("modal-encyclopedia");
   $(".modal-card").classList.add("modal-card-wide");
-  $("#modalTitle").textContent = `花卉图鉴 · ${currentState.encyclopedia_count}/${Object.keys(catalog.flowers || {}).length}`;
+  $("#modalTitle").textContent = "图鉴";
   const body = $("#modalBody");
   body.className = "modal-body-encyclopedia";
   body.innerHTML = "";
-  const grid = document.createElement("div");
-  grid.className = "encyclopedia-grid";
-  const known = new Set(currentState.encyclopedia || []);
-  const harvestCounts = currentState.flower_harvest_counts || {};
-  const flowers = getSortedCatalogFlowers(catalog.flowers);
-
-  for (const { id, flower } of flowers) {
-    const isKnown = known.has(id);
-    const item = document.createElement("div");
-    item.className = `encyclopedia-item ${isKnown ? "" : "unknown"}`;
-    const icon = document.createElement("div");
-    icon.className = "encyclopedia-item-icon";
-    if (isKnown) setFlowerIcon(icon, id);
-    else setAssetIcon(icon, "unknown", "尚未发现");
-
-    const meta = document.createElement("div");
-    meta.className = "encyclopedia-item-meta";
-    const name = document.createElement("strong");
-    name.textContent = isKnown ? flower.name : "尚未发现";
-    const rarity = document.createElement("small");
-    rarity.textContent = isKnown ? flower.rarity_name : "???";
-    meta.append(name, rarity);
-    if (isKnown) {
-      const count = document.createElement("small");
-      count.className = "collection-harvest-count";
-      count.textContent = `累计收获 ${Number(harvestCounts[id] || 0)}朵`;
-      meta.append(count);
-    }
-    item.append(icon, meta);
-    grid.append(item);
+  const tabs = document.createElement("div");
+  tabs.className = "bouquet-collection-tabs encyclopedia-tabs";
+  const flowerCount = Object.keys(catalog.flowers || {}).length;
+  const discoveredFlowers = Number(currentState.encyclopedia_count || 0);
+  const bouquetCount = Object.keys(catalog.bouquets || {}).length;
+  const discoveredBouquets = new Set(
+    (Array.isArray(currentState.bouquet_options) ? currentState.bouquet_options : [])
+      .map((option) => option.bouquet_id),
+  ).size;
+  for (const [tab, label] of [
+    ["flowers", `花卉 ${discoveredFlowers}/${flowerCount}`],
+    ["bouquets", `花束 ${discoveredBouquets}/${bouquetCount}`],
+  ]) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `bouquet-collection-tab ${activeTab === tab ? "active" : ""}`;
+    button.textContent = label;
+    button.addEventListener("click", () => showEncyclopediaModal(tab));
+    tabs.append(button);
   }
+  body.append(tabs);
+  if (activeTab === "bouquets") {
+    renderBouquetEncyclopedia(body);
+  } else {
+    const grid = document.createElement("div");
+    grid.className = "encyclopedia-grid";
+    const known = new Set(currentState.encyclopedia || []);
+    const harvestCounts = currentState.flower_harvest_counts || {};
+    const flowers = getSortedCatalogFlowers(catalog.flowers);
 
-  body.append(grid);
+    for (const { id, flower } of flowers) {
+      const isKnown = known.has(id);
+      const item = document.createElement("div");
+      item.className = `encyclopedia-item ${isKnown ? "" : "unknown"}`;
+      const icon = document.createElement("div");
+      icon.className = "encyclopedia-item-icon";
+      if (isKnown) setFlowerIcon(icon, id);
+      else setAssetIcon(icon, "unknown", "尚未发现");
+
+      const meta = document.createElement("div");
+      meta.className = "encyclopedia-item-meta";
+      const name = document.createElement("strong");
+      name.textContent = isKnown ? flower.name : "尚未发现";
+      const rarity = document.createElement("small");
+      rarity.textContent = isKnown ? flower.rarity_name : "???";
+      meta.append(name, rarity);
+      if (isKnown) {
+        const count = document.createElement("small");
+        count.className = "collection-harvest-count";
+        count.textContent = `累计收获 ${Number(harvestCounts[id] || 0)}朵`;
+        meta.append(count);
+      }
+      item.append(icon, meta);
+      grid.append(item);
+    }
+    body.append(grid);
+  }
   $("#modal").classList.remove("hidden");
 }
 
@@ -3377,6 +3494,7 @@ for(const button of document.querySelectorAll('.location-switch-strip .sticky-ta
     document.querySelectorAll('.location-switch-strip .sticky-tab').forEach(b=>b.classList.toggle('active',b===button));
     document.querySelectorAll('.main-column > .main-switch-pane').forEach(pane=>pane.classList.toggle('active',pane.dataset.locationPane===button.dataset.mainPane));
     if (button.dataset.mainPane === 'bouquet') {
+      bouquetWorkshopTab = "shelf";
       captureUnreadBouquetGiftIndexes();
       renderBouquetPage();
       markBouquetGiftsRead();

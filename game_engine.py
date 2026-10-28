@@ -3713,6 +3713,7 @@ def get_flower_shop_public_summary(state, now=None):
                 "name": str(bouquet.get("name", bouquet_id) or bouquet_id),
                 "components": dict(slot.get("components", {})),
                 "listed_at": int(slot.get("listed_at", 0) or 0),
+                "base_price": int(slot.get("base_price", 0) or 0),
                 "current_price": price_details["price"],
                 "price_stage": price_details["stage"],
                 "expires_in_seconds": max(
@@ -3736,6 +3737,11 @@ def get_flower_shop_public_summary(state, now=None):
         "next_shelf_upgrade_cost": FLOWER_SHOP_SHELF_UPGRADE_COSTS.get(shelf_capacity),
         "has_freshener": bool(shop.get("has_freshener", False)),
         "freshener_cost": None if shop.get("has_freshener", False) else FLOWER_SHOP_FRESHENER_COST,
+        "pricing_profiles": {
+            "normal": _default_flower_shop_pricing_profile(),
+            "freshener": _freshener_flower_shop_pricing_profile(),
+        },
+        "bouquet_lifetime_seconds": FLOWER_SHOP_BOUQUET_LIFETIME_SECONDS,
         "shop_buff_active": shop_buff_active,
         "shop_buff_until": shop_buff_until if shop_buff_active else None,
         "shop_buff_remaining_seconds": max(0, shop_buff_until - now) if shop_buff_active else 0,

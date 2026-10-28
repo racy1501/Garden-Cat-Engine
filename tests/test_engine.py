@@ -309,6 +309,10 @@ def test_freshener_only_changes_profiles_of_later_listings():
     new_slot = state["flower_shop"]["slots"][1]
     assert [entry["until_seconds"] for entry in new_slot["pricing_profile"]] == [6 * 3600, 12 * 3600, 20 * 3600, 24 * 3600]
     assert [entry["multiplier"] for entry in new_slot["pricing_profile"]] == [1.15, 1.0, 0.85, 0.65]
+    public = get_flower_shop_public_summary(state, now)
+    assert public["pricing_profiles"]["normal"] == old_slot["pricing_profile"]
+    assert public["pricing_profiles"]["freshener"] == new_slot["pricing_profile"]
+    assert public["bouquet_lifetime_seconds"] == FLOWER_SHOP_BOUQUET_LIFETIME_SECONDS
     assert old_slot["will_sell"] is True
     assert old_slot["sale_business_seconds_remaining"] == 7200
     assert "已经安装" in process_command(state, "buy_flower_shop_freshener")
@@ -643,6 +647,7 @@ def test_list_bouquet_rolls_once_and_public_summary_hides_sale_plan():
     assert slot["instance_id"] == "bag-one"
     assert slot["base_price"] == 48
     public_slot = get_flower_shop_public_summary(state, now)["slots"][0]
+    assert public_slot["base_price"] == 48
     assert public_slot["current_price"] == 55
     assert "will_sell" not in public_slot
     assert "sale_business_seconds_remaining" not in public_slot

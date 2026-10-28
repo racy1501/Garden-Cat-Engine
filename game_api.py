@@ -46,6 +46,7 @@ from game_engine import (
     get_event_source_label,
     get_current_cat_name,
     get_cat_max_affection,
+    get_flower_shop_base_price,
     get_collectible_boost_hint,
     get_collectible_status_text,
     get_collectible_unlock_hint,
@@ -1344,6 +1345,7 @@ def catalog():
                 bouquet_id: {
                     "name": bouquet["name"],
                     "components": dict(bouquet["components"]),
+                    "base_price": get_flower_shop_base_price(bouquet["components"]),
                 }
                 for bouquet_id, bouquet in BOUQUETS.items()
             },

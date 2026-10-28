@@ -180,7 +180,7 @@ const gifts=[
 ];
 const madeCommands=[];
 const ctx={catalog:{bouquets:bouquetCatalog,flowers:{sunflower:{name:'\u5411\u65e5\u8475'},rose:{name:'\u73ab\u7470'},lily:{name:'\u767e\u5408'},daisy:{name:'\u96cf\u83ca'},lavender:{name:'\u85b0\u8863\u8349'}}},
- currentState:{bouquet_gifts:gifts,bouquet_options:options,bouquet_inventory:[],flower_shop:{},money:0},bouquetVisitNewGiftIndexes:new Set(),
+ currentState:{bouquet_gifts:gifts,bouquet_options:options,bouquet_inventory:[],flower_shop:{},money:0},bouquetVisitNewGiftIndexes:new Set(),bouquetWorkshopTab:'craft',
  document:{createElement:element},$:get,formatBouquetTimestamp:(stamp)=>`time-${stamp}`,formatDuration:()=>'',
  renderBouquetWorkshop(){},resetModalPresentation(){},closeModal(){},makeButton(label,command){madeCommands.push(command);const b=element('button');b.textContent=label;return b;}};
 vm.createContext(ctx);
@@ -191,10 +191,13 @@ const ranges=[['function getBouquetImageUrl(', 'function renderBouquetArtwork(']
  ['function flowerComponentText(', 'function formatShopStartMinute('],
  ['function renderBouquetWorkshop(', 'function captureUnreadBouquetGiftIndexes('],
  ['function showBouquetDetails(', 'function renderBouquetPage('],
+ ['function renderBouquetEncyclopedia(', 'function renderBouquetPage('],
  ['function renderBouquetPage(', 'async function markBouquetGiftsRead(']];
 for(const [start,end] of ranges){const a=source.indexOf(start),b=source.indexOf(end,a);vm.runInContext(source.slice(a,b),ctx)}
 function cards(){return get('#bouquetPageContent').children.find((x)=>x.className==='bouquet-shelf-grid').children}
 ctx.renderBouquetPage();
+if(get('#bouquetPageContent').children.some((x)=>x.className==='bouquet-shelf-grid'))throw Error('encyclopedia remains under inventory');
+ctx.renderBouquetEncyclopedia(get('#bouquetPageContent'));
 let grid=cards();
 for(const [id,name] of [['warm_sun','\u6696\u9633'],['purple_mist','\u7d2b\u96fe'],['little_garden','\u5c0f\u82b1\u56ed']]){
  const card=grid.find((item)=>item.children.some((child)=>child.textContent===name));
@@ -209,7 +212,7 @@ for(const [id,name] of [['warm_sun','\u6696\u9633'],['purple_mist','\u7d2b\u96fe
 }
 if(grid.filter((card)=>card.className.includes('historical')).length!==3)throw Error('historical count incorrect');
 if(madeCommands.some((command)=>/warm_sun|purple_mist|little_garden/.test(command)))throw Error('historical bouquet entered make commands');
-ctx.currentState.bouquet_gifts=[];ctx.renderBouquetPage();grid=cards();
+ctx.currentState.bouquet_gifts=[];get('#bouquetPageContent').innerHTML='';ctx.renderBouquetEncyclopedia(get('#bouquetPageContent'));grid=cards();
 if(grid.some((card)=>card.className.includes('historical')))throw Error('history shown without matching gifts');
 if(grid.length!==12)throw Error(`formal catalog changed: ${grid.length}`);
 console.log('ok');
@@ -266,14 +269,14 @@ console.log('ok');
 def test_unlocked_bouquet_card_opens_existing_detail_modal():
     root = Path(__file__).resolve().parents[1]
     js = (root / "static" / "app.js").read_text(encoding="utf-8")
-    page_start = js.index("function renderBouquetPage")
-    page_end = js.index("function resetModalPresentation", page_start)
+    page_start = js.index("function renderBouquetEncyclopedia")
+    page_end = js.index("function renderBouquetPage", page_start)
     page_js = js[page_start:page_end]
     detail_start = js.index("function showBouquetDetails")
     detail_end = js.index("function renderBouquetPage", detail_start)
     detail_js = js[detail_start:detail_end]
 
-    assert 'card.addEventListener("click", () => showBouquetDetails(bouquetId))' in page_js
+    assert 'card.addEventListener("click", () => showBouquetDetails(bouquetId, true))' in page_js
     assert "else card.disabled = true;" in page_js
     assert '$("#modal").classList.remove("hidden");' in detail_js
     assert detail_js.index("body.append(history);") < detail_js.index(
@@ -289,6 +292,124 @@ def test_garden_notice_does_not_promote_old_history_to_notification():
     notice = js.split("function renderGardenNotice()", 1)[1].split("function ensureOfflineSummaryBar()", 1)[0]
     assert "recent_events" not in notice
     assert "let notice = latestNotice;" in notice
+
+
+def test_flower_shop_tabs_and_nine_shelves_follow_public_state():
+    root = Path(__file__).resolve().parents[1]
+    script = r"""
+const fs=require('fs'),vm=require('vm');
+const source=fs.readFileSync('static/app.js','utf8');
+function element(tag){const n={tag,className:'',textContent:'',children:[],listeners:{},style:{},
+ append(...items){this.children.push(...items)},addEventListener(name,fn){this.listeners[name]=fn},setAttribute(){}};
+ Object.defineProperty(n,'innerHTML',{set(){this.children=[]}});return n}
+const nodes={};const commands=[];const executed=[];
+const formalIds=['first_meeting','morning_light','sunny_field','heart_note','evening_breeze','soft_cloud','blue_letter','cherry_branch','spring_banquet','spring_mountain','moonlit_book','higan_poem'];
+const pricing_profiles={normal:[{until_seconds:14400,multiplier:1.15},{until_seconds:86400,multiplier:0.65}],freshener:[{until_seconds:21600,multiplier:1.15},{until_seconds:86400,multiplier:0.65}]};
+const ctx={document:{createElement:element},$:(s)=>nodes[s]||(nodes[s]=element('root')),
+catalog:{flowers:{daisy:{name:'雏菊'}},bouquets:Object.fromEntries(formalIds.map(id=>[id,{name:id,components:{daisy:1},base_price:30}]))},bouquetVisitNewGiftIndexes:new Set(),bouquetWorkshopTab:'shelf',
+ runCommand(command){executed.push(command)},
+ formatDuration:()=> '2小时',makeButton(label,command,cls,disabled){const b=element('button');b.textContent=label;b.command=command;b.disabled=disabled;commands.push(b);return b},
+ currentState:{money:10000,bouquet_gifts:[],bouquet_options:[{bouquet_id:'first_meeting',name:'初见',components:{daisy:1},can_make:true}],
+ bouquet_inventory:[{id:'one',bouquet_id:'first_meeting',name:'初见',components:{daisy:1}}],flower_shop:{eligible:true,established:true,launched:true,is_open:true,empty_slots:2,shelf_capacity:3,freshener_cost:1800,pricing_profiles,bouquet_lifetime_seconds:86400,eligibility_progress:{encyclopedia:17,harvests:340,direct_flower_sale_earned:3000},
+ slots:[{slot:1,empty:false,bouquet_id:'higan_poem',name:'彼岸诗',base_price:100,current_price:123,price_stage:'新鲜',expires_in_seconds:100,is_open:true},{slot:2,empty:true},{slot:3,empty:true}]}}};
+vm.createContext(ctx);
+const start=source.indexOf('function getBouquetImageUrl('),end=source.indexOf('async function markBouquetGiftsRead(',start);
+vm.runInContext(source.slice(start,end),ctx);
+const body=ctx.$('#bouquetPageContent');
+const walk=(node)=>[node,...node.children.flatMap(walk)];
+const find=(cls)=>walk(body).find(n=>n.className===cls);
+ctx.renderBouquetPage();
+const pageTabs=find('bouquet-collection-tabs bouquet-page-tabs');
+if(!pageTabs||pageTabs.children.map(b=>b.textContent).join('/')!=='花束/卡片')throw Error('shop-level tabs');
+let tabs=find('bouquet-collection-tabs bouquet-workshop-tabs');
+if(tabs.children.map(b=>b.textContent).join('/')!=='货架/制作'||!tabs.children[0].className.includes('active'))throw Error('default tabs');
+if(walk(body).some(n=>n.textContent.includes('解锁条件')))throw Error('eligibility persists after unlock');
+if(walk(body).filter(n=>n.tag==='h3').map(n=>n.textContent).join('/')!=='售卖货架')throw Error('shelf title hierarchy');
+let shelves=find('flower-shop-shelves');
+if(shelves.children.length!==9||shelves.children.filter(n=>n.className==='locked').length!==6)throw Error('capacity');
+if(!walk(shelves.children[1]).some(n=>n.textContent==='暂无上架')||walk(shelves.children[1]).some(n=>n.tag==='img'))throw Error('empty slot');
+const first=walk(shelves.children[0]);
+if(!first.some(n=>n.src==='/static/assets/v5/bouquets/other_shore_poem.png')||!first.some(n=>n.textContent==='彼岸诗 ×1')||!first.some(n=>n.textContent.includes('基础价 100 → 当前售价 123')))throw Error('listed slot price relationship');
+if(!walk(body).some(n=>n.textContent==='保鲜设备：未安装')||!walk(body).some(n=>n.textContent.includes('相对基础售价：0–4小时 ×1.15'))||!walk(body).some(n=>n.textContent.includes('上架满24小时后报废')))throw Error('ordinary shelf pricing explanation');
+if(!commands.some(b=>b.command==='buy_flower_shop_freshener'&&b.textContent==='安装 · 1800'))throw Error('freshener purchase entry missing');
+const freshenerButtonsBefore=commands.filter(b=>b.command==='buy_flower_shop_freshener').length;
+ctx.currentState.flower_shop.has_freshener=true;ctx.currentState.flower_shop.freshener_cost=null;ctx.renderBouquetPage();
+let ruleNodes=walk(body);
+if(!ruleNodes.some(n=>n.textContent==='保鲜设备：已启用')||!ruleNodes.some(n=>n.textContent.includes('相对基础售价：0–6小时 ×1.15'))||!ruleNodes.some(n=>n.textContent.includes('仅对安装后新上架的花束生效')))throw Error('freshener pricing explanation');
+if(!ruleNodes.some(n=>/不.{0,2}延长.*报废时间/.test(n.textContent)&&n.textContent.includes('24小时')))throw Error('freshener lifetime explanation');
+if(commands.filter(b=>b.command==='buy_flower_shop_freshener').length!==freshenerButtonsBefore)throw Error('installed freshener still offers purchase');
+ctx.currentState.flower_shop.pricing_profiles.freshener=[{until_seconds:7200,multiplier:1.23},{until_seconds:108000,multiplier:0.77}];ctx.currentState.flower_shop.bouquet_lifetime_seconds=108000;ctx.renderBouquetPage();
+ruleNodes=walk(body);
+if(!ruleNodes.some(n=>n.textContent.includes('0–2小时 ×1.23｜2–30小时 ×0.77'))||!ruleNodes.some(n=>n.textContent.includes('上架满30小时后报废'))||!ruleNodes.some(n=>/不.{0,2}延长.*报废时间/.test(n.textContent)&&n.textContent.includes('30小时')))throw Error('rules not derived from public data');
+ctx.currentState.flower_shop.has_freshener=false;ctx.currentState.flower_shop.freshener_cost=1800;
+tabs.children[1].listeners.click();
+if(!commands.some(b=>b.command==='craft_bouquet bouquet_id=first_meeting'))throw Error('craft missing');
+if(walk(body).filter(n=>n.tag==='h3').map(n=>n.textContent).join('/')!=='制作花束')throw Error('craft title hierarchy');
+const craftGrid=find('cat-collection-grid bouquet-craft-grid');
+if(!craftGrid||craftGrid.children.length!==12)throw Error('formal craft cards missing');
+const firstCard=walk(craftGrid.children[0]);
+if(!firstCard.some(n=>n.src==='/static/assets/v5/bouquets/first_meeting.png')||!firstCard.some(n=>n.textContent==='库存 ×1')||!firstCard.some(n=>n.textContent.includes('配方：'))||!firstCard.some(n=>n.textContent==='基础售价：30 块'))throw Error('craft card incomplete');
+if(!walk(craftGrid.children[1]).some(n=>n.textContent==='上架'&&n.disabled))throw Error('empty stock can list');
+if(!walk(craftGrid.children[1]).some(n=>n.textContent==='制作'&&n.disabled))throw Error('undiscovered recipe can be crafted');
+const list=commands.find(b=>b.command==='list_bouquet instance_id=one');
+if(!list||list.disabled||commands.some(b=>b.command==='gift_bouquet instance_id=one'))throw Error('craft actions');
+ctx.currentState.bouquet_inventory.push({id:'two',bouquet_id:'first_meeting',name:'初见',components:{daisy:2}});ctx.renderBouquetPage();
+const multi=walk(find('cat-collection-grid bouquet-craft-grid').children[0]);
+const selection=multi.find(n=>n.tag==='select');selection.value='two';
+multi.find(n=>n.textContent==='上架').listeners.click();
+if(executed.at(-1)!=='list_bouquet instance_id=two'||!multi.some(n=>n.textContent==='库存 ×2'))throw Error('instance selection or count');
+ctx.currentState.bouquet_inventory.pop();
+ctx.currentState.flower_shop.empty_slots=0;ctx.renderBouquetPage();
+if(!commands.filter(b=>b.command==='list_bouquet instance_id=one').at(-1).disabled)throw Error('full shelf');
+ctx.renderBouquetPage('cards');
+if(find('bouquet-collection-tabs bouquet-workshop-tabs'))throw Error('cards changed');
+if(!commands.some(b=>b.command==='gift_bouquet instance_id=one'))throw Error('card gifting entry missing');
+if(!walk(body).some(n=>n.className==='bouquet-card-list')&&!walk(body).some(n=>n.className==='bouquet-empty'))throw Error('existing cards content missing');
+ctx.currentState.flower_shop={eligible:false,established:false,shelf_capacity:0,slots:[],eligibility_progress:{encyclopedia:8,harvests:20,direct_flower_sale_earned:1000}};ctx.bouquetWorkshopTab='shelf';ctx.renderBouquetPage();
+shelves=find('flower-shop-shelves');if(shelves.children.length!==9||shelves.children.some(n=>n.className!=='locked'))throw Error('unbuilt shop');
+if(!walk(body).some(n=>n.textContent==='解锁条件：图鉴 8/10｜收获 20/42｜直接卖花 1000/3000'))throw Error('eligibility missing before unlock');
+console.log('ok');
+"""
+    result = subprocess.run(["node", "-e", script], cwd=root, encoding="utf-8", capture_output=True)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "ok"
+
+
+def test_existing_encyclopedia_modal_switches_between_flowers_and_bouquets():
+    root = Path(__file__).resolve().parents[1]
+    script = r"""
+const fs=require('fs'),vm=require('vm');
+const source=fs.readFileSync('static/app.js','utf8');
+function element(tag){const n={tag,className:'',textContent:'',children:[],listeners:{},attrs:{},
+ classList:{add(){},remove(){}},append(...items){this.children.push(...items)},addEventListener(name,fn){this.listeners[name]=fn},setAttribute(k,v){this.attrs[k]=v}};
+ Object.defineProperty(n,'innerHTML',{set(){this.children=[]}});return n}
+const nodes={};const $=(s)=>nodes[s]||(nodes[s]=element('root'));
+const flowers=Object.fromEntries(Array.from({length:17},(_,i)=>[`flower_${i}`,{name:`花${i}`,rarity_name:'普通'}]));
+const bouquets=Object.fromEntries(['first_meeting','morning_light','sunny_field','heart_note','evening_breeze','soft_cloud','blue_letter','cherry_branch','spring_banquet','spring_mountain','moonlit_book','higan_poem'].map((id)=>[id,{name:id,components:{flower_0:1}}]));
+const ctx={document:{createElement:element},$,encodeURIComponent,catalog:{flowers,bouquets},currentState:{encyclopedia:Object.keys(flowers),encyclopedia_count:17,flower_harvest_counts:{},bouquet_options:[{bouquet_id:'first_meeting',components:{flower_0:1},can_make:true}],bouquet_gifts:[]},
+ bouquetVisitNewGiftIndexes:new Set(),getSortedCatalogFlowers:(items)=>Object.entries(items).map(([id,flower])=>({id,flower})),
+ setFlowerIcon(el,id){el.textContent=id},setAssetIcon(el){el.textContent='?';return true},flowerComponentText:()=>'',
+ createBouquetNewBadge:()=>element('badge'),showBouquetDetails(){},resetModalPresentation(){}};
+vm.createContext(ctx);
+for(const [start,end] of [['function getBouquetImageUrl(','function renderBouquetArtwork('],['function renderBouquetArtwork(','function renderBouquetTabs('],['function renderBouquetEncyclopedia(','function renderBouquetPage('],['function showEncyclopediaModal(','function renderEvents(']]){
+ const a=source.indexOf(start),b=source.indexOf(end,a);vm.runInContext(source.slice(a,b),ctx);
+}
+ctx.showEncyclopediaModal();
+let body=$('#modalBody'),tabs=body.children[0];
+if($('#modalTitle').textContent!=='图鉴')throw Error('generic encyclopedia title');
+if(tabs.children.map(x=>x.textContent).join('/')!=='花卉 17/17/花束 1/12'||!tabs.children[0].className.includes('active'))throw Error('discovery progress tabs');
+if(body.children[1].className!=='encyclopedia-grid'||body.children[1].children.length!==17)throw Error('flower encyclopedia changed');
+tabs.children[1].listeners.click();body=$('#modalBody');
+if(!body.children[0].children[1].className.includes('active'))throw Error('bouquet tab not active');
+const grid=body.children.find(x=>x.className==='bouquet-shelf-grid');
+if(!grid||grid.children.length!==12)throw Error('formal bouquet grid missing');
+const path=grid.children[0].children.find(x=>x.className==='bouquet-card-artwork').children[0].src;
+if(path!=='/static/assets/v5/bouquets/first_meeting.png')throw Error('formal artwork path changed');
+console.log('ok');
+"""
+    result = subprocess.run(["node", "-e", script], cwd=root, encoding="utf-8", capture_output=True)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "ok"
 
 
 def test_bouquet_artwork_uses_id_derived_assets_and_fallback():
@@ -365,6 +486,9 @@ def test_catalog_is_public_and_ai_api_stays_protected(tmp_path):
         "encyclopedia": 16,
         "harvests": 125,
     }
+    assert catalog.json["bouquets"]["first_meeting"]["base_price"] == game_api.get_flower_shop_base_price(
+        catalog.json["bouquets"]["first_meeting"]["components"]
+    )
     assert client.post("/api/register", json={}).status_code == 401
 
 
@@ -613,7 +737,6 @@ def test_flower_shop_3b_frontend_lists_bouquets_without_exposing_sale_odds():
     assert "upgrade_flower_shop_shelf" in js
     assert "buy_flower_shop_freshener" in js
     assert "shop.slots || []" in js
-    assert "不延长24小时报废时间" in js
     assert ".flower-shop-facilities" in css
     assert "shop.shop_buff_active" in js
     assert "猫咪好运" in js
