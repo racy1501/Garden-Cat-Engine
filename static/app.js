@@ -396,6 +396,14 @@ async function requestJson(url, options = {}) {
   } catch {
     throw new Error("服务器返回了无法识别的内容。");
   }
+  if (url.startsWith("/web/notes") || url.startsWith("/web/bouquets/read")) {
+    const notice = String(data.message || "").split("\n").find((line) => line.startsWith("🎁 发现新藏品："));
+    if (notice) {
+      latestGardenNotice = notice;
+      $("#messageBox").textContent = notice;
+      renderGardenNotice();
+    }
+  }
   if (!response.ok) {
     throw new Error(data.message || `请求失败（${response.status}）`);
   }

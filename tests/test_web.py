@@ -305,6 +305,45 @@ def test_garden_notice_does_not_promote_old_history_to_notification():
     assert "let notice = latestNotice;" in notice
 
 
+def test_first_collectible_notice_renders_for_status_and_auxiliary_requests():
+    root = Path(__file__).resolve().parents[1]
+    script = r"""
+const fs=require('fs'),vm=require('vm');
+const source=fs.readFileSync('static/app.js','utf8');
+const nodes={};
+const context={
+  $:selector=>nodes[selector]||(nodes[selector]={textContent:''}),
+  document:{visibilityState:'visible'},
+  currentState:{}, latestGardenNotice:'', gardenNeedsResume:true,
+  updateLiveCountdowns(){}, maybeAutoShowUpdateAnnouncement(){},
+  renderBouquetMainButton(){}, renderNotesButton(){},
+  fetch:async()=>({ok:true,json:async()=>context.responseData})
+};
+vm.createContext(context);
+for(const [start,end] of [
+  ['async function requestJson(', '\nfunction authHeaders('],
+  ['function updateFromResponse(', '\nfunction renderNotesButton('],
+  ['function extractImportantGardenNotice(', '\nfunction ensureOfflineSummaryBar(']
+]) vm.runInContext(source.slice(source.indexOf(start),source.indexOf(end,source.indexOf(start))),context);
+context.renderAll=()=>context.renderGardenNotice();
+const notice='🎁 发现新藏品：圆润的小石子';
+(async()=>{
+  context.updateFromResponse({message:notice,state:{new_events:[{text:notice}],offline_summary:{},garden_events:{}}},true);
+  if(!context.$('#gardenNoticeText').textContent.includes(notice))throw Error('status notice missing');
+  context.responseData={ok:true,message:notice,notes:[]};
+  await context.requestJson('/web/notes?session_id=test');
+  if(context.$('#messageBox').textContent!==notice||!context.$('#gardenNoticeText').textContent.includes(notice))throw Error('notes notice missing');
+  context.responseData={ok:true,message:notice,state:{}};
+  await context.requestJson('/web/bouquets/read');
+  if(context.$('#messageBox').textContent!==notice)throw Error('bouquet-read notice missing');
+  console.log('ok');
+})().catch(error=>{console.error(error);process.exitCode=1});
+"""
+    result = subprocess.run(["node", "-e", script], cwd=root, encoding="utf-8", capture_output=True)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "ok"
+
+
 def test_flower_shop_tabs_and_nine_shelves_follow_public_state():
     root = Path(__file__).resolve().parents[1]
     script = r"""

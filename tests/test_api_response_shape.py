@@ -295,6 +295,112 @@ def write_raw_state(module, session_id, state):
         conn.commit()
 
 
+@pytest.mark.parametrize("endpoint,live", [
+    ("web_status", True), ("web_status", False), ("web_cmd", True),
+    ("api_status", False), ("api_cmd", False), ("web_notes", False),
+    ("api_notes", False), ("bouquet_read", False),
+])
+def test_first_cat_collectible_notified_by_settling_request(api, cat_clock, monkeypatch, endpoint, live):
+    module, client = api
+    session_id, human_headers = create_human_garden(client)
+    state = module.db_load_state(session_id)
+    start = cat_clock[0]
+    ge.apply_move_with_cat_reset(state, "栗子", now=start)
+    state["events"] = []
+    state["cat_collectibles_unlocked"] = True
+    state["cat_state"].update(location=ge.CAT_LOCATION_AWAY, outing_return_at=start + 60,
+                              next_outing_at=0, last_lifecycle_settled_at=start)
+    state["weather_change_time"] = state["next_butterfly_at"] = start + 100000
+    write_raw_state(module, session_id, state)
+    item = ge.CAT_COLLECTIBLES[0]
+    calls = []
+
+    def first_drop(state, context, now=None, source=None):
+        calls.append(now)
+        return ge.award_cat_collectible(state, item, now=now, source=source) if len(calls) == 1 else None
+
+    monkeypatch.setattr(ge, "maybe_drop_cat_collectible", first_drop)
+    cat_clock[0] += 60 if live else 6 * 3600
+    headers = {**human_headers, "X-Garden-Live": "1" if live else "0"}
+    if endpoint == "web_status":
+        response = client.get(f"/web/status?session_id={session_id}", headers=headers)
+    elif endpoint == "web_cmd":
+        response = client.post("/web/cmd", headers=headers, json={"session_id": session_id, "command": "status"})
+    elif endpoint == "api_status":
+        response = client.get(f"/api/status?session_id={session_id}", headers={"X-API-Key": "test-key"})
+    elif endpoint == "api_cmd":
+        response = client.post("/api/cmd", headers={"X-API-Key": "test-key"}, json={"session_id": session_id, "command": "status"})
+    elif endpoint == "web_notes":
+        response = client.get(f"/web/notes?session_id={session_id}", headers=headers)
+    elif endpoint == "api_notes":
+        response = client.get(f"/api/notes?session_id={session_id}", headers={"X-API-Key": "test-key"})
+    else:
+        response = client.post("/web/bouquets/read", headers=headers, json={"session_id": session_id})
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["message"].count(item["name"]) == 1
+    assert "发现新藏品" in payload["message"]
+    if endpoint.startswith("web_") or endpoint == "bouquet_read":
+        if "state" in payload:
+            notices = [event["text"] for event in payload["state"]["new_events"]]
+            assert sum(item["name"] in text for text in notices) == 1
+            assert "发现新藏品" in notices[0]
+    elif "state" in payload:
+        assert item["name"] in payload["state"]["offline_summary"]["message"]
+    saved = module.db_load_state(session_id)
+    assert saved["collectibles"][item["id"]] == 1
+    assert saved["collectible_first_found"][item["id"]] == start + 60
+    if not live:
+        assert all(item["name"] not in event["text"] for event in saved["events"])
+    assert not any("discovery" in key or "collectible_notice" in key for key in saved)
+
+    again = client.get(f"/web/status?session_id={session_id}", headers=headers).get_json()
+    assert "发现新藏品" not in again["message"]
+    assert not any("发现新藏品" in event["text"] for event in again["state"]["new_events"])
+
+
+@pytest.mark.parametrize("already_owned", [False, True])
+def test_multiple_and_repeat_cat_collectibles_notice(api, cat_clock, monkeypatch, already_owned):
+    module, client = api
+    session_id, headers = create_human_garden(client)
+    state = module.db_load_state(session_id)
+    start = cat_clock[0]
+    ge.apply_move_with_cat_reset(state, "栗子", now=start)
+    state["events"] = []
+    state["cat_collectibles_unlocked"] = True
+    state["cat_state"].update(location=ge.CAT_LOCATION_AWAY, outing_return_at=start + 60,
+                              next_outing_at=0, last_lifecycle_settled_at=start)
+    state["weather_change_time"] = state["next_butterfly_at"] = start + 100000
+    items = ge.CAT_COLLECTIBLES[:2]
+    if already_owned:
+        state["collectibles"][items[0]["id"]] = 1
+        state["collectible_first_found"][items[0]["id"]] = start - 100
+    write_raw_state(module, session_id, state)
+    calls = []
+
+    def drop(state, context, now=None, source=None):
+        calls.append(now)
+        item = items[0] if already_owned else items[min(len(calls) - 1, 1)]
+        return ge.award_cat_collectible(state, item, now=now, source=source)
+
+    monkeypatch.setattr(ge, "maybe_drop_cat_collectible", drop)
+    cat_clock[0] += 60 if already_owned else 6 * 3600
+    response = client.get(f"/web/status?session_id={session_id}", headers={**headers, "X-Garden-Live": "1"})
+    payload = response.get_json()
+    saved = module.db_load_state(session_id)
+    if already_owned:
+        assert saved["collectibles"][items[0]["id"]] == 2
+        assert saved["collectible_first_found"][items[0]["id"]] == start - 100
+        assert "发现新藏品" not in payload["message"]
+        assert any(items[0]["name"] in e["text"] for e in payload["state"]["new_events"])
+    else:
+        assert all(saved["collectibles"][item["id"]] > 0 for item in items)
+        assert all(payload["message"].count(item["name"]) == 1 for item in items)
+        notices = [e["text"] for e in payload["state"]["new_events"] if "发现新藏品" in e["text"]]
+        assert len(notices) == 1 and all(item["name"] in notices[0] for item in items)
+
+
 def test_api_cmd_uses_slim_ai_summary(api):
     module, client = api
     session_id, _human_headers = create_human_garden(client)

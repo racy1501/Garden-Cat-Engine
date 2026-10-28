@@ -231,6 +231,10 @@ def db_load_state(session_id: str, *, events_before: list | None = None, live_ev
     if events_before is not None and live_events:
         events_before.extend(state.get("events", []))
     normalized = normalize_state(state)
+    if has_request_context():
+        if not hasattr(g, "collectibles_before_settlement"):
+            g.collectibles_before_settlement = dict(normalized.get("collectibles", {}))
+        g.collectible_settlement_state = normalized
     cottage_rewards = sync_cottage_rewards(normalized)
     if apply_offline_progress(normalized, letter_context=_request_letter_context()) or cottage_rewards:
         db_save_state(session_id, normalized)
@@ -759,6 +763,7 @@ def _load_existing_api_state(raw_session_id: Any, *, events_before: list | None 
     state = db_load_state(session_id, events_before=events_before)
     if state is None:
         return session_id, None, (jsonify({"ok": False, "error": "指定的 session_id 不存在。"}), 404)
+    g.collectible_notice_authorized = True
     return session_id, state, None
 
 
@@ -793,6 +798,7 @@ def _load_authorized_web_state(session_id: str, token: str, *, events_before: li
     expected = str(state.get(WEB_TOKEN_FIELD, ""))
     if not expected or not hmac.compare_digest(expected, _hash_web_token(token)):
         return None
+    g.collectible_notice_authorized = True
     return state
 
 
@@ -1746,6 +1752,53 @@ def delete_session():
     if db_delete_session(session_id):
         return jsonify({"ok": True, "message": f"✅ 已删除存档 [{session_id}]"})
     return jsonify({"ok": False, "message": f"❌ 存档 [{session_id}] 不存在"}), 404
+
+
+# ─── 本次请求的首次藏品提示 ───────────────────────────────────────────────────
+
+@app.after_request
+def report_new_cat_collectibles(response):
+    if not getattr(g, "collectible_notice_authorized", False) or not response.is_json:
+        return response
+    state = getattr(g, "collectible_settlement_state", None)
+    before = getattr(g, "collectibles_before_settlement", {})
+    if not isinstance(state, dict):
+        return response
+    owned = state.get("collectibles", {})
+    found = [item for item in CAT_COLLECTIBLES
+             if int(before.get(item["id"], 0) or 0) <= 0
+             and int(owned.get(item["id"], 0) or 0) > 0]
+    if not found:
+        return response
+
+    payload = response.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return response
+    notice = "🎁 发现新藏品：" + "、".join(item["name"] for item in found)
+    ordinary_fragments = [f"带回了{item['emoji']}{item['name']}" for item in found]
+
+    def is_ordinary_discovery(text):
+        return any(fragment in str(text) for fragment in ordinary_fragments)
+
+    message = str(payload.get("message", "") or "")
+    message = "\n".join(line for line in message.split("\n") if not is_ordinary_discovery(line)).strip()
+    payload["message"] = notice + ("\n" + message if message else "")
+    public_state = payload.get("state")
+    if isinstance(public_state, dict):
+        if request.path.startswith("/web/"):
+            events = public_state.get("new_events", [])
+            events = [event for event in events if not is_ordinary_discovery(event.get("text", ""))]
+            events.insert(0, {"time": int(time.time()), "text": notice, "source": "system", "source_label": "系统"})
+            public_state["new_events"] = events
+        elif request.path.startswith("/api/"):
+            if is_ordinary_discovery(public_state.get("latest_event", "")):
+                public_state["latest_event"] = ""
+            offline = public_state.get("offline_summary")
+            if isinstance(offline, dict):
+                old_message = str(offline.get("message", "") or "")
+                offline["message"] = notice + (" " + old_message if old_message else "")
+    response.set_data(app.json.dumps(payload))
+    return response
 
 
 # ─── 启动 ─────────────────────────────────────────────────────────────────────
