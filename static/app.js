@@ -61,25 +61,35 @@ Object.assign(CUSTOM_ASSETS, {
   pansy: "static/assets/v5/flowers/pansy.png",
   sunflower: "static/assets/v5/flowers/sunflower.png",
   rose: "static/assets/v5/flowers/rose.png",
+  baby_breath: "static/assets/v5/flowers/baby_breath.png",
+  carnation: "static/assets/v5/flowers/carnation.png",
   lavender: "static/assets/v5/flowers/lavender.png",
   hydrangea: "static/assets/v5/flowers/hydrangea.png",
   lily: "static/assets/v5/flowers/lily.png",
   iris: "static/assets/v5/flowers/iris.png",
+  lisianthus: "static/assets/v5/flowers/lisianthus.png",
   cherry_blossom: "static/assets/v5/flowers/cherry_blossom.png",
   peony: "static/assets/v5/flowers/peony.png",
+  camellia: "static/assets/v5/flowers/camellia.png",
   moonflower: "static/assets/v5/flowers/moonflower.png",
+  red_spider_lily: "static/assets/v5/flowers/red_spider_lily.png",
   daisy_seed: "static/assets/v5/seeds/daisy_seed.png",
   tulip_seed: "static/assets/v5/seeds/tulip_seed.png",
   pansy_seed: "static/assets/v5/seeds/pansy_seed.png",
   sunflower_seed: "static/assets/v5/seeds/sunflower_seed.png",
   rose_seed: "static/assets/v5/seeds/rose_seed.png",
+  baby_breath_seed: "static/assets/v5/seeds/baby_breath_seed.png",
+  carnation_seed: "static/assets/v5/seeds/carnation_seed.png",
   lavender_seed: "static/assets/v5/seeds/lavender_seed.png",
   hydrangea_seed: "static/assets/v5/seeds/hydrangea_seed.png",
   lily_seed: "static/assets/v5/seeds/lily_seed.png",
   iris_seed: "static/assets/v5/seeds/iris_seed.png",
+  lisianthus_seed: "static/assets/v5/seeds/lisianthus_seed.png",
   cherry_blossom_seed: "static/assets/v5/seeds/cherry_blossom_seed.png",
   peony_seed: "static/assets/v5/seeds/peony_seed.png",
+  camellia_seed: "static/assets/v5/seeds/camellia_seed.png",
   moonflower_seed: "static/assets/v5/seeds/moonflower_seed.png",
+  red_spider_lily_seed: "static/assets/v5/seeds/red_spider_lily_seed.png",
 });
 
 const FLOWER_DISPLAY_ORDER = [
@@ -981,10 +991,23 @@ function renderVase() {
   const flowersInBag=Object.entries(currentState.inventory.flowers||{}).filter(([,qty])=>qty>0);
   for(let position=1; position<=capacity; position+=1){
     const entry=entries.find(item=>item.position===position); const slot=document.createElement("div"); slot.className="vase-slot real-vase-slot";
-    if(entry){const stage=document.createElement("div"); stage.className="vase-stage"; const image=document.createElement("img"); image.src=CUSTOM_ASSETS[entry.flower]; image.alt=entry.flower_name; stage.append(image); const name=document.createElement("strong"); name.textContent=entry.flower_name; const info=document.createElement("small"); info.dataset.liveVaseInfo=String(position); info.textContent=`${entry.freshness_label.replace(/^[^\u4e00-\u9fff]+\s*/,"")}${entry.remaining_seconds>0?` · ${formatDuration(entry.remaining_seconds)}`:""}`; slot.append(stage,name,info,makeButton("移除",`remove_vase ${position}`,"mini-btn rose"));}
+    if(entry){const stage=document.createElement("div"); stage.className="vase-stage"; const image=document.createElement("img"); image.alt=entry.flower_name; image.onerror=()=>showVaseFlowerFallback(stage,entry.flower); if(CUSTOM_ASSETS[entry.flower]){image.src=CUSTOM_ASSETS[entry.flower]; stage.append(image);} else showVaseFlowerFallback(stage,entry.flower); const name=document.createElement("strong"); name.textContent=entry.flower_name; const info=document.createElement("small"); info.dataset.liveVaseInfo=String(position); info.textContent=`${entry.freshness_label.replace(/^[^\u4e00-\u9fff]+\s*/,"")}${entry.remaining_seconds>0?` · ${formatDuration(entry.remaining_seconds)}`:""}`; slot.append(stage,name,info,makeButton("移除",`remove_vase ${position}`,"mini-btn rose"));}
     else {const stage=document.createElement("div"); stage.className="vase-stage empty"; const name=document.createElement("strong"); name.textContent=`空位 ${position}`; const select=document.createElement("select"); if(!flowersInBag.length){const option=document.createElement("option"); option.textContent="背包里没有鲜花"; option.value=""; select.append(option); select.disabled=true;} else {for(const [id,qty] of flowersInBag){const option=document.createElement("option"); option.value=id; option.textContent=`${catalog.flowers[id]?.name||id} ×${qty}`; select.append(option);}} const button=makeButton("插入花瓶",null,"mini-btn",!flowersInBag.length); button.addEventListener("click",()=>{if(select.value)runCommand(`arrange ${select.value}`,button)}); slot.append(stage,name,select,button);}
     grid.append(slot);
   }
+}
+
+function showVaseFlowerFallback(stage, flowerId) {
+  const fallback = document.createElement("span");
+  fallback.className = "vase-flower-fallback";
+  fallback.textContent = FLOWER_EMOJI[flowerId] || "🌸";
+  fallback.style.position = "absolute";
+  fallback.style.inset = "0";
+  fallback.style.display = "grid";
+  fallback.style.placeItems = "center";
+  fallback.style.fontSize = "42px";
+  fallback.style.zIndex = "2";
+  stage.replaceChildren(fallback);
 }
 
 function formatBouquetTimestamp(timestamp) {
@@ -1000,7 +1023,8 @@ function formatBouquetTimestamp(timestamp) {
 }
 
 function getBouquetImageUrl(bouquetId) {
-  return `/static/assets/v5/bouquets/${encodeURIComponent(bouquetId)}.png`;
+  const assetId = bouquetId === "higan_poem" ? "other_shore_poem" : bouquetId;
+  return `/static/assets/v5/bouquets/${encodeURIComponent(assetId)}.png`;
 }
 
 const HISTORICAL_BOUQUET_DISPLAY = {

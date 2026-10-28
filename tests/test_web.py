@@ -219,6 +219,50 @@ console.log('ok');
     assert result.stdout.strip() == "ok"
 
 
+def test_new_flower_assets_higan_artwork_and_vase_missing_image_fallbacks():
+    root = Path(__file__).resolve().parents[1]
+    script = r"""
+const fs=require('fs'),vm=require('vm');
+const source=fs.readFileSync('static/app.js','utf8');
+const ctx={CUSTOM_ASSETS:{},encodeURIComponent,document:{createElement(tag){return element(tag)}},
+ FLOWER_EMOJI:{rose:'\u{1F339}'},formatDuration:()=>'',catalog:{vase_capacity:2},
+ currentState:{inventory:{flowers:{}},vase:{capacity:2,flowers:[
+  {position:1,flower:'future_flower',flower_name:'\u672a\u77e5\u82b1',freshness_label:'\u65b0\u9c9c',remaining_seconds:0},
+  {position:2,flower:'rose',flower_name:'\u73ab\u7470',freshness_label:'\u65b0\u9c9c',remaining_seconds:0}
+ ]}},makeButton(){return element('button')}};
+function element(tag){const node={tag,className:'',textContent:'',children:[],style:{},dataset:{},listeners:{},append(...items){this.children.push(...items)},
+ addEventListener(name,fn){this.listeners[name]=fn},replaceChildren(...items){this.children=items},setAttribute(){}};
+ Object.defineProperty(node,'innerHTML',{get(){return this._html||''},set(value){this._html=value;this.children=[]}});return node}
+const nodes={};ctx.$=(selector)=>nodes[selector]||(nodes[selector]=element('root'));
+vm.createContext(ctx);
+const assignStart=source.indexOf('Object.assign(CUSTOM_ASSETS, {');
+const assignEnd=source.indexOf('\n});',assignStart)+4;
+vm.runInContext(source.slice(assignStart,assignEnd),ctx);
+const flowers=['baby_breath','carnation','lisianthus','camellia','red_spider_lily'];
+for(const id of flowers)if(ctx.CUSTOM_ASSETS[id]!==`static/assets/v5/flowers/${id}.png`)throw Error(`flower asset missing: ${id}`);
+for(const id of flowers)if(ctx.CUSTOM_ASSETS[`${id}_seed`]!==`static/assets/v5/seeds/${id}_seed.png`)throw Error(`seed asset missing: ${id}`);
+let start=source.indexOf('function getBouquetImageUrl('),end=source.indexOf('\n}',start)+2;
+vm.runInContext(source.slice(start,end),ctx);
+if(ctx.getBouquetImageUrl('higan_poem')!=='/static/assets/v5/bouquets/other_shore_poem.png')throw Error('higan artwork path mismatch');
+if(ctx.getBouquetImageUrl('first_meeting')!=='/static/assets/v5/bouquets/first_meeting.png')throw Error('standard bouquet path changed');
+start=source.indexOf('function showVaseFlowerFallback(');end=source.indexOf('\n}',start)+2;
+vm.runInContext(source.slice(start,end),ctx);
+start=source.indexOf('function renderVase(');end=source.indexOf('\n}',start)+2;
+vm.runInContext(source.slice(start,end),ctx);
+ctx.renderVase();
+const slots=ctx.$('#vaseGrid').children;
+const missingStage=slots[0].children[0];
+if(missingStage.children.length!==1||missingStage.children[0].textContent!=='\u{1F338}')throw Error('missing asset fallback absent');
+const failedStage=slots[1].children[0],image=failedStage.children[0];
+image.onerror();
+if(failedStage.children.length!==1||failedStage.children[0].textContent!=='\u{1F339}')throw Error('image error fallback absent');
+console.log('ok');
+"""
+    result = subprocess.run(["node", "-e", script], cwd=root, encoding="utf-8", capture_output=True)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "ok"
+
+
 def test_unlocked_bouquet_card_opens_existing_detail_modal():
     root = Path(__file__).resolve().parents[1]
     js = (root / "static" / "app.js").read_text(encoding="utf-8")
