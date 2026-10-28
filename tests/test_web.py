@@ -118,7 +118,7 @@ def test_bouquet_main_page_keeps_tabs_and_unread_badge():
     root = Path(__file__).resolve().parents[1]
     js = (root / "static" / "app.js").read_text(encoding="utf-8")
     css = (root / "static" / "style.css").read_text(encoding="utf-8")
-    assert '[["bouquets", "花束"], ["cards", "卡片"]]' in js
+    assert '[["bouquets", "花束"], ["cards", "赠礼"]]' in js
     assert "markBouquetGiftsRead" in js
     assert "/web/bouquets/read" in js
     assert 'name.textContent = bouquet.name' in js
@@ -320,7 +320,7 @@ const walk=(node)=>[node,...node.children.flatMap(walk)];
 const find=(cls)=>walk(body).find(n=>n.className===cls);
 ctx.renderBouquetPage();
 const pageTabs=find('bouquet-collection-tabs bouquet-page-tabs');
-if(!pageTabs||pageTabs.children.map(b=>b.textContent).join('/')!=='花束/卡片')throw Error('shop-level tabs');
+if(!pageTabs||pageTabs.children.map(b=>b.textContent).join('/')!=='花束/赠礼')throw Error('shop-level tabs');
 let tabs=find('bouquet-collection-tabs bouquet-workshop-tabs');
 if(tabs.children.map(b=>b.textContent).join('/')!=='货架/制作'||!tabs.children[0].className.includes('active'))throw Error('default tabs');
 if(walk(body).some(n=>n.textContent.includes('解锁条件')))throw Error('eligibility persists after unlock');

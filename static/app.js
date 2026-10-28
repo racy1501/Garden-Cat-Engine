@@ -655,7 +655,7 @@ function renderAll() {
   if (document.querySelector(".bouquet-panel.active")) {
     const activeBouquetTab = $("#bouquetPageContent")
       .querySelector(":scope > .bouquet-collection-tabs:not(.bouquet-workshop-tabs) .active")
-      ?.textContent === "卡片" ? "cards" : "bouquets";
+      ?.textContent === "赠礼" ? "cards" : "bouquets";
     renderBouquetPage(activeBouquetTab);
   }
   startPetCooldownTimer();
@@ -1106,7 +1106,7 @@ function renderBouquetArtwork(parent, bouquetId, showColor, label) {
 function renderBouquetTabs(activeTab) {
   const tabs = document.createElement("div");
   tabs.className = "bouquet-collection-tabs bouquet-page-tabs";
-  for (const [tab, label] of [["bouquets", "花束"], ["cards", "卡片"]]) {
+  for (const [tab, label] of [["bouquets", "花束"], ["cards", "赠礼"]]) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = `bouquet-collection-tab ${activeTab === tab ? "active" : ""}`;
