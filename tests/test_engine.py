@@ -3,6 +3,8 @@ import time
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
+import pytest
+
 import game_engine as ge
 from game_engine import (
     BOUQUETS,
@@ -880,6 +882,66 @@ def _letter_test_cat(now, affection=100):
     state["next_butterfly_at"] = now + 100000
     state["cat_state"]["next_outing_at"] = now + 100000
     return state
+
+
+@pytest.mark.parametrize("phase,location", [
+    (ge.CAT_PHASE_VISITOR, ge.CAT_LOCATION_AWAY),
+    (ge.CAT_PHASE_WAITING_NAME, ge.CAT_LOCATION_GARDEN),
+])
+def test_unadopted_cat_offline_affection_does_not_decay(monkeypatch, phase, location):
+    now = 1800000000
+    monkeypatch.setattr(ge.time, "time", lambda: now)
+    state = _letter_test_cat(now, affection=25)
+    state["cat_state"].update(
+        phase=phase, location=location, next_visit_at=now + 100000,
+        current_visit_leave_at=0, stay_deadline_at=now + 100000,
+    )
+    state["last_update"] = state["last_active_at"] = now
+    before_max = state["cat_max_affection"]
+
+    ge.apply_offline_progress(state, now=now + 10 * 3600)
+
+    assert state["cat_stats"]["affection"] == 25
+    assert state["cat_max_affection"] == before_max
+
+
+@pytest.mark.parametrize("starting,hours,expected", [
+    (50, 1, 49.9),
+    (30.5, 10, 30),
+    (25, 10, 25),
+])
+def test_adopted_cat_affection_decay_and_floor(monkeypatch, starting, hours, expected):
+    now = 1800000000
+    monkeypatch.setattr(ge.time, "time", lambda: now)
+    state = _letter_test_cat(now, affection=starting)
+    before_max = state["cat_max_affection"]
+
+    ge.update_cat_stats(state, now + hours * 3600, ge.WEATHER["cloudy"])
+
+    assert state["cat_stats"]["affection"] == pytest.approx(expected)
+    assert state["cat_max_affection"] == before_max
+
+
+@pytest.mark.parametrize("weather", ["sunny", "rainy", "cloudy"])
+@pytest.mark.parametrize("premium_bed,hours,expected", [
+    (False, 1, 59.5),
+    (False, 8, 59.0),
+    (True, 1, 59.7),
+    (True, 8, 59.4),
+])
+def test_cat_mood_decay_ignores_weather_and_keeps_two_hour_cap(
+        monkeypatch, weather, premium_bed, hours, expected):
+    now = 1800000000
+    monkeypatch.setattr(ge.time, "time", lambda: now)
+    state = _letter_test_cat(now)
+    state["cat_stats"]["mood"] = 60.0
+    if premium_bed:
+        state["cat_care"]["bed"]["facility_id"] = ge.PREMIUM_CAT_BED_ID
+
+    ge.update_cat_stats(state, now + hours * 3600, ge.WEATHER[weather])
+
+    assert state["cat_stats"]["mood"] == pytest.approx(expected)
+    assert f"猫咪心情-{'0.3' if premium_bed else '0.5'}/小时" in ge.get_status(state, ge.WEATHER[weather])
 
 
 def test_pet_requires_cat_present_without_consuming_cooldown(monkeypatch):

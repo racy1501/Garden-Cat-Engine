@@ -292,7 +292,7 @@ OFFLINE_CAT_AUTO_WATER_TRIGGER = 45.0
 OFFLINE_CAT_AUTO_REFILL_TARGET = 72.0
 
 # v4.6.5: 亲密度衰减（/真实小时）
-AFFECTION_NATURAL_DECAY = 0.5
+AFFECTION_NATURAL_DECAY = 0.1
 AFFECTION_STATUS_DECAY = 2.0
 
 # v4.6.5: 抚摸冷却（真实分钟）
@@ -4079,9 +4079,9 @@ def get_status(state, weather_data):
         lines.append("   🌧️ 雨水自动滋润所有花")
 
     mood_decay = MOOD_BASE_DECAY
-    if "cat_bed" in state["permanent_items"]:
+    if _is_premium_bed(state.get("cat_care", {}).get("bed")):
         mood_decay *= 0.6
-    net_mood = weather_data["cat_mood_change"] - mood_decay
+    net_mood = -mood_decay
     mood_text = f"+{net_mood:.1f}" if net_mood > 0 else f"{net_mood:.1f}"
     lines.append(f"   猫咪心情{mood_text}/小时")
 
@@ -4230,13 +4230,14 @@ def update_cat_stats(state, now, weather_data, letter_context=None):
     if _is_premium_bed(state.get("cat_care", {}).get("bed")):
         mood_decay *= 0.6
     mood_hours = min(hours, MOOD_OFFLINE_CAP_REAL_HOURS)
-    mood_change = (weather_data["cat_mood_change"] - mood_decay) * mood_hours
+    mood_change = -mood_decay * mood_hours
     mood_floor = min(CAT_PASSIVE_STAT_FLOOR, stats["mood"])
     stats["mood"] = min(100.0, max(mood_floor, stats["mood"] + mood_change))
 
-    affection_loss = AFFECTION_NATURAL_DECAY * hours
-    affection_floor = min(CAT_PASSIVE_STAT_FLOOR, stats["affection"])
-    stats["affection"] = max(affection_floor, stats["affection"] - affection_loss)
+    if state.get("cat_state", {}).get("phase") == CAT_PHASE_ADOPTED:
+        affection_loss = AFFECTION_NATURAL_DECAY * hours
+        affection_floor = min(30.0, stats["affection"])
+        stats["affection"] = max(affection_floor, stats["affection"] - affection_loss)
 
     state["last_update"] = now
 
