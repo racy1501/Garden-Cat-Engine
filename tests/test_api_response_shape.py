@@ -499,6 +499,55 @@ def test_silent_resume_without_new_letter_has_no_letter_notice(api, cat_clock, m
     assert not any("收到新信" in event["text"] for event in payload["state"]["new_events"])
 
 
+@pytest.mark.parametrize("operation, expected_status, expected_ok", [
+    ("read", 200, True), ("write", 200, True),
+    ("invalid_page", 400, False), ("invalid_content", 400, False),
+    ("cooldown", 429, False),
+])
+def test_api_notes_reports_settlement_letter_once(
+    api, cat_clock, monkeypatch, operation, expected_status, expected_ok,
+):
+    module, client = api
+    session_id, _ = create_human_garden(client)
+    prepare_letter_notice_state(module, session_id, cat_clock)
+    if operation == "cooldown":
+        module.db_add_note(session_id, "ai", "已有便签", now=cat_clock[0])
+    monkeypatch.setattr(ge.random, "random", lambda: 0.0)
+    # 本次提示必须来自正式信件记录，不依赖引擎消息的措辞或格式。
+    monkeypatch.setattr(ge, "_build_letter_messages", lambda *args: ["信件提示格式已变化"])
+    cat_clock[0] += 3600
+    headers = {"X-API-Key": "test-key"}
+    if operation in ("write", "invalid_content", "cooldown"):
+        response = client.post("/api/notes", headers=headers, json={
+            "session_id": session_id,
+            "content": "" if operation == "invalid_content" else "给小猫留言",
+        })
+    else:
+        page = "invalid" if operation == "invalid_page" else "1"
+        response = client.get(f"/api/notes?session_id={session_id}&page={page}", headers=headers)
+    payload = response.get_json()
+    notice = f"✉️ 收到新信：《{ge.CAT_LETTERS[0]['title']}》"
+    assert response.status_code == expected_status
+    assert payload["ok"] is expected_ok
+    assert payload["message"].splitlines().count(notice) == 1
+    assert module.db_load_state(session_id)["letters_received"] == [0]
+    if operation == "write":
+        assert "📝 便签已贴好。" in payload["message"]
+        assert payload["note"]["content"] == "给小猫留言"
+    again = client.get(f"/api/notes?session_id={session_id}", headers=headers).get_json()
+    assert "收到新信" not in again.get("message", "")
+    assert module.db_load_state(session_id)["letters_received"] == [0]
+
+
+def test_api_notes_without_new_letter_keeps_original_response(api, cat_clock):
+    module, client = api
+    session_id, _ = create_human_garden(client)
+    expected = {"ok": True, **module.db_list_notes(session_id, "ai", page=1)}
+    response = client.get(f"/api/notes?session_id={session_id}", headers={"X-API-Key": "test-key"})
+    assert response.status_code == 200
+    assert response.get_json() == expected
+
+
 @pytest.mark.parametrize("endpoint,live", [
     ("web_status", True), ("web_status", False), ("web_cmd", True),
     ("api_status", False), ("api_cmd", False), ("web_notes", False),

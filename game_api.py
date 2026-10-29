@@ -1797,12 +1797,19 @@ def report_new_cat_collectibles(response):
             else:
                 letter_notice = "✉️ 收到一封新信"
             break
+    elif request.path == "/api/notes" and _request_letter_context().get("remaining_deliveries") == 0:
+        # 请求额度只在实际发信时消耗；标题读取正式信件记录，不解析提示文本。
+        letter_index = state["letters_received"][-1]
+        letter_notice = f"✉️ 收到新信：《{CAT_LETTERS[letter_index]['title']}》"
     if not found and not letter_notice:
         return response
 
     payload = response.get_json(silent=True)
     if not isinstance(payload, dict):
         return response
+    if letter_notice and request.path == "/api/notes":
+        message = str(payload.get("message", "") or "")
+        payload["message"] = letter_notice + ("\n" + message if message else "")
     notice = "🎁 发现新藏品：" + "、".join(item["name"] for item in found) if found else ""
     ordinary_fragments = [f"带回了{item['emoji']}{item['name']}" for item in found]
 
