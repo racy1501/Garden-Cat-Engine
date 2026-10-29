@@ -420,7 +420,6 @@ CAT_COLLECTIBLES = [
         "emoji": "🪨",
         "rarity": "common",
         "description": "被猫咪舔得很干净，不知道它为什么如此珍惜。",
-        "unlock_affection": 10,
     },
     {
         "id": "faded_button",
@@ -428,7 +427,6 @@ CAT_COLLECTIBLES = [
         "emoji": "🔘",
         "rarity": "common",
         "description": "蓝色已经快看不出来了，边缘还有浅浅的牙印。",
-        "unlock_affection": 10,
     },
     {
         "id": "gray_feather",
@@ -436,7 +434,6 @@ CAT_COLLECTIBLES = [
         "emoji": "🪶",
         "rarity": "common",
         "description": "插在猫窝边上时，会跟着风轻轻晃。",
-        "unlock_affection": 10,
     },
     {
         "id": "maple_leaf",
@@ -444,7 +441,6 @@ CAT_COLLECTIBLES = [
         "emoji": "🍂",
         "rarity": "common",
         "description": "叶脉很完整，像一张缩小的地图。",
-        "unlock_affection": 10,
     },
     {
         "id": "bottle_cap",
@@ -452,7 +448,6 @@ CAT_COLLECTIBLES = [
         "emoji": "◉",
         "rarity": "common",
         "description": "猫咪一路踢回来的，发出了很响的声音。",
-        "unlock_affection": 10,
     },
     {
         "id": "glass_marble",
@@ -460,7 +455,6 @@ CAT_COLLECTIBLES = [
         "emoji": "🔮",
         "rarity": "common",
         "description": "对着太阳看，里面藏着一点绿色的光。",
-        "unlock_affection": 30,
     },
     {
         "id": "red_yarn",
@@ -468,7 +462,6 @@ CAT_COLLECTIBLES = [
         "emoji": "🧶",
         "rarity": "common",
         "description": "缠成了一个歪歪扭扭的小球。",
-        "unlock_affection": 30,
     },
     {
         "id": "pine_needle",
@@ -476,7 +469,6 @@ CAT_COLLECTIBLES = [
         "emoji": "🌲",
         "rarity": "common",
         "description": "沾着一点泥土，闻起来像雨后的树林。",
-        "unlock_affection": 30,
     },
     {
         "id": "wildflower",
@@ -484,7 +476,6 @@ CAT_COLLECTIBLES = [
         "emoji": "🌼",
         "rarity": "common",
         "description": "花茎被压弯了一点，但猫咪把它完整带回来了。",
-        "unlock_affection": 30,
     },
     {
         "id": "shell",
@@ -492,7 +483,6 @@ CAT_COLLECTIBLES = [
         "emoji": "🐚",
         "rarity": "uncommon",
         "description": "放在耳边，似乎还能听见很远的水声。",
-        "unlock_affection": 30,
     },
     {
         "id": "silver_bell",
@@ -500,7 +490,6 @@ CAT_COLLECTIBLES = [
         "emoji": "🔔",
         "rarity": "uncommon",
         "description": "已经不会响了，但猫咪还是很喜欢拨弄它。",
-        "unlock_affection": 50,
     },
     {
         "id": "star_wrapper",
@@ -508,7 +497,6 @@ CAT_COLLECTIBLES = [
         "emoji": "⭐",
         "rarity": "uncommon",
         "description": "阳光照上去时，会闪出彩色的光点。",
-        "unlock_affection": 50,
     },
     {
         "id": "purple_ribbon",
@@ -516,7 +504,6 @@ CAT_COLLECTIBLES = [
         "emoji": "🎀",
         "rarity": "uncommon",
         "description": "不知道从哪里捡来的，刚好可以系在花瓶上。",
-        "unlock_affection": 50,
     },
     {
         "id": "clover",
@@ -524,7 +511,6 @@ CAT_COLLECTIBLES = [
         "emoji": "🍀",
         "rarity": "uncommon",
         "description": "四片叶子都完完整整，像是猫咪认真挑过。",
-        "unlock_affection": 50,
         "boost_hint": "猫咪心情很好时，出现概率会略微提高。",
     },
     {
@@ -533,7 +519,6 @@ CAT_COLLECTIBLES = [
         "emoji": "🌙",
         "rarity": "rare",
         "description": "夜里会泛起很淡的蓝光，像一小块凝固的月亮。",
-        "unlock_affection": 75,
         "boost_hint": "夜晚或猫咪心情很好时，出现概率提高。",
         "night_multiplier": 3.0,
         "mood_threshold": 80,
@@ -545,7 +530,6 @@ CAT_COLLECTIBLES = [
         "emoji": "🏷️",
         "rarity": "rare",
         "description": "背面刻着一句已经模糊的话：记得回家。",
-        "unlock_affection": 90,
         "boost_hint": "猫咪心情很好时，出现概率提高。",
         "mood_threshold": 85,
         "mood_multiplier": 3.0,
@@ -562,6 +546,7 @@ CAT_COLLECTIBLE_RARITY_LABELS = {
 # 数值是抽取权重，归一化后即为大致概率。
 CAT_COLLECTIBLE_VISITOR_DROP_RATE = 0.30
 CAT_COLLECTIBLE_ADOPTED_DROP_RATE = 0.20
+CAT_COLLECTIBLE_UNLOCK_AFFECTION = 30
 CAT_COLLECTIBLE_RARITY_WEIGHTS_MID = {"common": 73.0, "uncommon": 25.0, "rare": 2.0}
 CAT_COLLECTIBLE_RARITY_WEIGHTS_HIGH = {"common": 60.0, "uncommon": 30.0, "rare": 10.0}
 
@@ -979,13 +964,18 @@ def unlock_cat_collectibles(state, now=None):
     return True
 
 
+def get_collectible_unlock_affection(item):
+    """现行藏品亲密度条件；普通藏品由首次吃喝开启。"""
+    return None if item.get("rarity", "common") == "common" else CAT_COLLECTIBLE_UNLOCK_AFFECTION
+
+
 def is_collectible_unlocked(state, item):
     rarity = str(item.get("rarity", "common"))
     max_affection = get_cat_max_affection(state)
     if rarity == "common":
         return are_cat_collectibles_unlocked(state)
     if rarity in ("uncommon", "rare"):
-        return max_affection >= 30
+        return max_affection >= get_collectible_unlock_affection(item)
     return False
 
 
@@ -993,7 +983,7 @@ def get_collectible_unlock_hint(item):
     rarity = str(item.get("rarity", "common"))
     if rarity == "common":
         return "猫咪第一次实际吃饭或喝水后，完整来访或外出回家时可能带回。"
-    return "曾达到历史最高亲密度30后，猫咪外出回家时可能带回。"
+    return f"曾达到历史最高亲密度{get_collectible_unlock_affection(item)}后，猫咪外出回家时可能带回。"
 
 
 def get_collectible_boost_hint(item):
@@ -1016,7 +1006,7 @@ def get_collectible_rarity_weights(state, drop_context):
     max_affection = get_cat_max_affection(state)
     if max_affection >= 66:
         return dict(CAT_COLLECTIBLE_RARITY_WEIGHTS_HIGH)
-    if max_affection >= 30:
+    if max_affection >= CAT_COLLECTIBLE_UNLOCK_AFFECTION:
         return dict(CAT_COLLECTIBLE_RARITY_WEIGHTS_MID)
     return {"common": 100.0, "uncommon": 0.0, "rare": 0.0}
 
@@ -5652,7 +5642,7 @@ help - 显示帮助
 🌤️ 天气系统（真实时间）：
 {weather_help}
 天气不直接改变猫咪心情数值。
-天气到期后在下一次游戏指令时变化一次；离线期间不补算多轮天气
+天气按现实时间变化；离线期间的天气事件按时间顺序补算
 
 💧 浇水系统：
 - 花种下后默认不生长，需浇水才能开始生长
@@ -5674,10 +5664,9 @@ help - 显示帮助
 🎉 特殊事件：
 🌈 雨后彩虹：获得金币或普通种子
 🦋 蝴蝶飞过：每5分钟最多检查一次，可能掉落少量金币
-🎁 猫咪收集品：每5分钟最多检查一次；历史最高亲密度永久解锁阶段，允许随机重复
+🎁 猫咪收集品：首次实际吃喝后开启；完整来访结束或外出回家时可能带回，允许重复
 ✉️ 猫咪写信：正向亲密按4点一批做50%判定，按亲密度顺序收12封信
-🐛 害虫：每5分钟最多检查一次；成熟花不再长新虫，染虫后{PEST_DEATH_REAL_MINUTES}分钟内不治疗会枯萎
-   枯萎花会留在花盆里，需使用 clear <盆号> 手动清理
+🐛 种植时确定虫害，达到触发点后暂停生长，治疗后继续
 
 💐 花瓶系统：
 - 花瓶最多插{VASE_CAPACITY}朵已经收获的花

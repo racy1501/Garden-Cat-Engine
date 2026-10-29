@@ -768,6 +768,53 @@ def test_api_info_marks_api_state_as_disabled(api):
     assert "完整 JSON 存档" not in state_help
 
 
+def test_public_help_matches_current_pest_collectible_and_weather_rules(api):
+    _, client = api
+    info = client.get("/api/info").get_json()
+    help_text = client.get("/api/help", headers={"X-API-Key": "test-key"}).get_json()["message"]
+    info_text = "\n".join(info["features"])
+    pest_rule = "种植时确定虫害，达到触发点后暂停生长，治疗后继续"
+    assert pest_rule in info_text
+    assert pest_rule in help_text
+    assert "害虫：每5分钟最多检查一次" not in help_text
+    assert "分钟内不治疗会枯萎" not in help_text
+    assert "猫咪收集品：每5分钟" not in help_text
+    assert "首次实际吃喝后开启" in help_text
+    assert "完整来访结束或外出回家时可能带回" in help_text
+    assert "离线期间不补算多轮天气" not in help_text
+    assert "离线期间的天气事件按时间顺序补算" in help_text
+
+
+def test_collectible_catalog_conditions_match_current_unlock_behavior(api):
+    module, client = api
+    catalog = client.get("/api/catalog").get_json()["collectibles"]
+    session_id, headers = create_human_garden(client)
+    web_state = client.get(f"/web/status?session_id={session_id}", headers=headers).get_json()["state"]
+    web_catalog = {item["id"]: item for item in web_state["collectible_catalog"]}
+    assert len(catalog) == 16
+
+    for item in catalog:
+        web_item = web_catalog[item["id"]]
+        assert web_item["unlock_affection"] == item["unlock_affection"]
+        assert web_item["unlock_hint"] == item["unlock_hint"]
+        state = ge.get_default_state()
+        if item["rarity"] == "common":
+            assert item["unlock_affection"] is None
+            assert "第一次实际吃饭或喝水后" in item["unlock_hint"]
+            state["cat_max_affection"] = 100
+            assert not module.is_collectible_unlocked(state, item)
+            state["cat_collectibles_unlocked"] = True
+            assert module.is_collectible_unlocked(state, item)
+        else:
+            threshold = item["unlock_affection"]
+            assert threshold == 30
+            assert f"历史最高亲密度{threshold}" in item["unlock_hint"]
+            state["cat_max_affection"] = threshold - 1
+            assert not module.is_collectible_unlocked(state, item)
+            state["cat_max_affection"] = threshold
+            assert module.is_collectible_unlocked(state, item)
+
+
 def test_ai_update_notice_is_shown_once_on_first_status_for_legacy_garden(api):
     module, client = api
     session_id, _human_headers = create_human_garden(client)

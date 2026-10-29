@@ -49,6 +49,7 @@ from game_engine import (
     get_cat_max_affection,
     get_flower_shop_base_price,
     get_collectible_boost_hint,
+    get_collectible_unlock_affection,
     get_collectible_status_text,
     get_collectible_unlock_hint,
     get_game_time_info,
@@ -1101,6 +1102,7 @@ def _summary(state: dict[str, Any], *, events_before: list | None = None) -> dic
         collectible_catalog.append(
             {
                 **item,
+                "unlock_affection": get_collectible_unlock_affection(item),
                 "display_name": item["name"] if owned else "未知的小东西",
                 "rarity_name": rarity_names.get(item.get("rarity", ""), ""),
                 "description": item.get("description", "") if owned else "",
@@ -1388,6 +1390,7 @@ def catalog():
             "collectibles": [
                 {
                     **item,
+                    "unlock_affection": get_collectible_unlock_affection(item),
                     "rarity_name": {
                         "common": "普通",
                         "uncommon": "少见",
