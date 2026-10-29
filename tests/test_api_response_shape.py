@@ -295,6 +295,85 @@ def write_raw_state(module, session_id, state):
         conn.commit()
 
 
+def prepare_letter_notice_state(module, session_id, cat_clock):
+    state = module.db_load_state(session_id)
+    start = cat_clock[0]
+    ge.apply_move_with_cat_reset(state, "栗子", now=start)
+    state["events"] = []
+    state["cat_stats"].update(hunger=100.0, thirst=100.0, affection=100.0)
+    state["cat_state"]["stats"] = dict(state["cat_stats"])
+    state["cat_state"].update(next_outing_at=start + 100000, last_lifecycle_settled_at=start)
+    state["cat_max_affection"] = 100.0
+    state["letter_affection_progress"] = ge.LETTER_PROGRESS_BATCH
+    state["cat_care"]["food_bowl"]["remaining_portions"] = 0
+    state["cat_care"]["water_bowl"]["remaining_portions"] = 0
+    state["weather_change_time"] = state["next_butterfly_at"] = start + 100000
+    write_raw_state(module, session_id, state)
+
+
+def test_silent_resume_notifies_new_letter_once(api, cat_clock, monkeypatch):
+    module, client = api
+    session_id, human_headers = create_human_garden(client)
+    prepare_letter_notice_state(module, session_id, cat_clock)
+    monkeypatch.setattr(ge.random, "random", lambda: 0.0)
+    cat_clock[0] += 6 * 3600
+    headers = {**human_headers, "X-Garden-Live": "0"}
+
+    response = client.get(f"/web/status?session_id={session_id}", headers=headers)
+    payload = response.get_json()
+    notices = [event["text"] for event in payload["state"]["new_events"]]
+    letter_title = ge.CAT_LETTERS[0]["title"]
+
+    assert response.status_code == 200
+    assert payload["state"]["letters_received"] == [0]
+    assert sum(letter_title in notice and "收到新信" in notice for notice in notices) == 1
+
+    again = client.get(f"/web/status?session_id={session_id}", headers=headers).get_json()
+    assert again["state"]["letters_received"] == [0]
+    assert not any("收到新信" in event["text"] for event in again["state"]["new_events"])
+
+
+def test_live_letter_event_is_not_duplicated_with_synthetic_notice(api, cat_clock, monkeypatch):
+    module, client = api
+    session_id, human_headers = create_human_garden(client)
+    prepare_letter_notice_state(module, session_id, cat_clock)
+    monkeypatch.setattr(ge.random, "random", lambda: 0.0)
+    headers = {**human_headers, "X-Garden-Live": "1"}
+
+    response = client.get(f"/web/status?session_id={session_id}", headers=headers)
+    payload = response.get_json()
+    letter_events = [
+        event["text"] for event in payload["state"]["new_events"]
+        if "收到" in event["text"] and "封信" in event["text"]
+    ]
+
+    assert response.status_code == 200
+    assert payload["state"]["letters_received"] == [0]
+    assert len(letter_events) == 1
+    assert not any("收到新信：" in event["text"] for event in payload["state"]["new_events"])
+
+
+def test_silent_resume_without_new_letter_has_no_letter_notice(api, cat_clock, monkeypatch):
+    module, client = api
+    session_id, human_headers = create_human_garden(client)
+    prepare_letter_notice_state(module, session_id, cat_clock)
+    state = module.db_load_state(session_id)
+    state["letter_affection_progress"] = 0
+    write_raw_state(module, session_id, state)
+    monkeypatch.setattr(ge.random, "random", lambda: 0.0)
+    cat_clock[0] += 6 * 3600
+
+    response = client.get(
+        f"/web/status?session_id={session_id}",
+        headers={**human_headers, "X-Garden-Live": "0"},
+    )
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["state"]["letters_received"] == []
+    assert not any("收到新信" in event["text"] for event in payload["state"]["new_events"])
+
+
 @pytest.mark.parametrize("endpoint,live", [
     ("web_status", True), ("web_status", False), ("web_cmd", True),
     ("api_status", False), ("api_cmd", False), ("web_notes", False),

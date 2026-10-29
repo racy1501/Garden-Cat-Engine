@@ -1783,29 +1783,51 @@ def report_new_cat_collectibles(response):
     found = [item for item in CAT_COLLECTIBLES
              if int(before.get(item["id"], 0) or 0) <= 0
              and int(owned.get(item["id"], 0) or 0) > 0]
-    if not found:
+    letter_notice = ""
+    if request.path.startswith("/web/") and request.headers.get("X-Garden-Live") == "0":
+        letter_messages = _request_letter_context().get("messages", [])
+        for index, line in enumerate(letter_messages):
+            if not str(line).startswith("✉️ 收到"):
+                continue
+            title = str(letter_messages[index + 1]).strip() if index + 1 < len(letter_messages) else ""
+            if title.startswith("《") and title.endswith("》"):
+                letter_notice = f"✉️ 收到新信：{title}"
+            else:
+                letter_notice = "✉️ 收到一封新信"
+            break
+    if not found and not letter_notice:
         return response
 
     payload = response.get_json(silent=True)
     if not isinstance(payload, dict):
         return response
-    notice = "🎁 发现新藏品：" + "、".join(item["name"] for item in found)
+    notice = "🎁 发现新藏品：" + "、".join(item["name"] for item in found) if found else ""
     ordinary_fragments = [f"带回了{item['emoji']}{item['name']}" for item in found]
 
     def is_ordinary_discovery(text):
         return any(fragment in str(text) for fragment in ordinary_fragments)
 
-    message = str(payload.get("message", "") or "")
-    message = "\n".join(line for line in message.split("\n") if not is_ordinary_discovery(line)).strip()
-    payload["message"] = notice + ("\n" + message if message else "")
+    if found:
+        message = str(payload.get("message", "") or "")
+        message = "\n".join(line for line in message.split("\n") if not is_ordinary_discovery(line)).strip()
+        payload["message"] = notice + ("\n" + message if message else "")
     public_state = payload.get("state")
     if isinstance(public_state, dict):
         if request.path.startswith("/web/"):
             events = public_state.get("new_events", [])
-            events = [event for event in events if not is_ordinary_discovery(event.get("text", ""))]
-            events.insert(0, {"time": int(time.time()), "text": notice, "source": "system", "source_label": "系统"})
+            if found:
+                events = [event for event in events if not is_ordinary_discovery(event.get("text", ""))]
+                events.insert(0, {"time": int(time.time()), "text": notice, "source": "system", "source_label": "系统"})
+            if letter_notice and not any(
+                str(event.get("text", "")).startswith("✉️ 收到") for event in events
+                if isinstance(event, dict)
+            ):
+                events.insert(0, {
+                    "time": int(time.time()), "text": letter_notice,
+                    "source": "system", "source_label": "系统",
+                })
             public_state["new_events"] = events
-        elif request.path.startswith("/api/"):
+        elif found and request.path.startswith("/api/"):
             if is_ordinary_discovery(public_state.get("latest_event", "")):
                 public_state["latest_event"] = ""
             offline = public_state.get("offline_summary")
