@@ -36,7 +36,7 @@ let activeModalKind = null;
 let hasTriedAutoUpdateAnnouncement = false;
 let isBusy = false;
 let petCooldownTimer = null;
-let latestGardenNotice = "";
+const latestLocationNotices = { garden: "", flower_shop: "", cottage: "" };
 let stateSnapshotAtMs = 0;
 let liveRefreshQueued = false;
 let gardenNeedsResume = true; // 仅页面内使用，恢复时不把历史补算当作在线通知。
@@ -413,9 +413,7 @@ async function requestJson(url, options = {}) {
   if (url.startsWith("/web/notes") || url.startsWith("/web/bouquets/read")) {
     const notice = String(data.message || "").split("\n").find((line) => line.startsWith("🎁 发现新藏品："));
     if (notice) {
-      latestGardenNotice = notice;
       $("#messageBox").textContent = notice;
-      renderGardenNotice();
     }
   }
   if (!response.ok) {
@@ -618,9 +616,17 @@ function updateFromResponse(data, quiet = false) {
   stateSnapshotAtMs = Date.now();
   liveRefreshQueued = false;
   const notifications = currentState?.new_events || [];
-  latestGardenNotice = notifications.length
-    ? notifications.map((event) => event.text).join("\n")
-    : (!quiet && data.message ? data.message : "");
+  const areasWithEvents = new Set();
+  for (const event of notifications) {
+    if (Object.hasOwn(latestLocationNotices, event.area) && event.text) {
+      latestLocationNotices[event.area] = event.text;
+      areasWithEvents.add(event.area);
+    }
+  }
+  if (!quiet && Object.hasOwn(latestLocationNotices, data.notice_area)
+      && !areasWithEvents.has(data.notice_area) && data.notice_message) {
+    latestLocationNotices[data.notice_area] = data.notice_message;
+  }
   gardenNeedsResume = document.visibilityState !== "visible";
   renderAll();
   updateLiveCountdowns();
@@ -665,6 +671,7 @@ function renderAll() {
   harvestAllButton.disabled = readyCount === 0;
   harvestAllButton.textContent = readyCount > 0 ? `一键收获 · ${readyCount}朵` : "暂无成熟花";
   renderGardenNotice();
+  renderLocationNotices();
   renderPots();
   renderVase();
   renderCatHouseV5();
@@ -861,27 +868,13 @@ function seedOptions(select) {
 }
 
 
-function extractImportantGardenNotice(message) {
-  const lines = String(message || "")
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .filter((line) => !line.startsWith("📊"));
-
-  return lines.filter((line) =>
-    /^(🌈|🦋|🎁|✉️|🐛|💀|🌤️|🌧️|🎉|🌸|🧺|🧹|💐)/.test(line)
-  );
-}
-
 function extractGardenNotice(message) {
   const lines = String(message || "")
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean)
     .filter((line) => !line.startsWith("📊"));
-  const important = extractImportantGardenNotice(message);
-  if (important.length) return important.slice(0, 4).join("\n");
-  return lines[0] || "";
+  return lines.slice(0, 4).join("\n");
 }
 
 function buildGardenNoticeSupplements() {
@@ -906,12 +899,12 @@ function buildGardenNoticeSupplements() {
 
 function renderGardenNotice() {
   const root = $("#gardenNoticeText");
-  const latestNotice = extractGardenNotice(latestGardenNotice);
+  const latestNotice = extractGardenNotice(latestLocationNotices.garden);
   let notice = latestNotice;
   const offline = currentState?.offline_summary || {};
   const supplements = buildGardenNoticeSupplements();
   if (!notice && Number(offline.offline_seconds || 0) > 0) {
-    notice = offline.message || "花园在你离开时暂停在安全状态。";
+    notice = "你离开了一会儿，花园仍在安静生长。";
   }
   if (!notice) {
     notice = "花园很安静，风从花叶间穿过去。";
@@ -923,6 +916,19 @@ function renderGardenNotice() {
     notice = [notice, ...supplements].join("\n");
   }
   root.textContent = notice;
+}
+
+function renderLocationNotices() {
+  for (const [area, id, fallback] of [
+    ["flower_shop", "flowerShopNotice", "花店很安静，花束在等待下一位客人。"],
+    ["cottage", "cottageNotice", "小屋很安静，一切都好好的。"],
+  ]) {
+    const root = $(`#${id}`);
+    const label = $(`#${id}Text`);
+    if (!root || !label) continue;
+    const notice = extractGardenNotice(latestLocationNotices[area]);
+    label.textContent = notice || fallback;
+  }
 }
 
 
@@ -2910,13 +2916,15 @@ function renderEvents() {
     root.innerHTML = `<div class="muted">还没有新的花园事件。</div>`;
     return;
   }
-  for (const event of [...events].sort((a, b) => a.time - b.time).reverse()) {
+  const areaLabels = { garden: "花园", flower_shop: "花店", cottage: "小屋" };
+  for (const event of [...events].sort((a, b) => a.time - b.time).slice(-50).reverse()) {
     const line = document.createElement("div");
     line.className = "event-line";
     const time = event.time ? new Date(event.time * 1000).toLocaleString("zh-CN", { hour12: false }) : "";
     const sourceLabels = { human: "人类", ai: "AI", system: "系统" };
     const source = event.source_label || sourceLabels[event.source] || "";
-    const prefix = [time, source].filter(Boolean).join(" · ");
+    const area = areaLabels[event.area] ? `[${areaLabels[event.area]}]` : "";
+    const prefix = [time, source, area].filter(Boolean).join(" · ");
     line.textContent = prefix ? `${prefix} · ${event.text}` : event.text;
     root.append(line);
   }

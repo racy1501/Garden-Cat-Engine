@@ -127,23 +127,23 @@ def test_frontend_quiet_notifications_and_timestamped_log():
 const fs=require('fs'),vm=require('vm');
 const source=fs.readFileSync('static/app.js','utf8');
 const nodes={};const get=(id)=>nodes[id]||(nodes[id]={textContent:'',innerHTML:'',children:[],append(v){this.children.push(v)}});
-const ctx={currentState:null,latestGardenNotice:'',gardenNeedsResume:true,stateSnapshotAtMs:0,liveRefreshQueued:false,
+ const ctx={currentState:null,latestLocationNotices:{garden:'',flower_shop:'',cottage:''},gardenNeedsResume:true,stateSnapshotAtMs:0,liveRefreshQueued:false,
  Date,document:{visibilityState:'visible',createElement(){return {textContent:'',className:''}}},
  renderBouquetMainButton(){},renderNotesButton(){},renderAll(){},updateLiveCountdowns(){},maybeAutoShowUpdateAnnouncement(){}};
 ctx['$']=get;vm.createContext(ctx);
 const functions=[['function updateFromResponse(', 'function renderNotesButton('],
- ['function extractImportantGardenNotice(', 'function ensureOfflineSummaryBar('],
+  ['function extractGardenNotice(', 'function ensureOfflineSummaryBar('],
  ['function renderEvents(', 'function showLetterModal(']];
 for(const [start,end] of functions)vm.runInContext(source.slice(source.indexOf(start),source.indexOf(end)),ctx);
 const old={time:100,text:'🎁 历史藏品'};
 ctx.updateFromResponse({state:{new_events:[],recent_events:[old.text],recent_event_records:[old],offline_summary:{offline_seconds:3600}},message:'历史恢复'},true);
 ctx.renderGardenNotice();if(get('#gardenNoticeText').textContent.includes(old.text))throw Error('history promoted');
-const fresh={time:200,text:'栗子回家了。'};
+ const fresh={time:200,text:'栗子回家了。',area:'garden'};
 ctx.updateFromResponse({state:{new_events:[fresh],recent_event_records:[old,fresh]},message:'状态'},true);
 ctx.renderGardenNotice();if(!get('#messageBox').textContent.includes(fresh.text))throw Error('quiet dropped event');
 if(!get('#gardenNoticeText').textContent.includes(fresh.text))throw Error('live notice missing');
 ctx.updateFromResponse({state:{new_events:[],recent_event_records:[old,fresh]}},true);
-ctx.renderGardenNotice();if(get('#gardenNoticeText').textContent.includes(fresh.text))throw Error('old notice repeated');
+ ctx.renderGardenNotice();if(!get('#gardenNoticeText').textContent.includes(fresh.text))throw Error('area notice was lost');
 const sameTime={time:200,text:'同秒较新的记录'};
 ctx.currentState.recent_event_records.push(sameTime);
 ctx.renderEvents();const rows=get('#eventsList').children;
@@ -153,6 +153,62 @@ console.log(JSON.stringify({notice:get('#gardenNoticeText').textContent,rows:row
     result = subprocess.run(["node", "-e", script], cwd=root, encoding="utf-8", capture_output=True)
     assert result.returncode == 0, result.stderr
     assert len(json.loads(result.stdout)["rows"]) == 3
+
+
+@pytest.mark.parametrize("command,area", [
+    ("water 1", "garden"),
+    ("buy_flower_shop_freshener", "flower_shop"),
+    ("buy_cottage_furniture floor_lamp", "cottage"),
+    ("status", None),
+    ("pet", None),
+])
+def test_web_command_notice_area_and_action_message(api, cat_clock, monkeypatch, command, area):
+    module, client = api
+    sid, headers = create_human_garden(client)
+    monkeypatch.setattr(ge, "get_weather_info", lambda state, now: (ge.WEATHER["sunny"], ["花店自动成交"]))
+    response = client.post("/web/cmd", headers=headers, json={"session_id": sid, "command": command})
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["notice_area"] == area
+    assert "花店自动成交" in payload["message"]
+    if area:
+        assert "花店自动成交" not in payload["notice_message"]
+        assert "📊" not in payload["notice_message"]
+    else:
+        assert payload["notice_message"] is None
+
+
+def test_location_notice_delivery_and_combined_diary():
+    root = Path(__file__).resolve().parents[1]
+    script = r"""
+const fs=require('fs'),vm=require('vm');
+const source=fs.readFileSync('static/app.js','utf8'),css=fs.readFileSync('static/style.css','utf8');
+const nodes={};const get=id=>nodes[id]||(nodes[id]={textContent:'',hidden:false,children:[],set innerHTML(v){this.children=[]},append(v){this.children.push(v)}});
+const ctx={currentState:null,latestLocationNotices:{garden:'',flower_shop:'',cottage:''},gardenNeedsResume:false,stateSnapshotAtMs:0,liveRefreshQueued:false,
+ Date,document:{visibilityState:'visible',createElement(){return {textContent:'',className:''}}},
+ renderBouquetMainButton(){},renderNotesButton(){},renderAll(){},updateLiveCountdowns(){},maybeAutoShowUpdateAnnouncement(){}};
+ctx.$=get;vm.createContext(ctx);
+for(const [start,end] of [['function updateFromResponse(','function renderNotesButton('],['function extractGardenNotice(','function ensureOfflineSummaryBar('],['function renderEvents(','function showLetterModal(']])
+ vm.runInContext(source.slice(source.indexOf(start),source.indexOf(end)),ctx);
+function update(area,msg,events=[]){ctx.updateFromResponse({notice_area:area,notice_message:msg,message:msg,state:{new_events:events,garden_events:{}}});ctx.renderGardenNotice();ctx.renderLocationNotices()}
+ctx.renderLocationNotices();
+if(!get('#flowerShopNoticeText').textContent||!get('#cottageNoticeText').textContent||get('#flowerShopNotice').hidden||get('#cottageNotice').hidden)throw Error('empty notices must remain visible');
+update('garden','浇水');update('flower_shop','上架');update('cottage','买家具');
+if(!get('#gardenNoticeText').textContent.includes('浇水')||get('#gardenNoticeText').textContent.includes('买家具'))throw Error('garden leaked');
+if(get('#flowerShopNoticeText').textContent!=='上架'||get('#cottageNoticeText').textContent!=='买家具')throw Error('area messages');
+update('cottage','消息不优先',[{area:'garden',text:'花园新事件'},{area:'flower_shop',text:'花店成交'},{area:'cottage',text:'小屋奖励'},{text:'无地点'}]);
+if(ctx.latestLocationNotices.garden!=='花园新事件'||ctx.latestLocationNotices.flower_shop!=='花店成交'||ctx.latestLocationNotices.cottage!=='小屋奖励')throw Error('event routing');
+update(null,'无地点消息',[{text:'没有归属'}]);
+if(ctx.latestLocationNotices.cottage!=='小屋奖励'||ctx.latestLocationNotices.garden!=='花园新事件')throw Error('unclassified routed');
+ctx.currentState.recent_event_records=Array.from({length:51},(_,i)=>({time:i+1,text:`事件${i+1}`,area:i%3===0?'garden':i%3===1?'flower_shop':'cottage'}));
+ctx.currentState.recent_event_records[50]={time:51,text:'旧记录'};
+ctx.renderEvents();const rows=get('#eventsList').children;
+if(rows.length!==50||!rows[0].textContent.endsWith('旧记录')||rows[0].textContent.includes('[花园]'))throw Error('history order or legacy');
+for(const label of ['[花园]','[花店]','[小屋]'])if(!rows.some(x=>x.textContent.includes(label)))throw Error('missing area '+label);
+if(!/\.events-list\s*\{[^}]*height:\s*280px;[^}]*overflow-y:\s*auto/s.test(css))throw Error('diary scrolling');
+"""
+    result = subprocess.run(["node", "-e", script], cwd=root, encoding="utf-8", capture_output=True)
+    assert result.returncode == 0, result.stderr
 
 
 def test_frontend_requests_explicitly_distinguish_resume_and_live():

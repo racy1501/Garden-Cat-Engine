@@ -227,7 +227,7 @@ button:disabled { cursor: not-allowed; opacity: 1; transform: none !important; }
 .collection-item.unknown { opacity: .4; filter: grayscale(1); }
 
 .message-box { max-height: 260px; overflow: auto; padding: 14px; white-space: pre-wrap; color: #465448; border-radius: 14px; background: rgba(255,255,255,.45); font-size: 12px; line-height: 1.65; }
-.events-list { margin-top: 10px; display: grid; gap: 6px; }
+.events-list { margin-top: 10px; display: grid; align-content: start; gap: 6px; height: 280px; overflow-y: auto; }
 .event-line { padding: 7px 9px; border-left: 3px solid var(--green); background: rgba(111,135,103,.08); font-size: 11px; }
 .command-panel summary { cursor: pointer; font-weight: 700; }
 .command-form { margin-top: 12px; display: flex; gap: 8px; }

@@ -352,7 +352,7 @@ def test_unlocked_bouquet_card_opens_existing_detail_modal():
 def test_garden_notice_does_not_promote_old_history_to_notification():
     root = Path(__file__).resolve().parents[1]
     js = (root / "static" / "app.js").read_text(encoding="utf-8")
-    assert "function extractImportantGardenNotice(message)" in js
+    assert "function extractGardenNotice(message)" in js
     notice = js.split("function renderGardenNotice()", 1)[1].split("function ensureOfflineSummaryBar()", 1)[0]
     assert "recent_events" not in notice
     assert "let notice = latestNotice;" in notice
@@ -367,7 +367,7 @@ const nodes={};
 const context={
   $:selector=>nodes[selector]||(nodes[selector]={textContent:''}),
   document:{visibilityState:'visible'},
-  currentState:{}, latestGardenNotice:'', gardenNeedsResume:true,
+  currentState:{}, latestLocationNotices:{garden:'',flower_shop:'',cottage:''}, gardenNeedsResume:true,
   updateLiveCountdowns(){}, maybeAutoShowUpdateAnnouncement(){},
   renderBouquetMainButton(){}, renderNotesButton(){},
   fetch:async()=>({ok:true,json:async()=>context.responseData})
@@ -376,16 +376,16 @@ vm.createContext(context);
 for(const [start,end] of [
   ['async function requestJson(', '\nfunction authHeaders('],
   ['function updateFromResponse(', '\nfunction renderNotesButton('],
-  ['function extractImportantGardenNotice(', '\nfunction ensureOfflineSummaryBar(']
+  ['function extractGardenNotice(', '\nfunction ensureOfflineSummaryBar(']
 ]) vm.runInContext(source.slice(source.indexOf(start),source.indexOf(end,source.indexOf(start))),context);
 context.renderAll=()=>context.renderGardenNotice();
 const notice='🎁 发现新藏品：圆润的小石子';
 (async()=>{
   context.updateFromResponse({message:notice,state:{new_events:[{text:notice}],offline_summary:{},garden_events:{}}},true);
-  if(!context.$('#gardenNoticeText').textContent.includes(notice))throw Error('status notice missing');
+  if(context.$('#gardenNoticeText').textContent.includes(notice))throw Error('unclassified notice guessed');
   context.responseData={ok:true,message:notice,notes:[]};
   await context.requestJson('/web/notes?session_id=test');
-  if(context.$('#messageBox').textContent!==notice||!context.$('#gardenNoticeText').textContent.includes(notice))throw Error('notes notice missing');
+  if(context.$('#messageBox').textContent!==notice||context.$('#gardenNoticeText').textContent.includes(notice))throw Error('notes notice misclassified');
   context.responseData={ok:true,message:notice,state:{}};
   await context.requestJson('/web/bouquets/read');
   if(context.$('#messageBox').textContent!==notice)throw Error('bouquet-read notice missing');

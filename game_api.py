@@ -1466,6 +1466,13 @@ def web_status():
     )
 
 
+WEB_COMMAND_AREAS = {
+    **dict.fromkeys(("buy", "buy_pot", "plant", "water", "harvest", "treat", "clear", "arrange", "remove_vase", "sell"), "garden"),
+    **dict.fromkeys(("make_bouquet", "craft_bouquet", "gift_bouquet", "list_bouquet", "establish_flower_shop", "upgrade_flower_shop_shelf", "buy_flower_shop_freshener", "set_flower_shop_hours", "launch_flower_shop"), "flower_shop"),
+    "buy_cottage_furniture": "cottage",
+}
+
+
 @app.route("/web/cmd", methods=["POST"])
 def web_cmd():
     data = request.get_json(silent=True) or {}
@@ -1487,11 +1494,14 @@ def web_cmd():
         if command.strip().lower() == "help":
             result = CommandResult(result.ok, result.message + NOTE_HELP_TEXT)
         db_save_state(session_id, state)
+    notice_area = WEB_COMMAND_AREAS.get(command.split()[0].lower())
     return jsonify(
         {
             "ok": result.ok,
             "session_id": session_id,
             "message": result.message,
+            "notice_area": notice_area,
+            "notice_message": result.action_message if notice_area else None,
             "state": _summary(state, events_before=events_before),
         }
     )

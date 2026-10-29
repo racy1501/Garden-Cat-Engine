@@ -4602,6 +4602,7 @@ def _parse_flower_shop_start_minute(value):
 class CommandResult:
     ok: bool
     message: str
+    action_message: str | None = None
 
 
 def process_command(state, command, *, event_source="system", letter_context=None) -> str:
@@ -5716,6 +5717,7 @@ help - 显示帮助
         _resolve_letter_progress(state, now=now, letter_context=letter_context)
     update_cat_max_affection(state)
 
+    action_message = result
     if all_event_messages:
         result = "\n".join(all_event_messages) + "\n\n" + result
     if letter_context["messages"]:
@@ -5725,7 +5727,7 @@ help - 显示帮助
         result += "\n\n" + _summary(state)
 
     state["last_active_at"] = now
-    return CommandResult(ok, result)
+    return CommandResult(ok, result, action_message)
 
 
 _BASE_NORMALIZE_STATE = normalize_state
