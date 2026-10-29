@@ -24,6 +24,7 @@ def test_web_and_ai_sale_events_keep_their_own_sources(api, cat_clock):
         "text": "卖了1朵玫瑰，赚了14块",
         "source": "human",
         "source_label": "人类",
+        "area": "garden",
     }
 
     ai_state = ge.get_default_state()

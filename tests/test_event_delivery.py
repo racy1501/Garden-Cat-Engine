@@ -37,7 +37,7 @@ def test_first_restore_keeps_history_without_live_messages(api, cat_clock, mode,
             [module._event_record_for_client(event) for event in saved["events"]],
             key=lambda event: event["time"],
         )
-        assert len(records) == 5
+        assert 0 < len(records) <= 50
         assert payload["state"]["recent_events"] == [event["text"] for event in saved["events"]]
     repeated = client.get(f"/{mode}/status?session_id={sid}", headers=headers).get_json()["state"]
     assert repeated.get("latest_event", "") == ""
@@ -102,8 +102,9 @@ def test_web_operation_still_delivers_its_own_event_on_restore(api, cat_clock):
     assert payload["new_events"] == [{
         "time": cat_clock[0],
         "text": "把玫瑰插进花瓶",
-        "source": "system",
-        "source_label": "系统",
+        "source": "human",
+        "source_label": "人类",
+        "area": "garden",
     }]
 
 

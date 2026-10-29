@@ -97,6 +97,9 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 # 事件来源是稳定的机器可读标识；展示名由调用方按需转换，未来可独立扩展昵称。
+EVENT_HISTORY_LIMIT = 50
+EVENT_AREAS = ("garden", "flower_shop", "cottage")
+
 EVENT_SOURCE_LABELS = {
     "human": "人类",
     "ai": "AI",
@@ -1103,7 +1106,7 @@ def _maybe_trigger_flower_shop_cat_buff(state, now, collectible_id, buff_windows
     if isinstance(buff_windows, list):
         buff_windows.append({"start_at": start_at, "until_at": until_at})
     message = "🐾 猫咪带回的小发现给花店添了好运，接下来4小时成交金额会提高。"
-    add_event(state, message, now=start_at)
+    add_event(state, message, now=start_at, area="flower_shop")
     return message
 
 
@@ -1389,7 +1392,7 @@ def settle_cat_lifecycle(
                         cat_state["first_visit_at"] = next_transition_at
                     _enter_waiting_name_phase(state, next_transition_at)
                     cat_name = get_current_cat_name(state)
-                    add_event(state, f"{cat_name}决定留下，正在等你正式取名。", now=next_transition_at)
+                    add_event(state, f"{cat_name}决定留下，正在等你正式取名。", now=next_transition_at, area="garden")
                     events.append(f"{cat_name}决定留下，正在等你正式取名。")
                     cat_state["last_lifecycle_settled_at"] = next_transition_at
                     continue
@@ -1407,7 +1410,7 @@ def settle_cat_lifecycle(
                     letter_context=letter_context,
                 )
                 cat_name = get_current_cat_name(state)
-                add_event(state, f"{cat_name}来了，正在花园里停留。", now=next_transition_at)
+                add_event(state, f"{cat_name}来了，正在花园里停留。", now=next_transition_at, area="garden")
                 events.append(f"{cat_name}来了，正在花园里停留。")
                 cat_state["last_lifecycle_settled_at"] = next_transition_at
                 continue
@@ -1426,7 +1429,7 @@ def settle_cat_lifecycle(
                 if max_affection >= 30 or (stay_deadline_at > 0 and next_transition_at >= stay_deadline_at):
                     _enter_waiting_name_phase(state, next_transition_at)
                     cat_name = get_current_cat_name(state)
-                    add_event(state, f"{cat_name}决定留下，正在等你正式取名。", now=next_transition_at)
+                    add_event(state, f"{cat_name}决定留下，正在等你正式取名。", now=next_transition_at, area="garden")
                     events.append(f"{cat_name}决定留下，正在等你正式取名。")
                     cat_state["last_lifecycle_settled_at"] = next_transition_at
                     continue
@@ -1444,14 +1447,14 @@ def settle_cat_lifecycle(
                 )
                 if cat_state.get("phase") == CAT_PHASE_WAITING_NAME:
                     cat_name = get_current_cat_name(state)
-                    add_event(state, f"{cat_name}决定留下，正在等你正式取名。", now=next_transition_at)
+                    add_event(state, f"{cat_name}决定留下，正在等你正式取名。", now=next_transition_at, area="garden")
                     events.append(f"{cat_name}决定留下，正在等你正式取名。")
                     cat_state["last_lifecycle_settled_at"] = next_transition_at
                     continue
                 if letter_context is None and letter_messages:
                     events.extend(letter_messages)
                 cat_name = get_current_cat_name(state)
-                add_event(state, f"{cat_name}离开了花园，下次还会再来。", now=next_transition_at)
+                add_event(state, f"{cat_name}离开了花园，下次还会再来。", now=next_transition_at, area="garden")
                 events.append(f"{cat_name}离开了花园，下次还会再来。")
                 cat_state["last_lifecycle_settled_at"] = next_transition_at
                 continue
@@ -1779,7 +1782,7 @@ def _settle_rainbow_event(state, now, messages):
         flower_id = reward["flower"]
         state["inventory"]["seeds"][flower_id] = state["inventory"]["seeds"].get(flower_id, 0) + reward["qty"]
         messages.append(f"🌈 彩虹出现！获得{FLOWERS[flower_id]['name']}种子x{reward['qty']}！")
-    add_event(state, "🌈 彩虹出现")
+    add_event(state, "🌈 彩虹出现", now=now, area="garden")
 
 
 def _settle_weather_event(state, now, messages, *, record_event):
@@ -1792,7 +1795,7 @@ def _settle_weather_event(state, now, messages, *, record_event):
     new_weather_data = WEATHER[new_weather]
     if old_weather != new_weather:
         if record_event:
-            add_event(state, f"天气变化：{WEATHER[old_weather]['name']} -> {new_weather_data['name']}")
+            add_event(state, f"天气变化：{WEATHER[old_weather]['name']} -> {new_weather_data['name']}", now=now, area="garden")
         messages.append(
             f"\n🌤️ 天气变化：{WEATHER[old_weather]['emoji']}{WEATHER[old_weather]['name']} -> "
             f"{new_weather_data['emoji']}{new_weather_data['name']}"
@@ -1819,7 +1822,7 @@ def _settle_butterfly_event(state, now, messages, *, record_event):
     state["last_butterfly_reward"] = {"type": "money", "amount": gold}
     messages.append(f"🦋 蝴蝶掉落了{gold}金币！")
     if record_event:
-        add_event(state, f"🦋 蝴蝶掉落了{gold}金币")
+        add_event(state, f"🦋 蝴蝶掉落了{gold}金币", now=now, area="garden")
 
 
 def _settle_garden_timeline(state, settle_at, *, collect_messages, advance_growth):
@@ -2980,7 +2983,10 @@ def normalize_state(data, now=None):
 
     if not isinstance(data.get("events"), list):
         data["events"] = []
-    data["events"] = data["events"][-5:]
+    for event in data["events"]:
+        if isinstance(event, dict) and event.get("area") not in EVENT_AREAS:
+            event.pop("area", None)
+    _retain_latest_events(data["events"])
 
     if data.get("last_rainbow_reward") is not None and not isinstance(data.get("last_rainbow_reward"), dict):
         data["last_rainbow_reward"] = None
@@ -3656,7 +3662,7 @@ def settle_flower_shop(
             add_event(
                 state,
                 f"🏪 货架{slot_index + 1}的「{bouquet_name}」以{sale_price}块成交，货架重新空出来了。",
-                now=sold_at,
+                now=sold_at, area="flower_shop",
             )
             slots[slot_index] = None
             results.append(
@@ -3670,7 +3676,7 @@ def settle_flower_shop(
             add_event(
                 state,
                 f"🥀 货架{slot_index + 1}的「{bouquet_name}」超过24小时仍未售出，已经报废。",
-                now=expires_at,
+                now=expires_at, area="flower_shop",
             )
             slots[slot_index] = None
             results.append({"type": "expired", "slot": slot_index + 1, "expired_at": expires_at})
@@ -3962,7 +3968,7 @@ def _auto_water_pots(state, now):
     return count
 
 
-def sync_cottage_rewards(state, now=None):
+def sync_cottage_rewards(state, now=None, *, record_events=False):
     """按既有图鉴事实补齐确定性小屋奖励；返回本次新获得的 item id。"""
     if now is None:
         now = int(time.time())
@@ -3975,6 +3981,8 @@ def sync_cottage_rewards(state, now=None):
             continue
         items[item_id] = {"acquired_at": int(now), "source": "system"}
         granted.append(item_id)
+        if record_events:
+            add_event(state, f"🏠 解锁了小屋纪念物「{COTTAGE_ITEM_CATALOG[item_id]['name']}」。", now=now, area="cottage")
     return granted
 
 
@@ -4039,14 +4047,22 @@ def get_cottage_public_summary(state):
     }
 
 
-def add_event(state, event_text, *, now=None, source="system"):
-    state["events"].append({
+def _retain_latest_events(events):
+    # Stable sorting keeps insertion order for events with equal timestamps.
+    events[:] = sorted(events, key=lambda event: _safe_nonnegative_int(
+        event.get("time", 0), 0) if isinstance(event, dict) else 0)[-EVENT_HISTORY_LIMIT:]
+
+
+def add_event(state, event_text, *, now=None, source="system", area=None):
+    event = {
         "time": int(time.time() if now is None else now),
         "text": event_text,
         "source": normalize_event_source(source),
-    })
-    if len(state["events"]) > 5:
-        state["events"].pop(0)
+    }
+    if area in EVENT_AREAS:
+        event["area"] = area
+    state["events"].append(event)
+    _retain_latest_events(state["events"])
 
 
 def check_pests(state, now):
@@ -4546,7 +4562,7 @@ def _craft_bouquet_instance(state, bouquet_id):
     }, None
 
 
-def _record_bouquet_gift(state, bouquet_instance, now, message=None):
+def _record_bouquet_gift(state, bouquet_instance, now, message=None, *, event_source="system"):
     bouquet_id = bouquet_instance["bouquet_id"]
     bouquet = BOUQUETS[bouquet_id]
     state.setdefault("bouquet_gifts", []).append(
@@ -4557,10 +4573,10 @@ def _record_bouquet_gift(state, bouquet_instance, now, message=None):
             "message": message,
         }
     )
-    event_text = f"💐 小机送给你一束「{bouquet['name']}」。"
+    event_text = f"💐 送出了一束「{bouquet['name']}」。"
     if message:
         event_text = event_text[:-1] + "，还附了一张小卡片。"
-    add_event(state, event_text)
+    add_event(state, event_text, now=now, source=event_source, area="flower_shop")
 
 
 def _parse_flower_shop_start_minute(value):
@@ -4724,7 +4740,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
             else:
                 state["money"] -= item["price"]
                 cottage_items[item_id] = {"acquired_at": now, "source": event_source}
-                add_event(state, f"为小屋添置了{item['name']}", now=now, source=event_source)
+                add_event(state, f"为小屋添置了{item['name']}", now=now, source=event_source, area="cottage")
                 ok, result = True, f"🏠 添置了{item['name']}！(-{item['price']}块)"
 
     elif action == "plant":
@@ -4829,7 +4845,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
                 ok, result = False, "❌ 现在没有可以收获的成熟花朵"
             else:
                 harvested_messages = [
-                    _harvest_one_pot_result(state, pot_idx, now, weather_data).message
+                    _harvest_one_pot_result(state, pot_idx, now, weather_data, event_source=event_source).message
                     for pot_idx in ready_indices
                 ]
                 ok, result = True, (
@@ -4841,7 +4857,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
             if pot_idx is None:
                 ok, result = False, f"❌ 盆号必须是1-{state['max_pots']}"
             else:
-                harvest_result = _harvest_one_pot_result(state, pot_idx, now, weather_data)
+                harvest_result = _harvest_one_pot_result(state, pot_idx, now, weather_data, event_source=event_source)
                 ok, result = harvest_result.ok, harvest_result.message
 
     elif action == "treat":
@@ -4901,7 +4917,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
                         )
                     else:
                         ok, result = True, f"🧹 清理了盆{pot_idx + 1}枯萎的{flower_name}，花盆重新空出来了。"
-                    add_event(state, f"清理枯萎的{flower_name}（盆{pot_idx + 1}）")
+                    add_event(state, f"清理枯萎的{flower_name}（盆{pot_idx + 1}）", now=now, source=event_source, area="garden")
 
     elif action == "make_bouquet":
         bouquet_id, message = _parse_bouquet_arguments(parts)
@@ -4912,7 +4928,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
             if error:
                 ok, result = False, error
             else:
-                _record_bouquet_gift(state, bouquet_instance, now, message)
+                _record_bouquet_gift(state, bouquet_instance, now, message, event_source=event_source)
                 ok, result = True, f"💐 已将{BOUQUETS[bouquet_id]['name']}送给人类！"
                 if message:
                     result += " 已附上小卡片。"
@@ -4928,7 +4944,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
             else:
                 state.setdefault("bouquet_inventory", []).append(bouquet_instance)
                 bouquet_name = BOUQUETS[bouquet_id]["name"]
-                add_event(state, f"制作了一束「{bouquet_name}」")
+                add_event(state, f"制作了一束「{bouquet_name}」", now=now, source=event_source, area="flower_shop")
                 ok, result = True, f"💐 已制作{bouquet_name}，可从花束背包赠送给人类。"
 
     elif action == "gift_bouquet":
@@ -4956,7 +4972,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
             else:
                 bouquet_instance = bouquet_inventory.pop(instance_index)
                 message = " ".join(message_parts).strip() or None
-                _record_bouquet_gift(state, bouquet_instance, now, message)
+                _record_bouquet_gift(state, bouquet_instance, now, message, event_source=event_source)
                 ok, result = True, f"💐 已将{BOUQUETS[bouquet_instance['bouquet_id']]['name']}送给人类！"
                 if message:
                     result += " 已附上小卡片。"
@@ -5035,7 +5051,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
                 bouquet_name = BOUQUETS.get(bouquet_instance["bouquet_id"], {}).get(
                     "name", bouquet_instance["bouquet_id"]
                 )
-                add_event(state, f"🏪 将「{bouquet_name}」放上货架{slot_index + 1}开始销售。")
+                add_event(state, f"🏪 将「{bouquet_name}」放上货架{slot_index + 1}开始销售。", now=now, source=event_source, area="flower_shop")
                 settlement_results = settle_flower_shop(state, now)
                 immediate_sale = next(
                     (entry for entry in settlement_results if entry.get("slot") == slot_index + 1),
@@ -5067,7 +5083,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
                 "shelf_capacity": FLOWER_SHOP_SHELF_CAPACITY,
                 "slots": [None] * FLOWER_SHOP_SHELF_CAPACITY,
             }
-            add_event(state, "建好了花店，准备了3个空货架")
+            add_event(state, "建好了花店，准备了3个空货架", now=now, source=event_source, area="flower_shop")
             ok, result = True, "🏪 花店建好了！现在有3个空货架，请先设置每天的营业开始时间。"
 
     elif action == "upgrade_flower_shop_shelf":
@@ -5102,6 +5118,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
         else:
             state["money"] -= FLOWER_SHOP_FRESHENER_COST
             shop["has_freshener"] = True
+            add_event(state, "🏪 安装了花店保鲜设备。", now=now, source=event_source, area="flower_shop")
             ok, result = True, "🏪 保鲜设备已安装；之后新上架的花束会更晚进入折价阶段，但仍会在24小时后报废。"
 
     elif action == "set_flower_shop_hours":
@@ -5116,6 +5133,12 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
             ok, result = False, "❌ 货架尚有上架商品，清空后才能调整营业开始时间。"
         else:
             start_minute = _parse_flower_shop_start_minute(parts[1])
+            if start_minute is not None:
+                end_minute = start_minute + FLOWER_SHOP_BUSINESS_DURATION_MINUTES
+                end_label = (
+                    "24:00" if end_minute == 24 * 60 else
+                    f"{'次日 ' if end_minute > 24 * 60 else ''}{(end_minute // 60) % 24:02d}:{end_minute % 60:02d}"
+                )
             if start_minute is None:
                 ok, result = False, "❌ 营业开始时间请使用 HH:MM（例如 09:30）。"
             elif not shop.get("launched_at"):
@@ -5128,15 +5151,14 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
                 shop["business_start_minute"] = None
                 shop["pending_business_start_minute"] = start_minute
                 shop["pending_business_effective_at"] = effective_at
-                end_minute = start_minute + FLOWER_SHOP_BUSINESS_DURATION_MINUTES
-                end_label = (
-                    "24:00" if end_minute == 24 * 60 else
-                    f"{'次日 ' if end_minute > 24 * 60 else ''}{(end_minute // 60) % 24:02d}:{end_minute % 60:02d}"
-                )
                 ok, result = True, (
                     "🕙 营业时间已调整，新时间将于下一自然日生效。今天剩余时间花店保持闭店。"
                     f"\n新营业时段：{start_minute // 60:02d}:{start_minute % 60:02d}–{end_label}。"
                 )
+
+            if ok:
+                add_event(state, f"🕙 设置花店营业时段：{start_minute // 60:02d}:{start_minute % 60:02d}–{end_label}。",
+                          now=now, source=event_source, area="flower_shop")
 
     elif action == "launch_flower_shop":
         shop = state["flower_shop"]
@@ -5174,7 +5196,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
                     f"💐 把一朵{FLOWERS[flower_id]['name']}插进了花瓶。"
                     f"\n   花瓶里的花不能再出售，可保持约{VASE_LIFESPAN_REAL_HOURS}小时。"
                 )
-                add_event(state, f"把{FLOWERS[flower_id]['name']}插进花瓶")
+                add_event(state, f"把{FLOWERS[flower_id]['name']}插进花瓶", now=now, source=event_source, area="garden")
 
     elif action == "vase":
         if len(parts) != 1:
@@ -5204,7 +5226,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
                         f"🧹 从花瓶位置{vase_idx + 1}移除了{flower_name}。"
                         "\n   花朵和金币都不会返还。"
                     )
-                    add_event(state, f"从花瓶移除{flower_name}")
+                    add_event(state, f"从花瓶移除{flower_name}", now=now, source=event_source, area="garden")
 
     elif action == "sell":
         if len(parts) < 2:
@@ -5225,7 +5247,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
                     state["total_earned"] += total
                     state["direct_flower_sale_earned"] += total
                     state["inventory"]["flowers"] = {}
-                    add_event(state, f"卖掉所有花，赚了{total}块", source=event_source)
+                    add_event(state, f"卖掉所有花，赚了{total}块", source=event_source, area="garden")
                     ok, result = True, f"💰 卖掉所有花，赚了{total}块！"
         else:
             flower_id = parts[1].lower()
@@ -5249,7 +5271,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
                 add_event(
                     state,
                     f"卖了{quantity}朵{FLOWERS[flower_id]['name']}，赚了{price}块",
-                    source=event_source,
+                    source=event_source, area="garden",
                 )
                 ok, result = True, f"💰 卖了{quantity}朵{FLOWERS[flower_id]['name']}，赚了{price}块！"
 
@@ -5777,7 +5799,7 @@ def _activate_pest(state, pot_idx, now):
     pot["last_growth_update"] = now
     pot.pop("pest_time", None)
     state.get("pest_treatment", {}).pop(pot_idx, None)
-    add_event(state, f"盆{pot_idx + 1}出现虫害")
+    add_event(state, f"盆{pot_idx + 1}出现虫害", now=now, area="garden")
     return True
 
 
@@ -5918,7 +5940,7 @@ def _harvest_one_pot(state, pot_idx, now, weather_data):
     return _harvest_one_pot_result(state, pot_idx, now, weather_data).message
 
 
-def _harvest_one_pot_result(state, pot_idx, now, weather_data) -> CommandResult:
+def _harvest_one_pot_result(state, pot_idx, now, weather_data, *, event_source="system") -> CommandResult:
     if pot_idx < 0 or pot_idx >= state["max_pots"]:
         return CommandResult(False, f"❌ 盆号必须是1-{state['max_pots']}")
     pot = state["pots"][pot_idx]
@@ -5956,7 +5978,7 @@ def _harvest_one_pot_result(state, pot_idx, now, weather_data) -> CommandResult:
             f"✨ 新发现！{flower_data['name']}已加入图鉴 ({len(state['encyclopedia'])}/{len(FLOWERS)})"
         )
         reward = ENCYCLOPEDIA_REWARDS.get(flower_id, {})
-    add_event(state, f"收获了{flower_data['name']}")
+    add_event(state, f"收获了{flower_data['name']}", now=now, source=event_source, area="garden")
     reward_text = []
     before_count = len(encyclopedia_before)
     after_count = len(state["encyclopedia"])
@@ -5974,7 +5996,7 @@ def _harvest_one_pot_result(state, pot_idx, now, weather_data) -> CommandResult:
             reward_text.append(f"{ITEMS[item_id]['name']}x{qty}")
     if reward_text:
         result += "\n🎁 解锁奖励：" + ", ".join(reward_text)
-    cottage_rewards = sync_cottage_rewards(state, now)
+    cottage_rewards = sync_cottage_rewards(state, now, record_events=True)
     if cottage_rewards:
         result += "\n🏠 小屋获得纪念物：" + "、".join(
             COTTAGE_ITEM_CATALOG[item_id]["name"] for item_id in cottage_rewards

@@ -23,6 +23,8 @@ from flask import Flask, g, has_request_context, jsonify, render_template, reque
 
 from game_engine import (
     CommandResult,
+    EVENT_AREAS,
+    EVENT_HISTORY_LIMIT,
     CAT_COLLECTIBLES,
     CAT_LETTERS,
     CAT_PHASE_ADOPTED,
@@ -970,6 +972,8 @@ def _event_record_for_client(event: dict[str, Any]) -> dict[str, Any]:
         "time": event.get("time", 0),
         "text": event.get("text", ""),
     }
+    if event.get("area") in EVENT_AREAS:
+        record["area"] = event["area"]
     if event.get("source"):
         record["source"] = event["source"]
         record["source_label"] = get_event_source_label(event["source"])
@@ -1217,10 +1221,10 @@ def _summary(state: dict[str, Any], *, events_before: list | None = None) -> dic
             if isinstance(idx, int) and 0 <= idx < len(CAT_LETTERS)
         ],
         "letter_catalog": letter_catalog,
-        "recent_events": [event.get("text", "") for event in state.get("events", [])[-5:]],
+        "recent_events": [event.get("text", "") for event in state.get("events", [])[-EVENT_HISTORY_LIMIT:]],
         "recent_event_records": sorted(
             [_event_record_for_client(event)
-             for event in state.get("events", [])[-5:]], key=lambda event: event["time"],
+             for event in state.get("events", [])[-EVENT_HISTORY_LIMIT:]], key=lambda event: event["time"],
         ),
         "new_events": [
             _event_record_for_client(event)

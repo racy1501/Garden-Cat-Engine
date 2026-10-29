@@ -43,7 +43,7 @@ def test_cat_offline_events_use_transition_times(cat_clock, monkeypatch):
     assert [event["time"] - start for event in recorded] == [5400, 6600, 12000, 13200, 18600, 19800]
     assert state["cat_state"]["location"] == "home"
     assert state["cat_state"]["next_outing_at"] == start + 25200
-    assert len(state["events"]) == 5  # 原有历史保留上限不变。
+    assert len(state["events"]) == 6  # 六次出门/归来都保留。
     for delta in (0, 60, 180):
         cat_clock[0] = start + 21600 + delta
         ge.process_command(state, "status")
@@ -153,7 +153,7 @@ def test_regular_events_keep_current_time_and_history_limit(cat_clock):
     state = ge.get_default_state()
     for number in range(7):
         ge.add_event(state, f"普通事件{number}")
-    assert len(state["events"]) == 5
+    assert len(state["events"]) == 7
     assert all(event["time"] == cat_clock[0] for event in state["events"])
 
 
@@ -605,7 +605,7 @@ def test_first_cat_collectible_notified_by_settling_request(api, cat_clock, monk
     assert saved["collectibles"][item["id"]] == 1
     assert saved["collectible_first_found"][item["id"]] == start + 60
     if not live:
-        assert all(item["name"] not in event["text"] for event in saved["events"])
+        assert sum(item["name"] in event["text"] for event in saved["events"]) == 1
     assert not any("discovery" in key or "collectible_notice" in key for key in saved)
 
     again = client.get(f"/web/status?session_id={session_id}", headers=headers).get_json()
@@ -1034,13 +1034,13 @@ def test_ai_bouquet_command_and_web_collection_state(api):
     assert web_state["bouquet_gifts"][0]["message"] == "给你的春天"
     assert web_state["bouquet_options"] == created.get_json()["state"]["bouquet_options"]
     assert web_state["bouquet_gifts"][0]["components"] == {"tulip": 2, "baby_breath": 1}
-    assert web_state["recent_events"][-1] == "💐 小机送给你一束「初见」，还附了一张小卡片。"
+    assert web_state["recent_events"][-1] == "💐 送出了一束「初见」，还附了一张小卡片。"
     gift_events = [
         event["text"]
         for event in module.db_load_state(session_id)["events"]
-        if "送给你一束「初见」" in event.get("text", "")
+        if "送出了一束「初见」" in event.get("text", "")
     ]
-    assert gift_events == ["💐 小机送给你一束「初见」，还附了一张小卡片。"]
+    assert gift_events == ["💐 送出了一束「初见」，还附了一张小卡片。"]
     assert all("返回面测试花园" not in event for event in gift_events)
 
     catalog = client.get("/api/catalog").get_json()
@@ -1222,9 +1222,9 @@ def test_bouquet_unread_cursor_is_durable_and_legacy_gifts_are_read(api):
     first_gift_events = [
         event["text"]
         for event in module.db_load_state(session_id)["events"]
-        if "送给你一束「初见」" in event.get("text", "")
+        if "送出了一束「初见」" in event.get("text", "")
     ]
-    assert first_gift_events == ["💐 小机送给你一束「初见」。"]
+    assert first_gift_events == ["💐 送出了一束「初见」。"]
     assert all("返回面测试花园" not in event for event in first_gift_events)
     assert old_event_text in [event["text"] for event in module.db_load_state(session_id)["events"]]
     unread = client.get(
@@ -1256,11 +1256,11 @@ def test_bouquet_unread_cursor_is_durable_and_legacy_gifts_are_read(api):
     all_gift_events = [
         event["text"]
         for event in module.db_load_state(session_id)["events"]
-        if "送给你一束「初见」" in event.get("text", "")
+        if "送出了一束「初见」" in event.get("text", "")
     ]
     assert all_gift_events == [
-        "💐 小机送给你一束「初见」。",
-        "💐 小机送给你一束「初见」。",
+        "💐 送出了一束「初见」。",
+        "💐 送出了一束「初见」。",
     ]
     assert all("返回面测试花园" not in event for event in all_gift_events)
     unread_again = client.get(

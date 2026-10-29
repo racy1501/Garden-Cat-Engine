@@ -908,6 +908,7 @@ def test_list_bouquet_rolls_once_and_public_summary_hides_sale_plan():
         get_flower_shop_public_summary(state, now)
         process_command(state, "status")
     assert sale_roll.call_count == 1
+    assert any(event.get("area") == "flower_shop" and "放上货架" in event["text"] for event in state["events"])
     assert state["bouquet_inventory"] == []
     slot = state["flower_shop"]["slots"][0]
     assert slot["instance_id"] == "bag-one"
@@ -957,6 +958,7 @@ def test_flower_shop_sale_uses_true_sold_at_price_and_is_idempotent():
     assert state["total_earned"] == before_total + 55
     assert state["direct_flower_sale_earned"] == before_direct
     assert state["flower_shop"]["slots"][0] is None
+    assert any(event.get("area") == "flower_shop" and "成交" in event["text"] for event in state["events"])
     assert settle_flower_shop(state, int((listed_dt + timedelta(hours=8)).timestamp())) == []
     assert state["money"] == before_money + 55
 
@@ -970,6 +972,7 @@ def test_flower_shop_closed_time_only_ages_and_unsold_bouquet_expires_at_24h():
     results = settle_flower_shop(state, listed_at + FLOWER_SHOP_BOUQUET_LIFETIME_SECONDS)
     assert results == [{"type": "expired", "slot": 1, "expired_at": listed_at + 24 * 3600}]
     assert state["flower_shop"]["slots"][0] is None
+    assert any(event.get("area") == "flower_shop" and "报废" in event["text"] for event in state["events"])
 
 
 def test_flower_shop_expiry_is_not_truncated_by_the_72_hour_offline_cap():
