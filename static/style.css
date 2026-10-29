@@ -2181,6 +2181,9 @@ html, body { min-width: 0; }
 .bouquet-craft-card .flower-shop-actions { margin-top: auto; flex-wrap: wrap; justify-content: center; }
 .flower-shop-facilities { display: grid; gap: 6px; }
 .flower-shop-buff { display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 8px 10px; border-radius: 10px; background: rgba(247,213,112,.22); color: var(--green-dark); }
+.flower-shop-buff[hidden] { display: none; }
+.flower-shop-buff-image { width: 56px; height: 56px; object-fit: contain; flex: 0 0 auto; }
+.flower-shop-buff-details { display: grid; gap: 3px; flex: 1; min-width: 0; }
 .flower-shop-row input { min-width: 0; padding: 6px; border: 1px solid rgba(92,111,84,.22); border-radius: 8px; }
 .flower-shop-shelves { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 10px; border: 1px solid #d7c9b2; border-radius: 14px; background: #e7ddcb; }
 .flower-shop-shelves article { box-sizing: border-box; min-width: 0; height: 200px; display: grid; gap: 4px; align-content: safe center; justify-items: center; padding: 8px 5px; border: 1px solid #d8d2c3; border-radius: 9px; background: #fffaf2; color: var(--green-dark); font-size: 13px; text-align: center; overflow-wrap: anywhere; overflow: auto; }

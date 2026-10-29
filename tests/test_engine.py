@@ -594,6 +594,50 @@ def _prepare_adopted_cat_return(state, return_at):
     )
 
 
+def test_cat_collectible_drop_returns_id_and_original_message_for_both_paths():
+    state = fresh_state()
+    state["cat"] = {"name": "栗子"}
+    state["cat_stats"] = ge._default_v5_cat_stats()
+    state["cat_collectibles_unlocked"] = True
+    item = ge.CAT_COLLECTIBLES[0]
+    with patch("game_engine.random.random", return_value=0.0), patch(
+        "game_engine.choose_cat_collectible", return_value=item
+    ):
+        for context in ("visitor", "adopted"):
+            collectible_id, message = ge.maybe_drop_cat_collectible(state, context, now=123)
+            assert collectible_id == item["id"]
+            assert message == f"🎁 栗子带回了{item['emoji']}{item['name']}！"
+    assert state["collectibles"][item["id"]] == 2
+
+
+def test_real_adopted_drop_is_saved_as_buff_source():
+    return_at = int(time.time())
+    state = fresh_state()
+    state["flower_shop"].update(established_at=return_at - 100, shelf_capacity=3, slots=[None] * 3)
+    _prepare_adopted_cat_return(state, return_at)
+    item = ge.CAT_COLLECTIBLES[1]
+    with patch("game_engine.random.random", return_value=0.0), patch(
+        "game_engine.choose_cat_collectible", return_value=item
+    ):
+        messages = ge.settle_cat_lifecycle(state, return_at, shop_buff_windows=[])
+    assert any(item["name"] in message for message in messages)
+    assert state["collectibles"][item["id"]] == 1
+    assert state["flower_shop"]["shop_buff_collectible_id"] == item["id"]
+    assert state["flower_shop"]["shop_buff_until"] == return_at + 4 * 3600
+
+
+@pytest.mark.parametrize("source_id, expected", [("pebble", "pebble"), ("invalid", None), (None, None), (["pebble"], None)])
+def test_shop_buff_source_normalization_and_expiry(source_id, expected):
+    now = int(time.time())
+    state = fresh_state()
+    state["flower_shop"].update(established_at=now - 1, shop_buff_until=now + 3600,
+                                shop_buff_collectible_id=source_id)
+    normalize_state(state, now=now)
+    assert state["flower_shop"]["shop_buff_collectible_id"] == expected
+    assert get_flower_shop_public_summary(state, now)["shop_buff_collectible_id"] == expected
+    assert get_flower_shop_public_summary(state, now + 3600)["shop_buff_collectible_id"] is None
+
+
 def test_cat_shop_buff_only_rolls_after_adopted_return_collectible():
     return_at = int(time.time())
     state = fresh_state()
@@ -614,13 +658,14 @@ def test_cat_shop_buff_only_rolls_after_adopted_return_collectible():
     assert windows == []
 
     _prepare_adopted_cat_return(state, return_at + 60)
-    with patch("game_engine.maybe_drop_cat_collectible", return_value="🎁 带回藏品"), patch(
+    with patch("game_engine.maybe_drop_cat_collectible", return_value=("pebble", "🎁 带回藏品")), patch(
         "game_engine.random.random", return_value=0.01
     ) as buff_roll:
         ge.settle_cat_lifecycle(state, return_at + 60, shop_buff_windows=windows)
         ge.settle_cat_lifecycle(state, return_at + 60, shop_buff_windows=windows)
     buff_roll.assert_called_once_with()
     assert state["flower_shop"]["shop_buff_until"] == return_at + 60 + 4 * 3600
+    assert state["flower_shop"]["shop_buff_collectible_id"] == "pebble"
     assert windows == [{"start_at": return_at + 60, "until_at": return_at + 60 + 4 * 3600}]
     with patch("game_engine.random.random") as summary_roll:
         normalize_state(state, now=return_at + 60)
@@ -630,12 +675,13 @@ def test_cat_shop_buff_only_rolls_after_adopted_return_collectible():
 
     previous_until = state["flower_shop"]["shop_buff_until"]
     _prepare_adopted_cat_return(state, return_at + 120)
-    with patch("game_engine.maybe_drop_cat_collectible", return_value="🎁 带回藏品"), patch(
+    with patch("game_engine.maybe_drop_cat_collectible", return_value=("shell", "🎁 带回藏品")), patch(
         "game_engine.random.random", return_value=0.50
     ) as buff_roll:
         ge.settle_cat_lifecycle(state, return_at + 120, shop_buff_windows=windows)
     buff_roll.assert_called_once_with()
     assert state["flower_shop"]["shop_buff_until"] == previous_until
+    assert state["flower_shop"]["shop_buff_collectible_id"] == "pebble"
 
 
 def test_visitor_collectible_never_triggers_cat_shop_buff():
@@ -656,7 +702,7 @@ def test_visitor_collectible_never_triggers_cat_shop_buff():
         stay_deadline_at=leave_at + 3600,
         last_lifecycle_settled_at=leave_at - 1,
     )
-    with patch("game_engine.maybe_drop_cat_collectible", return_value="🎁 带回藏品"), patch(
+    with patch("game_engine.maybe_drop_cat_collectible", return_value=("pebble", "🎁 带回藏品")), patch(
         "game_engine.random.random"
     ) as buff_roll:
         ge.settle_cat_lifecycle(state, leave_at, shop_buff_windows=[])
@@ -674,7 +720,7 @@ def test_cat_shop_buff_refreshes_from_second_return_without_stacking():
         "slots": [None, None, None],
     }
     windows = []
-    with patch("game_engine.maybe_drop_cat_collectible", return_value="🎁 带回藏品"), patch(
+    with patch("game_engine.maybe_drop_cat_collectible", side_effect=[("pebble", "🎁 带回藏品"), ("shell", "🎁 带回藏品")]), patch(
         "game_engine.random.random", return_value=0.0
     ):
         _prepare_adopted_cat_return(state, first_return)
@@ -684,6 +730,7 @@ def test_cat_shop_buff_refreshes_from_second_return_without_stacking():
         ge.settle_cat_lifecycle(state, second_return, shop_buff_windows=windows)
 
     assert state["flower_shop"]["shop_buff_until"] == second_return + 4 * 3600
+    assert state["flower_shop"]["shop_buff_collectible_id"] == "shell"
     assert windows == [
         {"start_at": first_return, "until_at": first_return + 4 * 3600},
         {"start_at": second_return, "until_at": second_return + 4 * 3600},
@@ -702,7 +749,7 @@ def test_one_cat_lifecycle_pass_can_emit_multiple_temporary_buff_windows():
     }
     _prepare_adopted_cat_return(state, first_return)
     windows = []
-    with patch("game_engine.maybe_drop_cat_collectible", return_value="🎁 带回藏品"), patch(
+    with patch("game_engine.maybe_drop_cat_collectible", return_value=("pebble", "🎁 带回藏品")), patch(
         "game_engine.random.random", return_value=0.0
     ) as buff_roll, patch(
         "game_engine._schedule_next_adopted_outing",
@@ -723,7 +770,7 @@ def test_cat_shop_buff_requires_established_shop_and_summary_never_rolls():
     return_at = int(time.time())
     state = fresh_state()
     _prepare_adopted_cat_return(state, return_at)
-    with patch("game_engine.maybe_drop_cat_collectible", return_value="🎁 带回藏品"), patch(
+    with patch("game_engine.maybe_drop_cat_collectible", return_value=("pebble", "🎁 带回藏品")), patch(
         "game_engine.random.random"
     ) as buff_roll:
         ge.settle_cat_lifecycle(state, return_at, shop_buff_windows=[])
@@ -749,7 +796,7 @@ def test_flower_shop_sale_buff_uses_real_sold_at_without_changing_sale_plan():
         _prepare_adopted_cat_return(state, return_at)
         original_profile = list(state["flower_shop"]["slots"][0]["pricing_profile"])
         before_direct = state["direct_flower_sale_earned"]
-        with patch("game_engine.maybe_drop_cat_collectible", return_value="🎁 带回藏品"), patch(
+        with patch("game_engine.maybe_drop_cat_collectible", return_value=("pebble", "🎁 带回藏品")), patch(
             "game_engine.random.random", return_value=0.0
         ), patch("game_engine._schedule_next_adopted_outing") as schedule_next:
             schedule_next.side_effect = lambda cat_state, base_time: cat_state.__setitem__(
@@ -804,7 +851,7 @@ def test_online_and_offline_entry_points_apply_same_cat_shop_buff_result():
     offline = copy.deepcopy(base)
 
     with patch("game_engine.time.time", return_value=target_at), patch(
-        "game_engine.maybe_drop_cat_collectible", return_value="🎁 带回藏品"
+        "game_engine.maybe_drop_cat_collectible", return_value=("pebble", "🎁 带回藏品")
     ), patch("game_engine.random.random", return_value=0.0), patch(
         "game_engine._schedule_next_adopted_outing"
     ) as schedule_next:

@@ -570,7 +570,7 @@ def test_first_cat_collectible_notified_by_settling_request(api, cat_clock, monk
 
     def first_drop(state, context, now=None, source=None):
         calls.append(now)
-        return ge.award_cat_collectible(state, item, now=now, source=source) if len(calls) == 1 else None
+        return (item["id"], ge.award_cat_collectible(state, item, now=now, source=source)) if len(calls) == 1 else None
 
     monkeypatch.setattr(ge, "maybe_drop_cat_collectible", first_drop)
     cat_clock[0] += 60 if live else 6 * 3600
@@ -635,7 +635,7 @@ def test_multiple_and_repeat_cat_collectibles_notice(api, cat_clock, monkeypatch
     def drop(state, context, now=None, source=None):
         calls.append(now)
         item = items[0] if already_owned else items[min(len(calls) - 1, 1)]
-        return ge.award_cat_collectible(state, item, now=now, source=source)
+        return item["id"], ge.award_cat_collectible(state, item, now=now, source=source)
 
     monkeypatch.setattr(ge, "maybe_drop_cat_collectible", drop)
     cat_clock[0] += 60 if already_owned else 6 * 3600
@@ -1103,8 +1103,40 @@ def test_flower_shop_and_bouquet_inventory_have_public_summary_only(api, cmd_url
     assert active_shop["shop_buff_until"] == buff_until
     assert 0 < active_shop["shop_buff_remaining_seconds"] <= 3600
     assert active_shop["shop_buff_effect"] == "成交金额 +10%"
+    assert active_shop["shop_buff_collectible_id"] is None
     assert "shop_buff_windows" not in active_shop
     assert "buff_roll" not in active_shop
+
+    saved = module.db_load_state(session_id)
+    saved["flower_shop"]["shop_buff_collectible_id"] = ge.CAT_COLLECTIBLES[0]["id"]
+    module.db_save_state(session_id, saved)
+    assert module.db_load_state(session_id)["flower_shop"]["shop_buff_collectible_id"] == ge.CAT_COLLECTIBLES[0]["id"]
+    responses = [
+        client.get(f"/api/status?session_id={session_id}", headers=ai_headers),
+        client.get(f"/web/status?session_id={session_id}", headers=human_headers),
+        client.post(cmd_url, headers=ai_headers, json={"session_id": session_id, "command": "status"}),
+    ]
+    for response in responses:
+        assert response.get_json()["state"]["flower_shop"]["shop_buff_collectible_id"] == ge.CAT_COLLECTIBLES[0]["id"]
+
+
+@pytest.mark.parametrize("source_id", ["missing", "invalid"])
+def test_old_or_invalid_shop_buff_source_loads_as_generic(api, source_id):
+    module, client = api
+    session_id, headers = create_human_garden(client)
+    now = int(ge.time.time())
+    state = module.db_load_state(session_id)
+    state["flower_shop"].update(established_at=now - 100, shelf_capacity=3,
+                                shop_buff_until=now + 3600, slots=[None] * 3)
+    if source_id == "missing":
+        state["flower_shop"].pop("shop_buff_collectible_id", None)
+    else:
+        state["flower_shop"]["shop_buff_collectible_id"] = "invalid"
+    write_raw_state(module, session_id, state)
+    shop = client.get(f"/web/status?session_id={session_id}", headers=headers).get_json()["state"]["flower_shop"]
+    assert shop["shop_buff_active"] is True
+    assert shop["shop_buff_collectible_id"] is None
+    assert module.db_load_state(session_id)["flower_shop"]["shop_buff_collectible_id"] is None
 
 
 @pytest.mark.parametrize("cmd_url", ["/api/cmd", "/api/cmd?compact=1"])

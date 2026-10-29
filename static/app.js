@@ -338,6 +338,16 @@ function updateLiveCountdowns() {
     }
   }
 
+  if (currentState.flower_shop?.shop_buff_active) {
+    const remaining = Math.max(0, Number(currentState.flower_shop.shop_buff_remaining_seconds || 0) - elapsed);
+    const buff = document.querySelector("[data-live-shop-buff]");
+    const buffText = document.querySelector("[data-live-shop-buff-text]");
+    if (buff) buff.hidden = remaining <= 0;
+    if (buffText && remaining > 0) {
+      buffText.textContent = `${currentState.flower_shop.shop_buff_effect || "猫咪好运生效中"}｜剩余 ${formatDuration(remaining)}`;
+    }
+  }
+
   if (crossedBoundary) queueLiveRefresh();
 }
 
@@ -1290,12 +1300,33 @@ function renderBouquetWorkshop(body) {
     status.textContent = shop.launched ? (shop.is_open ? "营业中" : "已闭店，等待下一次营业") : "已建成，尚未正式开业";
     const buff = document.createElement("div");
     buff.className = "flower-shop-buff";
-    if (shop.shop_buff_active) {
+    const buffRemaining = Math.max(0, Number(shop.shop_buff_remaining_seconds || 0) - getSnapshotElapsedSeconds());
+    if (shop.shop_buff_active && buffRemaining > 0) {
+      buff.setAttribute("data-live-shop-buff", "");
+      const collectible = (currentState?.collectible_catalog || catalog?.collectibles || [])
+        .find((item) => item.id === shop.shop_buff_collectible_id);
+      if (collectible && CUSTOM_ASSETS[collectible.id]) {
+        const image = document.createElement("img");
+        image.className = "flower-shop-buff-image";
+        image.src = CUSTOM_ASSETS[collectible.id];
+        image.alt = collectible.name;
+        buff.append(image);
+      }
+      const details = document.createElement("div");
+      details.className = "flower-shop-buff-details";
       const buffTitle = document.createElement("strong");
-      buffTitle.textContent = "🐾 猫咪好运";
+      buffTitle.textContent = collectible ? collectible.display_name || collectible.name : "🐾 猫咪好运";
+      details.append(buffTitle);
+      if (collectible) {
+        const note = document.createElement("small");
+        note.textContent = "猫咪把它放在了花店柜台上。";
+        details.append(note);
+      }
       const buffText = document.createElement("small");
-      buffText.textContent = `成交金额 +10%｜剩余 ${formatDuration(shop.shop_buff_remaining_seconds || 0)}`;
-      buff.append(buffTitle, buffText);
+      buffText.setAttribute("data-live-shop-buff-text", "");
+      buffText.textContent = `${shop.shop_buff_effect || "猫咪好运生效中"}｜剩余 ${formatDuration(buffRemaining)}`;
+      details.append(buffText);
+      buff.append(details);
     }
     const facilities = document.createElement("div");
     facilities.className = "flower-shop-facilities";
@@ -1344,7 +1375,7 @@ function renderBouquetWorkshop(body) {
     const next = document.createElement("small");
     next.textContent = shop.next_business_cycle_at ? `下次营业周期：${formatBouquetTimestamp(shop.next_business_cycle_at)}` : "请先设置营业开始时间";
     shopSection.append(status);
-    if (shop.shop_buff_active) shopSection.append(buff);
+    if (shop.shop_buff_active && buffRemaining > 0) shopSection.append(buff);
     shopSection.append(facilities, hours, next);
     if (!shop.launched) shopSection.append(makeButton("正式开业", "launch_flower_shop", "mini-btn gold", !Number.isInteger(shop.business_start_minute)));
   }

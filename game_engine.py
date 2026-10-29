@@ -1084,10 +1084,13 @@ def maybe_drop_cat_collectible(state, drop_context, now=None, source=None):
     if random.random() >= drop_rate:
         return None
     collectible = choose_cat_collectible(state, drop_context)
-    return award_cat_collectible(state, collectible, now=now, source=source)
+    message = award_cat_collectible(state, collectible, now=now, source=source)
+    if not message:
+        return None
+    return collectible["id"], message
 
 
-def _maybe_trigger_flower_shop_cat_buff(state, now, buff_windows=None):
+def _maybe_trigger_flower_shop_cat_buff(state, now, collectible_id, buff_windows=None):
     shop = state.get("flower_shop")
     if not isinstance(shop, dict) or not shop.get("established_at"):
         return None
@@ -1096,6 +1099,7 @@ def _maybe_trigger_flower_shop_cat_buff(state, now, buff_windows=None):
     start_at = int(now)
     until_at = start_at + FLOWER_SHOP_CAT_BUFF_DURATION_SECONDS
     shop["shop_buff_until"] = until_at
+    shop["shop_buff_collectible_id"] = collectible_id
     if isinstance(buff_windows, list):
         buff_windows.append({"start_at": start_at, "until_at": until_at})
     message = "🐾 猫咪带回的小发现给花店添了好运，接下来4小时成交金额会提高。"
@@ -1411,14 +1415,14 @@ def settle_cat_lifecycle(
             if location == CAT_LOCATION_GARDEN and current_visit_leave_at == next_transition_at:
                 stay_deadline_at = _safe_nonnegative_int(cat_state.get("stay_deadline_at", 0), 0)
                 max_affection = get_cat_max_affection(state)
-                collectible_message = maybe_drop_cat_collectible(
+                collectible_result = maybe_drop_cat_collectible(
                     state,
                     "visitor",
                     now=next_transition_at,
                     source="visit_complete",
                 )
-                if collectible_message:
-                    events.append(collectible_message)
+                if collectible_result:
+                    events.append(collectible_result[1])
                 if max_affection >= 30 or (stay_deadline_at > 0 and next_transition_at >= stay_deadline_at):
                     _enter_waiting_name_phase(state, next_transition_at)
                     cat_name = get_current_cat_name(state)
@@ -1506,17 +1510,19 @@ def settle_cat_lifecycle(
                 cat_name = get_current_cat_name(state)
                 add_event(state, f"{cat_name}回家了。", now=outing_return_at)
                 events.append(f"{cat_name}回家了。")
-                collectible_message = maybe_drop_cat_collectible(
+                collectible_result = maybe_drop_cat_collectible(
                     state,
                     "adopted",
                     now=outing_return_at,
                     source="outing_return",
                 )
-                if collectible_message:
+                if collectible_result:
+                    collectible_id, collectible_message = collectible_result
                     events.append(collectible_message)
                     buff_message = _maybe_trigger_flower_shop_cat_buff(
                         state,
                         outing_return_at,
+                        collectible_id,
                         shop_buff_windows,
                     )
                     if buff_message:
@@ -1550,6 +1556,7 @@ def _default_flower_shop_state():
         "shelf_capacity": 0,
         "has_freshener": False,
         "shop_buff_until": 0,
+        "shop_buff_collectible_id": None,
         "business_start_minute": None,
         "pending_business_start_minute": None,
         "pending_business_effective_at": None,
@@ -2767,6 +2774,11 @@ def _normalize_flower_shop(raw_shop, now=None):
         "shelf_capacity": capacity,
         "has_freshener": bool(raw_shop.get("has_freshener", False)),
         "shop_buff_until": _safe_nonnegative_int(raw_shop.get("shop_buff_until", 0), 0),
+        "shop_buff_collectible_id": (
+            raw_shop.get("shop_buff_collectible_id")
+            if get_collectible_by_id(raw_shop.get("shop_buff_collectible_id")) is not None
+            else None
+        ),
         "business_start_minute": start_minute,
         "pending_business_start_minute": pending_start_minute,
         "pending_business_effective_at": pending_effective_at,
@@ -3812,6 +3824,7 @@ def get_flower_shop_public_summary(state, now=None):
         "bouquet_lifetime_seconds": FLOWER_SHOP_BOUQUET_LIFETIME_SECONDS,
         "shop_buff_active": shop_buff_active,
         "shop_buff_until": shop_buff_until if shop_buff_active else None,
+        "shop_buff_collectible_id": shop.get("shop_buff_collectible_id") if shop_buff_active else None,
         "shop_buff_remaining_seconds": max(0, shop_buff_until - now) if shop_buff_active else 0,
         "shop_buff_effect": "成交金额 +10%" if shop_buff_active else None,
         "business_start_minute": start_minute,
