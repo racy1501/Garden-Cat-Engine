@@ -235,9 +235,119 @@ def test_flower_shop_fixed_hours_cross_midnight_and_pending_change():
     assert summary["capacity"] == 3
     closed = int(datetime(2026, 10, 10, 12, 0, tzinfo=DISPLAY_TIMEZONE).timestamp())
     with patch("game_engine.time.time", return_value=closed):
-        assert "下一次营业周期生效" in process_command(state, "set_flower_shop_hours 09:00")
-    assert state["flower_shop"]["business_start_minute"] == 22 * 60
+        assert "下一自然日生效" in process_command(state, "set_flower_shop_hours 09:00")
+    assert state["flower_shop"]["business_start_minute"] is None
     assert state["flower_shop"]["pending_business_start_minute"] == 9 * 60
+
+
+def _hours_test_time(day, hour=0, minute=0):
+    return int(datetime(2026, 10, day, hour, minute, tzinfo=DISPLAY_TIMEZONE).timestamp())
+
+
+def _hours_test_shop():
+    with patch("game_engine.time.time", return_value=_hours_test_time(29, 11)):
+        state = get_default_state()
+    state["flower_shop"].update(
+        established_at=_hours_test_time(28), launched_at=_hours_test_time(28),
+        business_start_minute=0, shelf_capacity=3, slots=[None] * 3,
+    )
+    return state
+
+
+@pytest.mark.parametrize("new_start,first_hour", [("14:00", 14), ("22:00", 22), ("00:00", 0)])
+def test_flower_shop_hours_change_waits_for_next_date_first_window(new_start, first_hour):
+    state = _hours_test_shop()
+    with patch("game_engine.time.time", return_value=_hours_test_time(29, 11)):
+        result = process_command(state, f"set_flower_shop_hours {new_start}")
+    assert "下一自然日生效" in result
+    assert "今天剩余时间花店保持闭店" in result
+    assert new_start in result
+    assert ("14:00–24:00" if first_hour == 14 else "22:00–次日 08:00" if first_hour == 22 else "00:00–10:00") in result
+    for hour in (14, 22, 23):
+        at = _hours_test_time(29, hour)
+        state = json.loads(json.dumps(state))
+        with patch("game_engine.time.time", return_value=at):
+            process_command(state, "status")
+        assert not get_flower_shop_public_summary(state, at)["is_open"]
+        assert state["flower_shop"]["pending_business_effective_at"] == _hours_test_time(30)
+    midnight = _hours_test_time(30)
+    with patch("game_engine.time.time", return_value=midnight):
+        process_command(state, "status")
+    assert state["flower_shop"]["business_start_minute"] == first_hour * 60
+    assert get_flower_shop_public_summary(state, midnight)["is_open"] is (first_hour == 0)
+    # 跨请求及存档回读后仍保留首个真实营业窗口的边界。
+    state = json.loads(json.dumps(state))
+    first_open = _hours_test_time(30, first_hour)
+    if first_hour:
+        with patch("game_engine.time.time", return_value=first_open - 1):
+            process_command(state, "status")
+        assert not get_flower_shop_public_summary(state, first_open - 1)["is_open"]
+    with patch("game_engine.time.time", return_value=first_open):
+        process_command(state, "status")
+    assert get_flower_shop_public_summary(state, first_open)["is_open"]
+    assert state["flower_shop"]["pending_business_effective_at"] is None
+    if first_hour == 22:
+        assert get_flower_shop_public_summary(state, _hours_test_time(31, 7))["is_open"]
+        assert not get_flower_shop_public_summary(state, _hours_test_time(31, 8))["is_open"]
+
+
+def test_flower_shop_pending_blocks_listing_and_survives_repeated_changes():
+    state = _hours_test_shop()
+    with patch("game_engine.time.time", return_value=_hours_test_time(29, 11)):
+        process_command(state, "set_flower_shop_hours 14:00")
+    with patch("game_engine.time.time", return_value=_hours_test_time(29, 14)):
+        assert "等待生效" in process_command(state, "list_bouquet instance_id=unused")
+        assert "下一自然日生效" in process_command(state, "set_flower_shop_hours 22:00")
+    assert state["flower_shop"]["pending_business_effective_at"] == _hours_test_time(30)
+    assert not get_flower_shop_public_summary(state, _hours_test_time(29, 22))["is_open"]
+
+
+def test_flower_shop_first_setup_is_immediate_and_change_requires_closed_empty_shop():
+    state = _hours_test_shop()
+    state["flower_shop"].update(launched_at=None, business_start_minute=None)
+    with patch("game_engine.time.time", return_value=_hours_test_time(29, 11)):
+        assert "已设置" in process_command(state, "set_flower_shop_hours 09:00")
+        assert "正式开业" in process_command(state, "launch_flower_shop")
+        assert "营业中" in process_command(state, "set_flower_shop_hours 14:00")
+    assert state["flower_shop"]["business_start_minute"] == 9 * 60
+    assert state["flower_shop"]["pending_business_effective_at"] is None
+    listed_at = _hours_test_time(29, 19)
+    state = _listed_shop_state(listed_at, will_sell=False, remaining=0)
+    state["flower_shop"]["business_start_minute"] = 0
+    with patch("game_engine.time.time", return_value=listed_at):
+        assert "货架尚有" in process_command(state, "set_flower_shop_hours 14:00")
+
+
+@pytest.mark.parametrize("pending_at,pending_start", [
+    (_hours_test_time(29, 14), 14 * 60),
+    (_hours_test_time(29), 0),
+    (_hours_test_time(30), 0),
+])
+def test_flower_shop_legacy_pending_rescheduled_once_from_current_date(pending_at, pending_start):
+    state = _hours_test_shop()
+    state["flower_shop"].update(
+        pending_business_start_minute=pending_start,
+        pending_business_effective_at=pending_at,
+    )
+    normalize_state(state, _hours_test_time(29, 11))
+    assert state["flower_shop"]["business_start_minute"] is None
+    assert state["flower_shop"]["pending_business_effective_at"] == _hours_test_time(30)
+    assert state["flower_shop"]["launched_at"] == _hours_test_time(28)
+    state = json.loads(json.dumps(state))
+    normalize_state(state, _hours_test_time(30, 1))
+    assert state["flower_shop"]["pending_business_effective_at"] == _hours_test_time(30)
+    ge._refresh_flower_shop_schedule(state, _hours_test_time(30, 1))
+    assert state["flower_shop"]["business_start_minute"] == pending_start
+
+
+def test_flower_shop_old_save_without_pending_fields_keeps_schedule():
+    state = _hours_test_shop()
+    del state["flower_shop"]["pending_business_start_minute"]
+    del state["flower_shop"]["pending_business_effective_at"]
+    normalize_state(state, _hours_test_time(29, 11))
+    assert state["flower_shop"]["business_start_minute"] == 0
+    assert state["flower_shop"]["pending_business_start_minute"] is None
+    assert state["flower_shop"]["pending_business_effective_at"] is None
 
 
 def test_flower_shop_shelf_upgrades_preserve_listings_and_require_funds():

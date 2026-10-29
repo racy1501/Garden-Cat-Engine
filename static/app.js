@@ -1334,7 +1334,8 @@ function renderBouquetWorkshop(body) {
     hours.className = "flower-shop-row";
     const timeInput = document.createElement("input");
     timeInput.type = "time";
-    timeInput.value = Number.isInteger(shop.business_start_minute) ? formatShopStartMinute(shop.business_start_minute) : "";
+    const displayedStart = shop.pending_business_start_minute ?? shop.business_start_minute;
+    timeInput.value = Number.isInteger(displayedStart) ? formatShopStartMinute(displayedStart) : "";
     const setHours = makeButton("设置每日10小时", null, "mini-btn");
     setHours.addEventListener("click", () => {
       if (timeInput.value) runCommand(`set_flower_shop_hours ${timeInput.value}`, setHours);

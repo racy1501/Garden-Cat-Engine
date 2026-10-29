@@ -2713,7 +2713,7 @@ def _normalize_flower_shop_slot(raw_slot):
     }
 
 
-def _normalize_flower_shop(raw_shop):
+def _normalize_flower_shop(raw_shop, now=None):
     raw_shop = raw_shop if isinstance(raw_shop, dict) else {}
     established_at = _nullable_positive_int(raw_shop.get("established_at"))
     if established_at is None:
@@ -2735,10 +2735,19 @@ def _normalize_flower_shop(raw_shop):
         pending_start_minute = None
 
     pending_effective_at = _nullable_positive_int(raw_shop.get("pending_business_effective_at"))
-    if pending_start_minute is None or pending_effective_at is None:
+    if pending_effective_at is None:
         pending_start_minute = None
+    elif pending_start_minute is not None and start_minute is not None:
+        # 旧 pending 同时保留原营业时段。无法还原修改日期，安全重排到明天。
+        pending_effective_at = _next_flower_shop_business_date(
+            int(time.time()) if now is None else now
+        )
+        start_minute = None
+    elif pending_start_minute is None and start_minute is None:
         pending_effective_at = None
-    launched_at = _nullable_positive_int(raw_shop.get("launched_at")) if start_minute is not None else None
+    launched_at = _nullable_positive_int(raw_shop.get("launched_at")) if (
+        start_minute is not None or pending_start_minute is not None
+    ) else None
     raw_slots = raw_shop.get("slots", [])
     slots = []
     if isinstance(raw_slots, list):
@@ -2877,7 +2886,7 @@ def normalize_state(data, now=None):
             )
     data["bouquet_gifts"] = bouquet_gifts
     data["bouquet_inventory"] = _normalize_bouquet_inventory(data.get("bouquet_inventory", []))
-    data["flower_shop"] = _normalize_flower_shop(data.get("flower_shop"))
+    data["flower_shop"] = _normalize_flower_shop(data.get("flower_shop"), now)
     raw_bouquet_read_count = data.get("human_last_read_bouquet_gift_count")
     if not had_bouquet_read_count:
         # 花束功能上线前已有的赠送记录，在首次升级时默认已查看。
@@ -3442,6 +3451,21 @@ def _flower_shop_local_cycle_start(start_minute, now):
     )
 
 
+def _next_flower_shop_business_date(now):
+    return int((_flower_shop_local_cycle_start(0, now) + timedelta(days=1)).timestamp())
+
+
+def _flower_shop_is_open(shop, now):
+    if shop.get("pending_business_start_minute") is not None:
+        return False
+    start_minute = shop.get("business_start_minute")
+    effective_at = shop.get("pending_business_effective_at")
+    if effective_at is not None and start_minute is not None:
+        if now < effective_at + start_minute * 60:
+            return False
+    return _flower_shop_is_open_for_start(start_minute, now)
+
+
 def _flower_shop_is_open_for_start(start_minute, now):
     if start_minute is None:
         return False
@@ -3688,6 +3712,13 @@ def get_next_flower_shop_cycle_at(state, now=None, start_minute=None):
         now = int(time.time())
     shop = state.get("flower_shop", {})
     if start_minute is None:
+        pending_start = shop.get("pending_business_start_minute")
+        effective_at = shop.get("pending_business_effective_at")
+        scheduled_start = pending_start if pending_start is not None else shop.get("business_start_minute")
+        if effective_at is not None and scheduled_start is not None:
+            first_open_at = effective_at + scheduled_start * 60
+            if now < first_open_at:
+                return first_open_at
         start_minute = shop.get("business_start_minute") if isinstance(shop, dict) else None
     if not isinstance(start_minute, int) or not 0 <= start_minute < 24 * 60:
         return None
@@ -3710,6 +3741,15 @@ def _refresh_flower_shop_schedule(state, now):
     ):
         shop["business_start_minute"] = pending_start
         shop["pending_business_start_minute"] = None
+    # 午夜启用新规则，但跨午夜时段不得凭空继承前一天的营业窗口。
+    # 沿用生效时间作首个开店边界，到首次真实开店后即可清除。
+    start_minute = shop.get("business_start_minute")
+    if (
+        isinstance(pending_effective_at, int)
+        and isinstance(start_minute, int)
+        and shop.get("pending_business_start_minute") is None
+        and now >= pending_effective_at + start_minute * 60
+    ):
         shop["pending_business_effective_at"] = None
 
 
@@ -3724,7 +3764,7 @@ def get_flower_shop_public_summary(state, now=None):
     is_open = bool(
         established
         and shop.get("launched_at")
-        and _flower_shop_is_open_for_start(start_minute, now)
+        and _flower_shop_is_open(shop, now)
     )
     slots = shop.get("slots", []) if isinstance(shop.get("slots"), list) else []
     shelf_capacity = int(shop.get("shelf_capacity", 0) or 0)
@@ -4937,7 +4977,7 @@ def process_command(state, command, *, event_source="system", letter_context=Non
             result = "❌ 花店尚未正式开业。"
         elif shop.get("pending_business_start_minute") is not None:
             result = "❌ 新营业时间正在等待生效，请在生效后再上架花束。"
-        elif not _flower_shop_is_open_for_start(shop.get("business_start_minute"), now):
+        elif not _flower_shop_is_open(shop, now):
             result = "❌ 当前是闭店时间，只能在营业时间内上架花束。"
         elif inventory_index is None:
             result = "❌ 花束背包里没有这个实例。"
@@ -5052,7 +5092,7 @@ def process_command(state, command, *, event_source="system", letter_context=Non
             result = "❌ 请先建造花店。"
         elif len(parts) != 2:
             result = "❌ 用法：set_flower_shop_hours <HH:MM>"
-        elif shop.get("launched_at") and _flower_shop_is_open_for_start(shop.get("business_start_minute"), now):
+        elif shop.get("launched_at") and _flower_shop_is_open(shop, now):
             result = "❌ 花店营业中，闭店后且货架全空时才能调整营业开始时间。"
         elif any(slot is not None for slot in shop.get("slots", [])):
             result = "❌ 货架尚有上架商品，清空后才能调整营业开始时间。"
@@ -5060,16 +5100,25 @@ def process_command(state, command, *, event_source="system", letter_context=Non
             start_minute = _parse_flower_shop_start_minute(parts[1])
             if start_minute is None:
                 result = "❌ 营业开始时间请使用 HH:MM（例如 09:30）。"
-            elif shop.get("business_start_minute") is None or not shop.get("launched_at"):
+            elif not shop.get("launched_at"):
                 shop["business_start_minute"] = start_minute
                 shop["pending_business_start_minute"] = None
                 shop["pending_business_effective_at"] = None
                 result = "🕙 已设置花店每天营业10小时的开始时间。"
             else:
-                effective_at = get_next_flower_shop_cycle_at(state, now, start_minute)
+                effective_at = _next_flower_shop_business_date(now)
+                shop["business_start_minute"] = None
                 shop["pending_business_start_minute"] = start_minute
                 shop["pending_business_effective_at"] = effective_at
-                result = "🕙 已安排新的营业开始时间，将从下一次营业周期生效。"
+                end_minute = start_minute + FLOWER_SHOP_BUSINESS_DURATION_MINUTES
+                end_label = (
+                    "24:00" if end_minute == 24 * 60 else
+                    f"{'次日 ' if end_minute > 24 * 60 else ''}{(end_minute // 60) % 24:02d}:{end_minute % 60:02d}"
+                )
+                result = (
+                    "🕙 营业时间已调整，新时间将于下一自然日生效。今天剩余时间花店保持闭店。"
+                    f"\n新营业时段：{start_minute // 60:02d}:{start_minute % 60:02d}–{end_label}。"
+                )
 
     elif action == "launch_flower_shop":
         shop = state["flower_shop"]

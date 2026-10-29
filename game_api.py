@@ -231,13 +231,15 @@ def db_load_state(session_id: str, *, events_before: list | None = None, live_ev
         return None
     if events_before is not None and live_events:
         events_before.extend(state.get("events", []))
+    shop_before_normalize = state.get("flower_shop")
     normalized = normalize_state(state)
+    shop_normalized = shop_before_normalize != normalized.get("flower_shop")
     if has_request_context():
         if not hasattr(g, "collectibles_before_settlement"):
             g.collectibles_before_settlement = dict(normalized.get("collectibles", {}))
         g.collectible_settlement_state = normalized
     cottage_rewards = sync_cottage_rewards(normalized)
-    if apply_offline_progress(normalized, letter_context=_request_letter_context()) or cottage_rewards:
+    if apply_offline_progress(normalized, letter_context=_request_letter_context()) or cottage_rewards or shop_normalized:
         db_save_state(session_id, normalized)
     if events_before is not None and not live_events:
         # 首次恢复和AI调用：补算完成后才开始收集操作产生的新事件。

@@ -311,6 +311,69 @@ def prepare_letter_notice_state(module, session_id, cat_clock):
     write_raw_state(module, session_id, state)
 
 
+def test_legacy_shop_pending_is_saved_without_offline_changes(api, cat_clock):
+    from datetime import datetime
+
+    module, client = api
+    def at(day, hour=0):
+        return int(datetime(2026, 10, day, hour, tzinfo=ge.DISPLAY_TIMEZONE).timestamp())
+
+    cat_clock[0] = at(29, 11)
+    session_id, _ = create_human_garden(client)
+    state = module.db_load_state(session_id)
+    state["flower_shop"].update(
+        established_at=at(28), launched_at=at(28),
+        business_start_minute=0, shelf_capacity=3, slots=[None] * 3,
+        pending_business_start_minute=14 * 60,
+        pending_business_effective_at=at(29, 14),
+    )
+    state["last_active_at"] = state["last_update"] = cat_clock[0]
+    write_raw_state(module, session_id, state)
+
+    first = module.db_load_state(session_id)
+    assert first["flower_shop"]["pending_business_effective_at"] == at(30)
+    # Read the stored JSON directly: another normalized load could conceal a missed save.
+    with module._get_conn() as conn:
+        row = conn.execute("SELECT state FROM garden_saves WHERE session_id = ?", (session_id,)).fetchone()
+    persisted = json.loads(row["state"])["flower_shop"]
+    assert persisted["business_start_minute"] is None
+    assert persisted["pending_business_effective_at"] == at(30)
+
+    cat_clock[0] = at(30, 1)
+    second = module.db_load_state(session_id)
+    assert second["flower_shop"]["pending_business_effective_at"] == at(30)
+    assert second["flower_shop"]["business_start_minute"] == 14 * 60
+    assert second["flower_shop"]["pending_business_start_minute"] is None
+
+
+@pytest.mark.parametrize("route", ["/web/cmd", "/api/cmd"])
+def test_flower_shop_hours_response_announces_next_date_and_new_window(api, cat_clock, route):
+    from datetime import datetime
+
+    module, client = api
+    cat_clock[0] = int(datetime(2026, 10, 29, 11, tzinfo=ge.DISPLAY_TIMEZONE).timestamp())
+    session_id, human_headers = create_human_garden(client)
+    state = module.db_load_state(session_id)
+    state["flower_shop"].update(
+        established_at=cat_clock[0] - 86400, launched_at=cat_clock[0] - 86400,
+        business_start_minute=0, shelf_capacity=3, slots=[None] * 3,
+    )
+    write_raw_state(module, session_id, state)
+    response = client.post(
+        route,
+        headers=human_headers if route.startswith("/web/") else {"X-API-Key": "test-key"},
+        json={"session_id": session_id, "command": "set_flower_shop_hours 14:00"},
+    )
+    payload = response.get_json()
+    assert response.status_code == 200
+    assert payload["ok"]
+    assert "下一自然日生效" in payload["message"]
+    assert "今天剩余时间花店保持闭店" in payload["message"]
+    assert "14:00–24:00" in payload["message"]
+    assert payload["state"]["flower_shop"]["is_open"] is False
+    assert payload["state"]["flower_shop"]["pending_business_start_minute"] == 14 * 60
+
+
 def test_silent_resume_notifies_new_letter_once(api, cat_clock, monkeypatch):
     module, client = api
     session_id, human_headers = create_human_garden(client)
