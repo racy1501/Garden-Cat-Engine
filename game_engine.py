@@ -1338,7 +1338,9 @@ def _enter_waiting_name_phase(state, now, *, force_location=CAT_LOCATION_GARDEN)
     return changed
 
 
-def settle_cat_lifecycle(state, target_time, letter_context=None, shop_buff_windows=None):
+def settle_cat_lifecycle(
+    state, target_time, letter_context=None, shop_buff_windows=None, before_transition=None,
+):
     if not isinstance(state, dict):
         return []
 
@@ -1379,6 +1381,10 @@ def settle_cat_lifecycle(state, target_time, letter_context=None, shop_buff_wind
             next_transition_at = min(next_points)
             if next_transition_at > target_time:
                 break
+            if before_transition is not None:
+                before_transition(next_transition_at)
+                if cat_state.get("phase") != phase or cat_state.get("location") != location:
+                    continue
 
             if location == CAT_LOCATION_AWAY and next_visit_at == next_transition_at:
                 _ensure_cat_stats_for_lifecycle(state)
@@ -1480,6 +1486,8 @@ def settle_cat_lifecycle(state, target_time, letter_context=None, shop_buff_wind
                     next_outing_at = cat_state["next_outing_at"]
                 if next_outing_at > target_time:
                     break
+                if before_transition is not None:
+                    before_transition(next_outing_at)
                 _set_cat_location(state, CAT_LOCATION_AWAY, next_outing_at)
                 cat_state["outing_return_at"] = next_outing_at + _roll_cat_outing_duration_seconds()
                 cat_state["next_outing_at"] = 0
@@ -1493,6 +1501,8 @@ def settle_cat_lifecycle(state, target_time, letter_context=None, shop_buff_wind
                 outing_return_at = _safe_nonnegative_int(cat_state.get("outing_return_at", 0), 0)
                 if outing_return_at <= 0 or outing_return_at > target_time:
                     break
+                if before_transition is not None:
+                    before_transition(outing_return_at)
                 _set_cat_location(state, CAT_LOCATION_HOME, outing_return_at)
                 cat_state["outing_return_at"] = 0
                 _schedule_next_adopted_outing(cat_state, outing_return_at)
@@ -3646,6 +3656,7 @@ def _settle_cat_then_flower_shop(
     *,
     flower_shop_target_time=None,
     letter_context=None,
+    before_cat_transition=None,
 ):
     if flower_shop_target_time is None:
         flower_shop_target_time = cat_target_time
@@ -3661,6 +3672,7 @@ def _settle_cat_then_flower_shop(
         cat_target_time,
         letter_context=letter_context,
         shop_buff_windows=shop_buff_windows,
+        before_transition=before_cat_transition,
     )
     flower_shop_results = settle_flower_shop(
         state,
@@ -4210,7 +4222,9 @@ def _hours_below_threshold(start_value, decay_per_hour, threshold, elapsed_hours
     return max(0.0, elapsed_hours - crossing_time)
 
 
-def update_cat_stats(state, now, weather_data, letter_context=None):
+def update_cat_stats(
+    state, now, weather_data, letter_context=None, *, mood_hours_limit=MOOD_OFFLINE_CAP_REAL_HOURS,
+):
     if state["cat"] is None:
         return
 
@@ -4231,6 +4245,19 @@ def update_cat_stats(state, now, weather_data, letter_context=None):
     stats["hunger"] = max(hunger_floor, start_hunger - hunger_decay * hours)
     stats["thirst"] = max(thirst_floor, start_thirst - thirst_decay * hours)
 
+    mood_decay = MOOD_BASE_DECAY
+    if _is_premium_bed(state.get("cat_care", {}).get("bed")):
+        mood_decay *= 0.6
+    mood_hours = min(hours, mood_hours_limit)
+    mood_change = -mood_decay * mood_hours
+    mood_floor = min(CAT_PASSIVE_STAT_FLOOR, stats["mood"])
+    stats["mood"] = min(100.0, max(mood_floor, stats["mood"] + mood_change))
+
+    if state.get("cat_state", {}).get("phase") == CAT_PHASE_ADOPTED:
+        affection_loss = AFFECTION_NATURAL_DECAY * hours
+        affection_floor = min(30.0, stats["affection"])
+        stats["affection"] = max(affection_floor, stats["affection"] - affection_loss)
+
     should_food_roll = _should_auto_food_roll(start_hunger, stats["hunger"])
     should_water_roll = _should_auto_water_roll(start_thirst, stats["thirst"])
     if should_food_roll or should_water_roll:
@@ -4243,18 +4270,8 @@ def update_cat_stats(state, now, weather_data, letter_context=None):
             letter_context=letter_context,
         )
 
-    mood_decay = MOOD_BASE_DECAY
-    if _is_premium_bed(state.get("cat_care", {}).get("bed")):
-        mood_decay *= 0.6
-    mood_hours = min(hours, MOOD_OFFLINE_CAP_REAL_HOURS)
-    mood_change = -mood_decay * mood_hours
-    mood_floor = min(CAT_PASSIVE_STAT_FLOOR, stats["mood"])
-    stats["mood"] = min(100.0, max(mood_floor, stats["mood"] + mood_change))
-
-    if state.get("cat_state", {}).get("phase") == CAT_PHASE_ADOPTED:
-        affection_loss = AFFECTION_NATURAL_DECAY * hours
-        affection_floor = min(30.0, stats["affection"])
-        stats["affection"] = max(affection_floor, stats["affection"] - affection_loss)
+    # 吃喝会同步并替换 cat_stats；保留奖励后的当前视图。
+    stats = state["cat_stats"]
 
     state["last_update"] = now
 
@@ -4361,22 +4378,28 @@ def apply_offline_progress(state, now=None, *, letter_context=None):
     weather_data = _advance_offline_weather(state, settle_at)
     update_flower_growth(state, settle_at, weather_data)
     check_pests(state, settle_at)
-    starting_mood = None
-    if state.get("cat") is not None and isinstance(state.get("cat_stats"), dict):
-        try:
-            starting_mood = float(state["cat_stats"].get("mood", 0.0))
-        except (TypeError, ValueError):
-            starting_mood = 0.0
-    update_cat_stats(state, settle_at, weather_data, letter_context=letter_context)
-    if starting_mood is not None:
-        state["cat_stats"]["mood"] = min(starting_mood, float(state["cat_stats"].get("mood", starting_mood)))
-        _sync_cat_stats_views(state)
+    mood_hours_remaining = MOOD_OFFLINE_CAP_REAL_HOURS
+
+    def advance_cat_stats(until):
+        nonlocal mood_hours_remaining
+        elapsed_hours = max(0, until - state["last_update"]) / 3600
+        if state.get("cat") is None:
+            state["last_update"] = max(state["last_update"], until)
+            return
+        update_cat_stats(
+            state, until, weather_data, letter_context=letter_context,
+            mood_hours_limit=mood_hours_remaining,
+        )
+        mood_hours_remaining = max(0.0, mood_hours_remaining - elapsed_hours)
+
     _, flower_shop_results = _settle_cat_then_flower_shop(
         state,
         settle_at,
         flower_shop_target_time=now,
         letter_context=letter_context,
+        before_cat_transition=advance_cat_stats,
     )
+    advance_cat_stats(settle_at)
     _resolve_letter_progress(state, now=settle_at, letter_context=letter_context)
     if skipped_seconds > 0:
         # 超限时间不再执行：保留结算终点的状态和计划剩余等待。

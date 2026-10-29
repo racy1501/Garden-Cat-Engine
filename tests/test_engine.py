@@ -968,6 +968,155 @@ def test_cat_mood_decay_ignores_weather_and_keeps_two_hour_cap(
     assert f"猫咪心情-{'0.3' if premium_bed else '0.5'}/小时" in ge.get_status(state, ge.WEATHER[weather])
 
 
+def test_offline_cat_does_not_eat_or_drink_away_but_can_after_return(monkeypatch):
+    now = 1800000000
+    monkeypatch.setattr(ge.time, "time", lambda: now)
+    monkeypatch.setattr(ge.random, "random", lambda: 0.0)
+    monkeypatch.setattr(ge, "_roll_cat_outing_duration_seconds", lambda: 1200)
+    state = _letter_test_cat(now, affection=35)
+    state["cat_stats"].update(hunger=54.5, thirst=54.5)
+    state["cat_state"]["stats"] = dict(state["cat_stats"])
+    state["cat_state"]["next_outing_at"] = now + 3000
+    state["cat_care"]["food_bowl"]["remaining_portions"] = 1
+    state["cat_care"]["water_bowl"]["remaining_portions"] = 1
+
+    ge.apply_offline_progress(state, now=now + 3600)
+
+    assert state["cat_state"]["location"] == ge.CAT_LOCATION_AWAY
+    assert state["cat_care"]["food_bowl"]["remaining_portions"] == 1
+    assert state["cat_care"]["water_bowl"]["remaining_portions"] == 1
+    assert not any("吃了" in event["text"] or "喝了" in event["text"] for event in state["events"])
+
+    ge.apply_offline_progress(state, now=now + 4800)
+
+    assert state["cat_state"]["location"] == ge.CAT_LOCATION_HOME
+    assert state["cat_care"]["food_bowl"]["remaining_portions"] == 0
+    assert state["cat_care"]["water_bowl"]["remaining_portions"] == 0
+    care_events = [event for event in state["events"] if "吃了" in event["text"] or "喝了" in event["text"]]
+    assert len(care_events) == 2
+    assert all(event["time"] >= now + 4200 for event in care_events)
+
+
+def test_offline_cat_can_eat_and_drink_before_leaving(monkeypatch):
+    now = 1800000000
+    monkeypatch.setattr(ge.time, "time", lambda: now)
+    monkeypatch.setattr(ge.random, "random", lambda: 0.0)
+    monkeypatch.setattr(ge, "_roll_cat_outing_duration_seconds", lambda: 1200)
+    state = _letter_test_cat(now, affection=35)
+    state["cat_stats"].update(hunger=52.0, thirst=52.0)
+    state["cat_state"]["stats"] = dict(state["cat_stats"])
+    state["cat_state"]["next_outing_at"] = now + 3000
+    state["cat_care"]["food_bowl"]["remaining_portions"] = 1
+    state["cat_care"]["water_bowl"]["remaining_portions"] = 1
+
+    ge.apply_offline_progress(state, now=now + 3600)
+
+    assert state["cat_state"]["location"] == ge.CAT_LOCATION_AWAY
+    assert state["cat_care"]["food_bowl"]["remaining_portions"] == 0
+    assert state["cat_care"]["water_bowl"]["remaining_portions"] == 0
+    care_events = [event for event in state["events"] if "吃了" in event["text"] or "喝了" in event["text"]]
+    assert len(care_events) == 2
+    assert all(event["time"] <= now + 3000 for event in care_events)
+
+
+def test_offline_new_visitor_does_not_decay_before_first_arrival(monkeypatch):
+    now = 1800000000
+    monkeypatch.setattr(ge.time, "time", lambda: now)
+    monkeypatch.setattr(ge.random, "random", lambda: 1.0)
+    monkeypatch.setattr(ge, "_roll_cat_visit_duration_seconds", lambda: 3600)
+    state = ge.get_default_state()
+    state["cat_state"]["next_visit_at"] = now + 3600
+    state["weather_change_time"] = state["next_butterfly_at"] = now + 10000
+
+    ge.apply_offline_progress(state, now=now + 5400)
+
+    assert state["cat_state"]["location"] == ge.CAT_LOCATION_GARDEN
+    assert state["cat_stats"]["mood"] == pytest.approx(59.75)
+    assert state["cat_stats"]["hunger"] == pytest.approx(67.5)
+
+
+@pytest.mark.parametrize("starting_mood,expected", [(60.0, 60.5), (99.8, 100.0)])
+def test_offline_premium_food_mood_gain_keeps_net_change(monkeypatch, starting_mood, expected):
+    now = 1800000000
+    monkeypatch.setattr(ge.time, "time", lambda: now)
+    monkeypatch.setattr(ge.random, "random", lambda: 0.0)
+    state = _letter_test_cat(now, affection=35)
+    state["cat_stats"].update(hunger=52.0, thirst=90.0, mood=starting_mood)
+    state["cat_state"]["stats"] = dict(state["cat_stats"])
+    state["cat_care"]["food_bowl"].update(food_type="premium_food", remaining_portions=1)
+
+    ge.apply_offline_progress(state, now=now + 3600)
+
+    assert state["offline_summary"]["auto_food_servings_used"] == 1
+    assert state["cat_stats"]["mood"] == pytest.approx(expected)
+
+
+@pytest.mark.parametrize(
+    "starting_affection,expected",
+    [(30.0, 31.0), (40.0, 40.9)],
+)
+def test_offline_affection_decay_precedes_food_affection_gain(
+    monkeypatch, starting_affection, expected,
+):
+    now = 1800000000
+    monkeypatch.setattr(ge.time, "time", lambda: now)
+    monkeypatch.setattr(ge.random, "random", lambda: 0.0)
+    state = _letter_test_cat(now, affection=starting_affection)
+    state["cat_stats"].update(hunger=52.0, thirst=90.0)
+    state["cat_state"]["stats"] = dict(state["cat_stats"])
+    state["cat_care"]["food_bowl"].update(food_type="basic_food", remaining_portions=1)
+
+    ge.apply_offline_progress(state, now=now + 3600)
+
+    assert state["offline_summary"]["auto_food_servings_used"] == 1
+    assert state["cat_stats"]["affection"] == pytest.approx(expected)
+
+
+def test_offline_affection_decay_does_not_raise_legacy_value_below_floor(monkeypatch):
+    now = 1800000000
+    monkeypatch.setattr(ge.time, "time", lambda: now)
+    state = _letter_test_cat(now, affection=29.0)
+    state["cat_care"]["food_bowl"]["remaining_portions"] = 0
+
+    ge.apply_offline_progress(state, now=now + 3600)
+
+    assert state["cat_stats"]["affection"] == pytest.approx(29.0)
+
+
+@pytest.mark.parametrize("premium_bed,expected", [(False, 59.0), (True, 59.4)])
+def test_offline_mood_cap_is_shared_across_cat_location_changes(monkeypatch, premium_bed, expected):
+    now = 1800000000
+    monkeypatch.setattr(ge.time, "time", lambda: now)
+    monkeypatch.setattr(ge.random, "random", lambda: 1.0)
+    monkeypatch.setattr(ge, "_roll_cat_home_stay_seconds", lambda: 3600)
+    monkeypatch.setattr(ge, "_roll_cat_outing_duration_seconds", lambda: 1200)
+    state = _letter_test_cat(now, affection=35)
+    state["cat_stats"]["mood"] = 60.0
+    state["cat_state"]["stats"] = dict(state["cat_stats"])
+    state["cat_state"]["next_outing_at"] = now + 1800
+    if premium_bed:
+        state["cat_care"]["bed"]["facility_id"] = ge.PREMIUM_CAT_BED_ID
+
+    ge.apply_offline_progress(state, now=now + 8 * 3600)
+
+    assert state["cat_stats"]["mood"] == pytest.approx(expected)
+
+
+def test_offline_cat_stats_still_decay_without_location_changes(monkeypatch):
+    now = 1800000000
+    monkeypatch.setattr(ge.time, "time", lambda: now)
+    state = _letter_test_cat(now, affection=50)
+    state["cat_stats"].update(hunger=75.0, thirst=80.0, mood=60.0)
+    state["cat_state"]["stats"] = dict(state["cat_stats"])
+
+    ge.apply_offline_progress(state, now=now + 3600)
+
+    assert state["cat_stats"]["hunger"] == pytest.approx(70.0)
+    assert state["cat_stats"]["thirst"] == pytest.approx(75.0)
+    assert state["cat_stats"]["mood"] == pytest.approx(59.5)
+    assert state["cat_stats"]["affection"] == pytest.approx(49.9)
+
+
 def test_pet_requires_cat_present_without_consuming_cooldown(monkeypatch):
     now = 1800000000
     monkeypatch.setattr(ge.time, "time", lambda: now)
