@@ -22,6 +22,7 @@ from typing import Any, Iterator
 from flask import Flask, g, has_request_context, jsonify, render_template, request
 
 from game_engine import (
+    CommandResult,
     CAT_COLLECTIBLES,
     CAT_LETTERS,
     CAT_PHASE_ADOPTED,
@@ -64,6 +65,7 @@ from game_engine import (
     is_pot_withered,
     normalize_state,
     process_command,
+    execute_command,
     sync_cottage_rewards,
 )
 
@@ -676,7 +678,7 @@ def _handle_note_command(
     session_id: str,
     command: str,
     author_type: str,
-) -> str | None:
+) -> CommandResult | None:
     """Handle note commands at the API layer so the game engine stays independent."""
     stripped = command.strip()
     lowered = stripped.lower()
@@ -692,10 +694,10 @@ def _handle_note_command(
     if page_text is not None:
         page = _parse_positive_page(page_text)
         if page is None:
-            return "❌ 用法：notes [页码]"
-        return _format_notes_for_command(
+            return CommandResult(False, "❌ 用法：notes [页码]")
+        return CommandResult(True, _format_notes_for_command(
             db_list_notes(session_id, author_type, page=page)
-        )
+        ))
 
     content: str | None = None
     if lowered.startswith("note "):
@@ -710,10 +712,10 @@ def _handle_note_command(
 
     note, remaining, error = db_add_note(session_id, author_type, content)
     if error:
-        return f"❌ {error}"
+        return CommandResult(False, f"❌ {error}")
     if note is None:
-        return "❌ 便签冷却中，还需等待" + _format_note_duration(remaining) + "。"
-    return f"📝 便签已贴好：{note['content']}"
+        return CommandResult(False, "❌ 便签冷却中，还需等待" + _format_note_duration(remaining) + "。")
+    return CommandResult(True, f"📝 便签已贴好：{note['content']}")
 
 
 NOTE_HELP_TEXT = (
@@ -1473,15 +1475,15 @@ def web_cmd():
         return _web_auth_error()
     result = _handle_note_command(session_id, command, "human")
     if result is None:
-        result = process_command(state, command, event_source="human", letter_context=_request_letter_context())
+        result = execute_command(state, command, event_source="human", letter_context=_request_letter_context())
         if command.strip().lower() == "help":
-            result += NOTE_HELP_TEXT
+            result = CommandResult(result.ok, result.message + NOTE_HELP_TEXT)
         db_save_state(session_id, state)
     return jsonify(
         {
-            "ok": not result.lstrip().startswith("❌"),
+            "ok": result.ok,
             "session_id": session_id,
-            "message": result,
+            "message": result.message,
             "state": _summary(state, events_before=events_before),
         }
     )
@@ -1655,11 +1657,11 @@ def cmd_route():
     result = _handle_note_command(session_id, command, "ai")
     should_save_state = False
     if result is None:
-        result = process_command(state, command, event_source="ai", letter_context=_request_letter_context())
+        result = execute_command(state, command, event_source="ai", letter_context=_request_letter_context())
         if command.strip().lower() == "help":
-            result += NOTE_HELP_TEXT
+            result = CommandResult(result.ok, result.message + NOTE_HELP_TEXT)
         should_save_state = True
-    result = _prepend_ai_notice(result, notice)
+    message = _prepend_ai_notice(result.message, notice)
     if notice:
         state["ai_v5_update_notice_seen"] = True
         should_save_state = True
@@ -1667,9 +1669,9 @@ def cmd_route():
         db_save_state(session_id, state)
     return jsonify(
         {
-            "ok": not result.lstrip().startswith("❌"),
+            "ok": result.ok,
             "session_id": session_id,
-            "message": result,
+            "message": message,
             "state": _ai_summary(state, events_before=events_before),
         }
     )

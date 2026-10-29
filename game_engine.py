@@ -93,6 +93,7 @@ import time
 import os
 import random
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
 # 事件来源是稳定的机器可读标识；展示名由调用方按需转换，未来可独立扩展昵称。
@@ -4578,7 +4579,20 @@ def _parse_flower_shop_start_minute(value):
 
 
 
-def process_command(state, command, *, event_source="system", letter_context=None):
+@dataclass(frozen=True)
+class CommandResult:
+    ok: bool
+    message: str
+
+
+def process_command(state, command, *, event_source="system", letter_context=None) -> str:
+    """保留纯文本调用方式；命令执行与结果判断由 execute_command 统一负责。"""
+    return execute_command(
+        state, command, event_source=event_source, letter_context=letter_context,
+    ).message
+
+
+def execute_command(state, command, *, event_source="system", letter_context=None) -> CommandResult:
     """在传入的存档字典上执行命令，并原地更新状态。
 
     该入口供 Flask API / 数据库存档调用，不读取或写入本地 JSON 文件。
@@ -4587,7 +4601,7 @@ def process_command(state, command, *, event_source="system", letter_context=Non
         raise TypeError("state 必须是字典")
 
     if not isinstance(command, str) or not command.strip():
-        return "❌ 请输入命令，输入 help 查看帮助"
+        return CommandResult(False, "❌ 请输入命令，输入 help 查看帮助")
 
     parts = command.strip().split()
     action = parts[0].lower()
@@ -4618,13 +4632,13 @@ def process_command(state, command, *, event_source="system", letter_context=Non
     _consume_offline_cat_portions(state)
     softlock_recovered = apply_economic_softlock_safety_net(state)
 
-    result = ""
+    ok, result = False, ""
     all_event_messages = weather_messages + pest_messages + lifecycle_messages
     if softlock_recovered:
         all_event_messages.append("🌱 花园送来1颗雏菊种子。")
 
     if action == "shop":
-        result = "🏪 商店\n\n【种子】\n"
+        ok, result = True, "🏪 商店\n\n【种子】\n"
         for flower_id, flower_data in FLOWERS.items():
             rarity = flower_data["rarity"]
             emoji = "⚪" if rarity == "common" else "🟢" if rarity == "uncommon" else "🔵" if rarity == "rare" else "🟣"
@@ -4642,93 +4656,93 @@ def process_command(state, command, *, event_source="system", letter_context=Non
 
     elif action == "buy":
         if len(parts) < 2:
-            result = "❌ 要买什么？"
+            ok, result = False, "❌ 要买什么？"
         else:
             item_id = parts[1].lower()
             quantity = 1 if len(parts) < 3 else parse_positive_int(parts[2])
             if quantity is None:
-                result = "❌ 数量必须是正整数"
+                ok, result = False, "❌ 数量必须是正整数"
             elif len(parts) > 3:
-                result = "❌ 用法：buy <物品> [数量]"
+                ok, result = False, "❌ 用法：buy <物品> [数量]"
             elif item_id in FLOWERS:
                 if not is_flower_unlocked(state, item_id):
-                    result = f"🔒 {FLOWERS[item_id]['name']}尚未解锁，{get_unlock_message(item_id)}"
+                    ok, result = False, f"🔒 {FLOWERS[item_id]['name']}尚未解锁，{get_unlock_message(item_id)}"
                 else:
                     price = FLOWERS[item_id]["seed_price"] * quantity
                     if state["money"] < price:
-                        result = f"❌ 钱不够！需要{price}块"
+                        ok, result = False, f"❌ 钱不够！需要{price}块"
                     else:
                         state["money"] -= price
                         state["inventory"]["seeds"][item_id] = state["inventory"]["seeds"].get(item_id, 0) + quantity
-                        result = f"✅ 买了{quantity}包{FLOWERS[item_id]['name']}种子！(-{price}块)"
+                        ok, result = True, f"✅ 买了{quantity}包{FLOWERS[item_id]['name']}种子！(-{price}块)"
             elif item_id in ITEMS:
                 item_data = ITEMS[item_id]
                 if item_data["type"] == "permanent":
                     if quantity != 1:
-                        result = "❌ 永久物品每次只能购买1个"
+                        ok, result = False, "❌ 永久物品每次只能购买1个"
                     elif _owns_facility(state, item_id):
-                        result = f"❌ 已经有{item_data['name']}了"
+                        ok, result = False, f"❌ 已经有{item_data['name']}了"
                     elif state["money"] < item_data["price"]:
-                        result = f"❌ 钱不够！需要{item_data['price']}块"
+                        ok, result = False, f"❌ 钱不够！需要{item_data['price']}块"
                     else:
                         state["money"] -= item_data["price"]
                         _apply_facility_purchase(state, item_id)
-                        result = f"✅ 买了{item_data['name']}！永久生效 (-{item_data['price']}块)"
+                        ok, result = True, f"✅ 买了{item_data['name']}！永久生效 (-{item_data['price']}块)"
                 else:
                     price = item_data["price"] * quantity
                     if state["money"] < price:
-                        result = f"❌ 钱不够！需要{price}块"
+                        ok, result = False, f"❌ 钱不够！需要{price}块"
                     else:
                         package_size = CAT_ITEM_PACKAGE_SIZES.get(item_id, 1)
                         total_portions = quantity * package_size
                         state["money"] -= price
                         _add_inventory_item(state, item_id, total_portions)
-                        result = f"✅ 买了{quantity}个{item_data['name']}！(-{price}块)"
+                        ok, result = True, f"✅ 买了{quantity}个{item_data['name']}！(-{price}块)"
             else:
-                result = "❌ 商店没有这个东西"
+                ok, result = False, "❌ 商店没有这个东西"
 
     elif action == "buy_cottage_furniture":
         if len(parts) != 2:
-            result = "❌ 用法：buy_cottage_furniture <furniture_id>"
+            ok, result = False, "❌ 用法：buy_cottage_furniture <furniture_id>"
         else:
             item_id = parts[1].lower()
             item = COTTAGE_ITEM_CATALOG.get(item_id)
             cottage_items = state["cottage"]["items"]
             if item is None:
-                result = "❌ 小屋里没有这件家具"
+                ok, result = False, "❌ 小屋里没有这件家具"
             elif item.get("legacy_only", False):
-                result = f"❌ {item['name']}已在 v1-B 停售，不能购买"
+                ok, result = False, f"❌ {item['name']}已在 v1-B 停售，不能购买"
             elif item.get("reward_only") or "price" not in item:
-                result = f"❌ {item['name']}是纪念奖励，不能购买"
+                ok, result = False, f"❌ {item['name']}是纪念奖励，不能购买"
             elif item_id in cottage_items:
-                result = f"❌ 已经拥有{item['name']}了"
+                ok, result = False, f"❌ 已经拥有{item['name']}了"
             elif state["money"] < item["price"]:
-                result = f"❌ 金币不足，{item['name']}需要{item['price']}块。"
+                ok, result = False, f"❌ 金币不足，{item['name']}需要{item['price']}块。"
             else:
                 state["money"] -= item["price"]
                 cottage_items[item_id] = {"acquired_at": now, "source": event_source}
                 add_event(state, f"为小屋添置了{item['name']}", now=now, source=event_source)
-                result = f"🏠 添置了{item['name']}！(-{item['price']}块)"
+                ok, result = True, f"🏠 添置了{item['name']}！(-{item['price']}块)"
 
     elif action == "plant":
         if len(parts) != 3:
-            result = "❌ 用法：plant <花> <盆号>"
+            ok, result = False, "❌ 用法：plant <花> <盆号>"
         else:
             flower_id = parts[1].lower()
             pot_idx = get_pot_index(parts[2], state)
             if flower_id not in FLOWERS:
-                result = "❌ 没有这种花"
+                ok, result = False, "❌ 没有这种花"
             elif not is_flower_unlocked(state, flower_id):
-                result = f"🔒 {FLOWERS[flower_id]['name']}尚未解锁，{get_unlock_message(flower_id)}"
+                ok, result = False, f"🔒 {FLOWERS[flower_id]['name']}尚未解锁，{get_unlock_message(flower_id)}"
             elif pot_idx is None:
-                result = f"❌ 盆号必须是1-{state['max_pots']}"
+                ok, result = False, f"❌ 盆号必须是1-{state['max_pots']}"
             elif state["pots"][pot_idx] is not None:
                 if is_pot_withered(state["pots"][pot_idx]):
-                    result = f"❌ 这个盆里有枯萎的花，请先使用 clear {pot_idx + 1} 清理"
+                    ok, result = False, f"❌ 这个盆里有枯萎的花，请先使用 clear {pot_idx + 1} 清理"
                 else:
-                    result = "❌ 这个盆已经有花了"
+                    ok, result = False, "❌ 这个盆已经有花了"
             elif state["inventory"]["seeds"].get(flower_id, 0) <= 0:
-                result = "❌ 没有这种种子"
+                ok, result = False, "❌ 没有这种种子"
             else:
                 state["pest_treatment"].pop(pot_idx, None)
                 is_rainy = bool(weather_data.get("auto_water"))
@@ -4744,7 +4758,7 @@ def process_command(state, command, *, event_source="system", letter_context=Non
                 if state["inventory"]["seeds"][flower_id] <= 0:
                     del state["inventory"]["seeds"][flower_id]
 
-                result = f"🌱 在盆{pot_idx + 1}种下了{FLOWERS[flower_id]['name']}！"
+                ok, result = True, f"🌱 在盆{pot_idx + 1}种下了{FLOWERS[flower_id]['name']}！"
                 if is_rainy:
                     actual_time = FLOWERS[flower_id]["grow_time"] / weather_data["grow_speed"]
                     result += f"\n   🌧️ 雨水自动滋润，预计约{format_time(actual_time)}成熟"
@@ -4753,7 +4767,7 @@ def process_command(state, command, *, event_source="system", letter_context=Non
 
     elif action == "water":
         if len(parts) != 2:
-            result = "❌ 用法：water <盆号> 或 water all"
+            ok, result = False, "❌ 用法：water <盆号> 或 water all"
         else:
             target = parts[1].lower()
             target_indices = []
@@ -4762,7 +4776,7 @@ def process_command(state, command, *, event_source="system", letter_context=Non
             else:
                 pot_idx = get_pot_index(target, state)
                 if pot_idx is None:
-                    result = f"❌ 盆号必须是1-{state['max_pots']}，或使用 water all"
+                    ok, result = False, f"❌ 盆号必须是1-{state['max_pots']}，或使用 water all"
                 else:
                     target_indices = [pot_idx]
 
@@ -4784,19 +4798,19 @@ def process_command(state, command, *, event_source="system", letter_context=Non
                         watered_count += 1
 
                 if weather_data.get("auto_water") and has_growing_flower:
-                    result = "🌧️ 正在下雨，所有生长中的花已经被雨水滋润了"
+                    ok, result = True, "🌧️ 正在下雨，所有生长中的花已经被雨水滋润了"
                 elif watered_count > 0:
-                    result = f"💧 浇水完成！{watered_count}盆花开始生长"
+                    ok, result = True, f"💧 浇水完成！{watered_count}盆花开始生长"
                 elif has_withered_flower and not has_growing_flower:
-                    result = "❌ 枯萎的花无法浇水，请先清理花盆"
+                    ok, result = False, "❌ 枯萎的花无法浇水，请先清理花盆"
                 elif not has_growing_flower:
-                    result = "❌ 指定花盆里没有可浇水的花"
+                    ok, result = False, "❌ 指定花盆里没有可浇水的花"
                 else:
-                    result = "❌ 没有需要浇水的花（可能都已经浇过了）"
+                    ok, result = False, "❌ 没有需要浇水的花（可能都已经浇过了）"
 
     elif action == "harvest":
         if len(parts) != 2:
-            result = "❌ 用法：harvest <盆号> 或 harvest all"
+            ok, result = False, "❌ 用法：harvest <盆号> 或 harvest all"
         elif parts[1].lower() == "all":
             ready_indices = []
             for pot_idx, pot in enumerate(state["pots"][: state["max_pots"]]):
@@ -4809,40 +4823,41 @@ def process_command(state, command, *, event_source="system", letter_context=Non
                     ready_indices.append(pot_idx)
 
             if not ready_indices:
-                result = "❌ 现在没有可以收获的成熟花朵"
+                ok, result = False, "❌ 现在没有可以收获的成熟花朵"
             else:
                 harvested_messages = [
-                    _harvest_one_pot(state, pot_idx, now, weather_data)
+                    _harvest_one_pot_result(state, pot_idx, now, weather_data).message
                     for pot_idx in ready_indices
                 ]
-                result = (
+                ok, result = True, (
                     f"🧺 一键收获完成，共收获{len(ready_indices)}朵花！\n\n"
                     + "\n\n".join(harvested_messages)
                 )
         else:
             pot_idx = get_pot_index(parts[1], state)
             if pot_idx is None:
-                result = f"❌ 盆号必须是1-{state['max_pots']}"
+                ok, result = False, f"❌ 盆号必须是1-{state['max_pots']}"
             else:
-                result = _harvest_one_pot(state, pot_idx, now, weather_data)
+                harvest_result = _harvest_one_pot_result(state, pot_idx, now, weather_data)
+                ok, result = harvest_result.ok, harvest_result.message
 
     elif action == "treat":
         if len(parts) != 2:
-            result = "❌ 用法：treat <盆号>"
+            ok, result = False, "❌ 用法：treat <盆号>"
         else:
             pot_idx = get_pot_index(parts[1], state)
             if pot_idx is None:
-                result = f"❌ 盆号必须是1-{state['max_pots']}"
+                ok, result = False, f"❌ 盆号必须是1-{state['max_pots']}"
             else:
                 pot = state["pots"][pot_idx]
                 if pot is None:
-                    result = "❌ 这个盆是空的"
+                    ok, result = False, "❌ 这个盆是空的"
                 elif is_pot_withered(pot):
-                    result = f"❌ 这盆花已经枯萎，无法治疗，请使用 clear {pot_idx + 1} 清理"
+                    ok, result = False, f"❌ 这盆花已经枯萎，无法治疗，请使用 clear {pot_idx + 1} 清理"
                 elif not _has_pest_blocker(state, pot_idx, pot):
-                    result = "❌ 这盆花没有长虫"
+                    ok, result = False, "❌ 这盆花没有长虫"
                 elif state["money"] < PEST_TREATMENT_COST:
-                    result = f"❌ 治疗需要{PEST_TREATMENT_COST}块，钱不够！"
+                    ok, result = False, f"❌ 治疗需要{PEST_TREATMENT_COST}块，钱不够！"
                 else:
                     state["money"] -= PEST_TREATMENT_COST
                     pot.pop("pest_time", None)
@@ -4851,24 +4866,24 @@ def process_command(state, command, *, event_source="system", letter_context=Non
                     pot["pest_resolved"] = True
                     pot["last_growth_update"] = now
                     state["pest_treatment"].pop(pot_idx, None)
-                    result = (
+                    ok, result = True, (
                         f"✅ 治疗了盆{pot_idx + 1}的花！(-{PEST_TREATMENT_COST}块)\n"
                         "   这盆花在本轮生长周期内不会再长虫。"
                     )
 
     elif action == "clear":
         if len(parts) != 2:
-            result = "❌ 用法：clear <盆号>"
+            ok, result = False, "❌ 用法：clear <盆号>"
         else:
             pot_idx = get_pot_index(parts[1], state)
             if pot_idx is None:
-                result = f"❌ 盆号必须是1-{state['max_pots']}"
+                ok, result = False, f"❌ 盆号必须是1-{state['max_pots']}"
             else:
                 pot = state["pots"][pot_idx]
                 if pot is None:
-                    result = "❌ 这个盆是空的"
+                    ok, result = False, "❌ 这个盆是空的"
                 elif not is_pot_withered(pot):
-                    result = "❌ 这盆花还活着，不能清理"
+                    ok, result = False, "❌ 这盆花还活着，不能清理"
                 else:
                     flower_id = pot["flower_id"]
                     flower_name = FLOWERS[flower_id]["name"]
@@ -4877,41 +4892,41 @@ def process_command(state, command, *, event_source="system", letter_context=Non
                     reward = max(1, FLOWERS[flower_id]["seed_price"] // 2)
                     if random.random() < WITHERED_CLEAR_REWARD_CHANCE:
                         state["money"] += reward
-                        result = (
+                        ok, result = True, (
                             f"🧹 清理了盆{pot_idx + 1}枯萎的{flower_name}。"
                             f"\n🪙 翻土时找到了{reward}块金币！"
                         )
                     else:
-                        result = f"🧹 清理了盆{pot_idx + 1}枯萎的{flower_name}，花盆重新空出来了。"
+                        ok, result = True, f"🧹 清理了盆{pot_idx + 1}枯萎的{flower_name}，花盆重新空出来了。"
                     add_event(state, f"清理枯萎的{flower_name}（盆{pot_idx + 1}）")
 
     elif action == "make_bouquet":
         bouquet_id, message = _parse_bouquet_arguments(parts)
         if not bouquet_id:
-            result = _format_bouquet_options(get_bouquet_options(state))
+            ok, result = True, _format_bouquet_options(get_bouquet_options(state))
         else:
             bouquet_instance, error = _craft_bouquet_instance(state, bouquet_id)
             if error:
-                result = error
+                ok, result = False, error
             else:
                 _record_bouquet_gift(state, bouquet_instance, now, message)
-                result = f"💐 已将{BOUQUETS[bouquet_id]['name']}送给人类！"
+                ok, result = True, f"💐 已将{BOUQUETS[bouquet_id]['name']}送给人类！"
                 if message:
                     result += " 已附上小卡片。"
 
     elif action == "craft_bouquet":
         bouquet_id, _ = _parse_bouquet_arguments(parts)
         if not bouquet_id:
-            result = "❌ 用法：craft_bouquet bouquet_id=<花束ID>"
+            ok, result = False, "❌ 用法：craft_bouquet bouquet_id=<花束ID>"
         else:
             bouquet_instance, error = _craft_bouquet_instance(state, bouquet_id)
             if error:
-                result = error
+                ok, result = False, error
             else:
                 state.setdefault("bouquet_inventory", []).append(bouquet_instance)
                 bouquet_name = BOUQUETS[bouquet_id]["name"]
                 add_event(state, f"制作了一束「{bouquet_name}」")
-                result = f"💐 已制作{bouquet_name}，可从花束背包赠送给人类。"
+                ok, result = True, f"💐 已制作{bouquet_name}，可从花束背包赠送给人类。"
 
     elif action == "gift_bouquet":
         instance_id = ""
@@ -4926,7 +4941,7 @@ def process_command(state, command, *, event_source="system", letter_context=Non
             else:
                 message_parts.append(part)
         if not instance_id:
-            result = "❌ 用法：gift_bouquet instance_id=<花束实例ID> [message=...]"
+            ok, result = False, "❌ 用法：gift_bouquet instance_id=<花束实例ID> [message=...]"
         else:
             bouquet_inventory = state.setdefault("bouquet_inventory", [])
             instance_index = next(
@@ -4934,12 +4949,12 @@ def process_command(state, command, *, event_source="system", letter_context=Non
                 None,
             )
             if instance_index is None:
-                result = "❌ 背包里没有这束花。"
+                ok, result = False, "❌ 背包里没有这束花。"
             else:
                 bouquet_instance = bouquet_inventory.pop(instance_index)
                 message = " ".join(message_parts).strip() or None
                 _record_bouquet_gift(state, bouquet_instance, now, message)
-                result = f"💐 已将{BOUQUETS[bouquet_instance['bouquet_id']]['name']}送给人类！"
+                ok, result = True, f"💐 已将{BOUQUETS[bouquet_instance['bouquet_id']]['name']}送给人类！"
                 if message:
                     result += " 已附上小卡片。"
 
@@ -4970,17 +4985,17 @@ def process_command(state, command, *, event_source="system", letter_context=Non
         )
         slots = shop.get("slots", [])
         if not instance_id or invalid_slot:
-            result = "❌ 用法：list_bouquet instance_id=<花束实例ID> [slot=1]"
+            ok, result = False, "❌ 用法：list_bouquet instance_id=<花束实例ID> [slot=1]"
         elif not shop.get("established_at"):
-            result = "❌ 请先建造花店。"
+            ok, result = False, "❌ 请先建造花店。"
         elif not shop.get("launched_at"):
-            result = "❌ 花店尚未正式开业。"
+            ok, result = False, "❌ 花店尚未正式开业。"
         elif shop.get("pending_business_start_minute") is not None:
-            result = "❌ 新营业时间正在等待生效，请在生效后再上架花束。"
+            ok, result = False, "❌ 新营业时间正在等待生效，请在生效后再上架花束。"
         elif not _flower_shop_is_open(shop, now):
-            result = "❌ 当前是闭店时间，只能在营业时间内上架花束。"
+            ok, result = False, "❌ 当前是闭店时间，只能在营业时间内上架花束。"
         elif inventory_index is None:
-            result = "❌ 花束背包里没有这个实例。"
+            ok, result = False, "❌ 花束背包里没有这个实例。"
         else:
             if requested_slot is None:
                 slot_index = next((index for index, slot in enumerate(slots) if slot is None), None)
@@ -4990,11 +5005,11 @@ def process_command(state, command, *, event_source="system", letter_context=Non
                 slot_index = None
                 invalid_slot = True
             if invalid_slot:
-                result = f"❌ 货架位置应为1-{len(slots)}。"
+                ok, result = False, f"❌ 货架位置应为1-{len(slots)}。"
             elif slot_index is None:
-                result = "❌ 当前没有空货架。"
+                ok, result = False, "❌ 当前没有空货架。"
             elif slots[slot_index] is not None:
-                result = f"❌ 货架{slot_index + 1}已经有在售花束。"
+                ok, result = False, f"❌ 货架{slot_index + 1}已经有在售花束。"
             else:
                 bouquet_instance = bouquet_inventory[inventory_index]
                 will_sell, sale_wait = _roll_flower_shop_sale_plan()
@@ -5024,23 +5039,23 @@ def process_command(state, command, *, event_source="system", letter_context=Non
                     None,
                 )
                 if immediate_sale and immediate_sale["type"] == "sold":
-                    result = f"🏪 「{bouquet_name}」上架后立即以{immediate_sale['price']}块成交。"
+                    ok, result = True, f"🏪 「{bouquet_name}」上架后立即以{immediate_sale['price']}块成交。"
                 else:
-                    result = f"🏪 已将「{bouquet_name}」上架到货架{slot_index + 1}。上架后不可撤回。"
+                    ok, result = True, f"🏪 已将「{bouquet_name}」上架到货架{slot_index + 1}。上架后不可撤回。"
 
     elif action == "establish_flower_shop":
         shop = state["flower_shop"]
         if shop.get("established_at"):
-            result = "❌ 花店已经建好了，不会重复扣款。"
+            ok, result = False, "❌ 花店已经建好了，不会重复扣款。"
         elif not is_flower_shop_eligible(state):
             progress = get_flower_shop_eligibility_progress(state)
-            result = (
+            ok, result = False, (
                 "❌ 还不满足建店条件："
                 f"图鉴{progress['encyclopedia']}/10，累计收获{progress['harvests']}/42，"
                 f"直接卖花收入{progress['direct_flower_sale_earned']}/3000。"
             )
         elif state["money"] < FLOWER_SHOP_ESTABLISH_COST:
-            result = f"❌ 建造花店需要{FLOWER_SHOP_ESTABLISH_COST}块金币。"
+            ok, result = False, f"❌ 建造花店需要{FLOWER_SHOP_ESTABLISH_COST}块金币。"
         else:
             state["money"] -= FLOWER_SHOP_ESTABLISH_COST
             state["flower_shop"] = {
@@ -5050,7 +5065,7 @@ def process_command(state, command, *, event_source="system", letter_context=Non
                 "slots": [None] * FLOWER_SHOP_SHELF_CAPACITY,
             }
             add_event(state, "建好了花店，准备了3个空货架")
-            result = "🏪 花店建好了！现在有3个空货架，请先设置每天的营业开始时间。"
+            ok, result = True, "🏪 花店建好了！现在有3个空货架，请先设置每天的营业开始时间。"
 
     elif action == "upgrade_flower_shop_shelf":
         shop = state["flower_shop"]
@@ -5061,50 +5076,50 @@ def process_command(state, command, *, event_source="system", letter_context=Non
         )
         upgrade_cost = FLOWER_SHOP_SHELF_UPGRADE_COSTS.get(current_capacity)
         if not shop.get("established_at"):
-            result = "❌ 请先建造花店。"
+            ok, result = False, "❌ 请先建造花店。"
         elif next_capacity is None or upgrade_cost is None:
-            result = "❌ 货架已经扩至最大容量。"
+            ok, result = False, "❌ 货架已经扩至最大容量。"
         elif state["money"] < upgrade_cost:
-            result = f"❌ 金币不足，扩建至{next_capacity}格需要{upgrade_cost}块。"
+            ok, result = False, f"❌ 金币不足，扩建至{next_capacity}格需要{upgrade_cost}块。"
         else:
             slots = shop.setdefault("slots", [])
             state["money"] -= upgrade_cost
             shop["shelf_capacity"] = next_capacity
             slots.extend([None] * (next_capacity - len(slots)))
-            result = f"🏪 货架已扩建至{next_capacity}格，花费{upgrade_cost}块。"
+            ok, result = True, f"🏪 货架已扩建至{next_capacity}格，花费{upgrade_cost}块。"
 
     elif action == "buy_flower_shop_freshener":
         shop = state["flower_shop"]
         if not shop.get("established_at"):
-            result = "❌ 请先建造花店。"
+            ok, result = False, "❌ 请先建造花店。"
         elif shop.get("has_freshener"):
-            result = "❌ 保鲜设备已经安装好了。"
+            ok, result = False, "❌ 保鲜设备已经安装好了。"
         elif state["money"] < FLOWER_SHOP_FRESHENER_COST:
-            result = f"❌ 金币不足，保鲜设备需要{FLOWER_SHOP_FRESHENER_COST}块。"
+            ok, result = False, f"❌ 金币不足，保鲜设备需要{FLOWER_SHOP_FRESHENER_COST}块。"
         else:
             state["money"] -= FLOWER_SHOP_FRESHENER_COST
             shop["has_freshener"] = True
-            result = "🏪 保鲜设备已安装；之后新上架的花束会更晚进入折价阶段，但仍会在24小时后报废。"
+            ok, result = True, "🏪 保鲜设备已安装；之后新上架的花束会更晚进入折价阶段，但仍会在24小时后报废。"
 
     elif action == "set_flower_shop_hours":
         shop = state["flower_shop"]
         if not shop.get("established_at"):
-            result = "❌ 请先建造花店。"
+            ok, result = False, "❌ 请先建造花店。"
         elif len(parts) != 2:
-            result = "❌ 用法：set_flower_shop_hours <HH:MM>"
+            ok, result = False, "❌ 用法：set_flower_shop_hours <HH:MM>"
         elif shop.get("launched_at") and _flower_shop_is_open(shop, now):
-            result = "❌ 花店营业中，闭店后且货架全空时才能调整营业开始时间。"
+            ok, result = False, "❌ 花店营业中，闭店后且货架全空时才能调整营业开始时间。"
         elif any(slot is not None for slot in shop.get("slots", [])):
-            result = "❌ 货架尚有上架商品，清空后才能调整营业开始时间。"
+            ok, result = False, "❌ 货架尚有上架商品，清空后才能调整营业开始时间。"
         else:
             start_minute = _parse_flower_shop_start_minute(parts[1])
             if start_minute is None:
-                result = "❌ 营业开始时间请使用 HH:MM（例如 09:30）。"
+                ok, result = False, "❌ 营业开始时间请使用 HH:MM（例如 09:30）。"
             elif not shop.get("launched_at"):
                 shop["business_start_minute"] = start_minute
                 shop["pending_business_start_minute"] = None
                 shop["pending_business_effective_at"] = None
-                result = "🕙 已设置花店每天营业10小时的开始时间。"
+                ok, result = True, "🕙 已设置花店每天营业10小时的开始时间。"
             else:
                 effective_at = _next_flower_shop_business_date(now)
                 shop["business_start_minute"] = None
@@ -5115,7 +5130,7 @@ def process_command(state, command, *, event_source="system", letter_context=Non
                     "24:00" if end_minute == 24 * 60 else
                     f"{'次日 ' if end_minute > 24 * 60 else ''}{(end_minute // 60) % 24:02d}:{end_minute % 60:02d}"
                 )
-                result = (
+                ok, result = True, (
                     "🕙 营业时间已调整，新时间将于下一自然日生效。今天剩余时间花店保持闭店。"
                     f"\n新营业时段：{start_minute // 60:02d}:{start_minute % 60:02d}–{end_label}。"
                 )
@@ -5123,36 +5138,36 @@ def process_command(state, command, *, event_source="system", letter_context=Non
     elif action == "launch_flower_shop":
         shop = state["flower_shop"]
         if not shop.get("established_at"):
-            result = "❌ 请先建造花店。"
+            ok, result = False, "❌ 请先建造花店。"
         elif shop.get("launched_at"):
-            result = "❌ 花店已经正式开业了。"
+            ok, result = False, "❌ 花店已经正式开业了。"
         elif shop.get("business_start_minute") is None:
-            result = "❌ 请先设置每天的营业开始时间。"
+            ok, result = False, "❌ 请先设置每天的营业开始时间。"
         else:
             shop["launched_at"] = now
             if _flower_shop_is_open_for_start(shop.get("business_start_minute"), now):
-                result = "🎉 花店正式开业！当前正处于营业时间。"
+                ok, result = True, "🎉 花店正式开业！当前正处于营业时间。"
             else:
-                result = "🎉 花店正式开业！当前已闭店，等待下一次营业周期。"
+                ok, result = True, "🎉 花店正式开业！当前已闭店，等待下一次营业周期。"
 
     elif action == "arrange":
         if len(parts) != 2:
-            result = "❌ 用法：arrange <花>"
+            ok, result = False, "❌ 用法：arrange <花>"
         else:
             flower_id = parts[1].lower()
             vase = state.setdefault("vase", [])
             if flower_id not in FLOWERS:
-                result = "❌ 没有这种花"
+                ok, result = False, "❌ 没有这种花"
             elif len(vase) >= VASE_CAPACITY:
-                result = f"❌ 花瓶已经插满了（最多{VASE_CAPACITY}朵）"
+                ok, result = False, f"❌ 花瓶已经插满了（最多{VASE_CAPACITY}朵）"
             elif state["inventory"]["flowers"].get(flower_id, 0) <= 0:
-                result = "❌ 背包里没有这种已经收获的花"
+                ok, result = False, "❌ 背包里没有这种已经收获的花"
             else:
                 state["inventory"]["flowers"][flower_id] -= 1
                 if state["inventory"]["flowers"][flower_id] <= 0:
                     del state["inventory"]["flowers"][flower_id]
                 vase.append({"flower_id": flower_id, "arranged_time": now})
-                result = (
+                ok, result = True, (
                     f"💐 把一朵{FLOWERS[flower_id]['name']}插进了花瓶。"
                     f"\n   花瓶里的花不能再出售，可保持约{VASE_LIFESPAN_REAL_HOURS}小时。"
                 )
@@ -5160,29 +5175,29 @@ def process_command(state, command, *, event_source="system", letter_context=Non
 
     elif action == "vase":
         if len(parts) != 1:
-            result = "❌ 用法：vase"
+            ok, result = False, "❌ 用法：vase"
         else:
-            result = get_vase_status(state, now)
+            ok, result = True, get_vase_status(state, now)
 
     elif action == "remove_vase":
         if len(parts) != 2:
-            result = "❌ 用法：remove_vase <位置>"
+            ok, result = False, "❌ 用法：remove_vase <位置>"
         else:
             vase = state.setdefault("vase", [])
             try:
                 vase_idx = int(parts[1]) - 1
             except ValueError:
-                result = "❌ 花瓶位置必须是数字"
+                ok, result = False, "❌ 花瓶位置必须是数字"
             else:
                 if vase_idx < 0 or vase_idx >= len(vase):
                     if vase:
-                        result = f"❌ 花瓶位置应为1-{len(vase)}"
+                        ok, result = False, f"❌ 花瓶位置应为1-{len(vase)}"
                     else:
-                        result = "❌ 花瓶现在是空的"
+                        ok, result = False, "❌ 花瓶现在是空的"
                 else:
                     entry = vase.pop(vase_idx)
                     flower_name = FLOWERS[entry["flower_id"]]["name"]
-                    result = (
+                    ok, result = True, (
                         f"🧹 从花瓶位置{vase_idx + 1}移除了{flower_name}。"
                         "\n   花朵和金币都不会返还。"
                     )
@@ -5190,10 +5205,10 @@ def process_command(state, command, *, event_source="system", letter_context=Non
 
     elif action == "sell":
         if len(parts) < 2:
-            result = "❌ 要卖什么？"
+            ok, result = False, "❌ 要卖什么？"
         elif parts[1].lower() == "all":
             if len(parts) != 2:
-                result = "❌ 用法：sell all"
+                ok, result = False, "❌ 用法：sell all"
             else:
                 total = sum(
                     FLOWERS[flower_id]["sell_price"] * qty
@@ -5201,25 +5216,25 @@ def process_command(state, command, *, event_source="system", letter_context=Non
                     if flower_id in FLOWERS and qty > 0
                 )
                 if total <= 0:
-                    result = "❌ 背包里没有花可卖"
+                    ok, result = False, "❌ 背包里没有花可卖"
                 else:
                     state["money"] += total
                     state["total_earned"] += total
                     state["direct_flower_sale_earned"] += total
                     state["inventory"]["flowers"] = {}
                     add_event(state, f"卖掉所有花，赚了{total}块", source=event_source)
-                    result = f"💰 卖掉所有花，赚了{total}块！"
+                    ok, result = True, f"💰 卖掉所有花，赚了{total}块！"
         else:
             flower_id = parts[1].lower()
             quantity = 1 if len(parts) < 3 else parse_positive_int(parts[2])
             if len(parts) > 3:
-                result = "❌ 用法：sell <花> [数量]"
+                ok, result = False, "❌ 用法：sell <花> [数量]"
             elif quantity is None:
-                result = "❌ 出售数量必须是大于0的整数"
+                ok, result = False, "❌ 出售数量必须是大于0的整数"
             elif flower_id not in FLOWERS or state["inventory"]["flowers"].get(flower_id, 0) <= 0:
-                result = "❌ 没有这种花"
+                ok, result = False, "❌ 没有这种花"
             elif state["inventory"]["flowers"][flower_id] < quantity:
-                result = "❌ 数量不够"
+                ok, result = False, "❌ 数量不够"
             else:
                 price = FLOWERS[flower_id]["sell_price"] * quantity
                 state["money"] += price
@@ -5233,19 +5248,19 @@ def process_command(state, command, *, event_source="system", letter_context=Non
                     f"卖了{quantity}朵{FLOWERS[flower_id]['name']}，赚了{price}块",
                     source=event_source,
                 )
-                result = f"💰 卖了{quantity}朵{FLOWERS[flower_id]['name']}，赚了{price}块！"
+                ok, result = True, f"💰 卖了{quantity}朵{FLOWERS[flower_id]['name']}，赚了{price}块！"
 
     elif action == "adopt":
         requested_name = " ".join(parts[1:]) if len(parts) > 1 else ""
         cat_name = normalize_cat_name(requested_name, default=None)
         if cat_name is None:
-            result = f"❌ 猫咪名字不能为空，且不能超过{CAT_NAME_MAX_LENGTH}个字符"
+            ok, result = False, f"❌ 猫咪名字不能为空，且不能超过{CAT_NAME_MAX_LENGTH}个字符"
         elif _has_adopted_cat(state):
-            result = "❌ 已经有猫了"
+            ok, result = False, "❌ 已经有猫了"
         elif state["cat"] is not None and state.get("cat_state", {}).get("phase") == CAT_PHASE_ADOPTED:
-            result = "❌ 已经有猫了"
+            ok, result = False, "❌ 已经有猫了"
         elif not _can_finalize_adoption(state):
-            result = "❌ 当前猫咪状态还不能正式收养"
+            ok, result = False, "❌ 当前猫咪状态还不能正式收养"
         else:
             _ensure_cat_stats_for_lifecycle(state)
             _normalize_v5_cat_foundation(state, now)
@@ -5260,27 +5275,27 @@ def process_command(state, command, *, event_source="system", letter_context=Non
             if state.get("cat_last_pet_real_time", 0) <= 0:
                 state["cat_last_pet_real_time"] = now - (PET_COOLDOWN_REAL_MINUTES * 60)
             _sync_cat_stats_views(state)
-            result = f"🎉 成功收养了{cat_name}！记得喂它哦~"
+            ok, result = True, f"🎉 成功收养了{cat_name}！记得喂它哦~"
 
     elif action == "rename_cat":
         if state["cat"] is None:
-            result = "❌ 还没有猫"
+            ok, result = False, "❌ 还没有猫"
         elif len(parts) < 2:
-            result = "❌ 用法：rename_cat <名字>"
+            ok, result = False, "❌ 用法：rename_cat <名字>"
         else:
             new_name = normalize_cat_name(" ".join(parts[1:]), default=None)
             if new_name is None:
-                result = f"❌ 猫咪名字不能为空，且不能超过{CAT_NAME_MAX_LENGTH}个字符"
+                ok, result = False, f"❌ 猫咪名字不能为空，且不能超过{CAT_NAME_MAX_LENGTH}个字符"
             else:
                 old_name = state["cat"].get("name", "小猫")
                 state["cat"]["name"] = new_name
-                result = f"🐱 {old_name}现在叫{new_name}了！"
+                ok, result = True, f"🐱 {old_name}现在叫{new_name}了！"
 
     elif action == "feed":
         if state["cat"] is None:
-            result = "❌ 还没有猫"
+            ok, result = False, "❌ 还没有猫"
         elif len(parts) != 2 or parts[1].lower() not in ("basic", "premium"):
-            result = "❌ 用法：feed <basic|premium>"
+            ok, result = False, "❌ 用法：feed <basic|premium>"
         else:
             food_type = CAT_CARE_FOOD_TYPES[parts[1].lower()]
             refill_result = _refill_food_bowl(
@@ -5293,21 +5308,21 @@ def process_command(state, command, *, event_source="system", letter_context=Non
             food_name = ITEMS[refill_result["refill_type"]]["name"]
             cat_name = get_current_cat_name(state)
             if refill_result["space"] <= 0:
-                result = "❌ 粮碗已经满了"
+                ok, result = False, "❌ 粮碗已经满了"
             elif refill_result["added"] <= 0:
-                result = f"❌ 背包里的{food_name}不够"
+                ok, result = False, f"❌ 背包里的{food_name}不够"
             elif refill_result["eaten"] > 0:
-                result = f"🍽️ 已给粮碗补充{food_name}，{cat_name}吃了{refill_result['eaten']}份。"
+                ok, result = True, f"🍽️ 已给粮碗补充{food_name}，{cat_name}吃了{refill_result['eaten']}份。"
             elif not _is_cat_near_bowls(state):
-                result = f"🍽️ 已给粮碗补充{refill_result['added']}份{food_name}。{cat_name}现在不在碗边。"
+                ok, result = True, f"🍽️ 已给粮碗补充{refill_result['added']}份{food_name}。{cat_name}现在不在碗边。"
             else:
-                result = f"🍽️ 已给粮碗补充{refill_result['added']}份{food_name}。"
+                ok, result = True, f"🍽️ 已给粮碗补充{refill_result['added']}份{food_name}。"
 
     elif action == "give_water":
         if len(parts) != 1:
-            result = "❌ 用法：give_water"
+            ok, result = False, "❌ 用法：give_water"
         elif state["cat"] is None:
-            result = "❌ 还没有猫"
+            ok, result = False, "❌ 还没有猫"
         else:
             refill_result = _refill_water_bowl(
                 state,
@@ -5317,19 +5332,19 @@ def process_command(state, command, *, event_source="system", letter_context=Non
             )
             cat_name = get_current_cat_name(state)
             if refill_result["space"] <= 0:
-                result = "❌ 水碗已经满了"
+                ok, result = False, "❌ 水碗已经满了"
             elif refill_result["drank"] > 0:
-                result = f"💧 已给水碗补满清水，{cat_name}喝了{refill_result['drank']}份。"
+                ok, result = True, f"💧 已给水碗补满清水，{cat_name}喝了{refill_result['drank']}份。"
             elif not _is_cat_near_bowls(state):
-                result = f"💧 已给水碗补满清水。{cat_name}现在不在碗边。"
+                ok, result = True, f"💧 已给水碗补满清水。{cat_name}现在不在碗边。"
             else:
-                result = "💧 已给水碗补满清水。"
+                ok, result = True, "💧 已给水碗补满清水。"
 
     elif action == "refill_food":
         if len(parts) not in (2, 3) or parts[1].lower() not in CAT_CARE_FOOD_TYPES:
-            result = "❌ 用法：refill_food <basic|premium> [份数]"
+            ok, result = False, "❌ 用法：refill_food <basic|premium> [份数]"
         elif state["cat"] is None:
-            result = "鉂?杩樻病鏈夌尗"
+            ok, result = False, "鉂?杩樻病鏈夌尗"
         else:
             refill_result = _refill_food_bowl(
                 state,
@@ -5341,23 +5356,23 @@ def process_command(state, command, *, event_source="system", letter_context=Non
             bowl = state["cat_care"]["food_bowl"]
             food_type = refill_result["refill_type"]
             if refill_result["space"] <= 0:
-                result = "❌ 粮碗已经满了"
+                ok, result = False, "❌ 粮碗已经满了"
             elif refill_result["added"] <= 0:
-                result = f"❌ 背包里的{ITEMS[food_type]['name']}不够"
+                ok, result = False, f"❌ 背包里的{ITEMS[food_type]['name']}不够"
             elif refill_result["eaten"] > 0:
                 cat_name = get_current_cat_name(state)
-                result = (
+                ok, result = True, (
                     f"✅ 已补充{ITEMS[food_type]['name']}，"
                     f"{cat_name}吃了{refill_result['eaten']}份，当前剩余 {bowl['remaining_portions']}/{bowl['capacity']}"
                 )
             else:
-                result = f"✅ 已向粮碗补充{refill_result['added']}份{ITEMS[food_type]['name']}"
+                ok, result = True, f"✅ 已向粮碗补充{refill_result['added']}份{ITEMS[food_type]['name']}"
 
     elif action == "refill_water":
         if len(parts) not in (1, 2):
-            result = "❌ 用法：refill_water [份数]"
+            ok, result = False, "❌ 用法：refill_water [份数]"
         elif state["cat"] is None:
-            result = "鉂?杩樻病鏈夌尗"
+            ok, result = False, "鉂?杩樻病鏈夌尗"
         else:
             refill_result = _refill_water_bowl(
                 state,
@@ -5367,21 +5382,21 @@ def process_command(state, command, *, event_source="system", letter_context=Non
             )
             bowl = state["cat_care"]["water_bowl"]
             if refill_result["space"] <= 0:
-                result = "❌ 水碗已经满了"
+                ok, result = False, "❌ 水碗已经满了"
             elif refill_result["drank"] > 0:
                 cat_name = get_current_cat_name(state)
-                result = (
+                ok, result = True, (
                     f"✅ 已补满清水，"
                     f"{cat_name}喝了{refill_result['drank']}份，当前剩余 {bowl['remaining_portions']}/{bowl['capacity']}"
                 )
             else:
-                result = f"✅ 已向水碗补充{refill_result['space']}份清水"
+                ok, result = True, f"✅ 已向水碗补充{refill_result['space']}份清水"
 
     elif action == "switch_food":
         if len(parts) != 2 or parts[1].lower() not in CAT_CARE_FOOD_TYPES:
-            result = "❌ 用法：switch_food <basic|premium>"
+            ok, result = False, "❌ 用法：switch_food <basic|premium>"
         elif state["cat"] is None:
-            result = "鉂?杩樻病鏈夌尗"
+            ok, result = False, "鉂?杩樻病鏈夌尗"
         else:
             food_type = CAT_CARE_FOOD_TYPES[parts[1].lower()]
             switch_result = _switch_food_bowl(
@@ -5392,18 +5407,18 @@ def process_command(state, command, *, event_source="system", letter_context=Non
                 letter_context=letter_context,
             )
             if False:
-                result = f"❌ 背包里没有{ITEMS[food_type]['name']}，无法切换"
+                ok, result = False, f"❌ 背包里没有{ITEMS[food_type]['name']}，无法切换"
             else:
                 state["cat_care"]["food_bowl"]["food_type"] = food_type
-                result = f"✅ 当前猫粮已切换为{ITEMS[food_type]['name']}"
+                ok, result = True, f"✅ 当前猫粮已切换为{ITEMS[food_type]['name']}"
 
     elif action == "give_treat":
         if len(parts) != 1:
-            result = "❌ 用法：give_treat"
+            ok, result = False, "❌ 用法：give_treat"
         elif state["cat"] is None:
-            result = "鉂?杩樻病鏈夌尗"
+            ok, result = False, "鉂?杩樻病鏈夌尗"
         elif state["inventory"]["items"].get(CAT_TREAT_ITEM_ID, 0) <= 0:
-            result = "❌ 没有猫零食了"
+            ok, result = False, "❌ 没有猫零食了"
         else:
             cat_name = get_current_cat_name(state)
             cat_present = _is_cat_present_for_interaction(state)
@@ -5424,26 +5439,26 @@ def process_command(state, command, *, event_source="system", letter_context=Non
                 letter_context=letter_context,
             )
             if state.get("_interaction_accepted") is not False:
-                result = f"🍬 给{cat_name}喂了零食，心情和亲密都上升了一点"
+                ok, result = True, f"🍬 给{cat_name}喂了零食，心情和亲密都上升了一点"
             elif not cat_present:
-                result = f"🍬 {cat_name}现在不在这里，零食没有消耗"
+                ok, result = False, f"🍬 {cat_name}现在不在这里，零食没有消耗"
             else:
-                result = f"🍬 {cat_name}闻了闻零食，暂时没有吃，零食没有消耗"
+                ok, result = False, f"🍬 {cat_name}闻了闻零食，暂时没有吃，零食没有消耗"
 
     elif action == "pet":
         if len(parts) != 1:
-            result = "❌ 用法：pet"
+            ok, result = False, "❌ 用法：pet"
         elif state["cat"] is None:
-            result = "❌ 还没有猫"
+            ok, result = False, "❌ 还没有猫"
         elif not _is_cat_present_for_interaction(state):
-            result = f"❌ {get_current_cat_name(state)}现在不在这里，暂时不能摸猫。"
+            ok, result = False, f"❌ {get_current_cat_name(state)}现在不在这里，暂时不能摸猫。"
         else:
             last_pet_time = state.get("cat_last_pet_real_time", 0)
             cooldown_seconds = PET_COOLDOWN_REAL_MINUTES * 60
             time_since_last_pet = now - last_pet_time
             cat_name = get_current_cat_name(state)
             if time_since_last_pet < cooldown_seconds:
-                result = f"❌ {cat_name}现在不想被摸，过{format_time(cooldown_seconds - time_since_last_pet)}再试"
+                ok, result = False, f"❌ {cat_name}现在不想被摸，过{format_time(cooldown_seconds - time_since_last_pet)}再试"
             else:
                 state["cat_last_pet_real_time"] = now
                 _change_cat_stat(state, "mood", 3)
@@ -5454,17 +5469,17 @@ def process_command(state, command, *, event_source="system", letter_context=Non
                     source="pet",
                     letter_context=letter_context,
                 )
-                result = f"🤗 抚摸了{cat_name}，它很开心！心情和亲密都上升了一点"
+                ok, result = True, f"🤗 抚摸了{cat_name}，它很开心！心情和亲密都上升了一点"
 
     elif action == "play":
         if state["cat"] is None:
-            result = "❌ 还没有猫"
+            ok, result = False, "❌ 还没有猫"
         elif len(parts) != 2 or parts[1].lower() not in ("ball", "feather"):
-            result = "❌ 用法：play <ball|feather>"
+            ok, result = False, "❌ 用法：play <ball|feather>"
         else:
             toy_id = "ball" if parts[1].lower() == "ball" else "feather_wand"
             if state["inventory"]["items"].get(toy_id, 0) <= 0:
-                result = "❌ 没有这个玩具"
+                ok, result = False, "❌ 没有这个玩具"
             else:
                 cat_name = get_current_cat_name(state)
                 cat_present = _is_cat_present_for_interaction(state)
@@ -5485,36 +5500,36 @@ def process_command(state, command, *, event_source="system", letter_context=Non
                     letter_context=letter_context,
                 )
                 if state.get("_interaction_accepted") is not False:
-                    result = f"🎾 和{cat_name}玩了{ITEMS[toy_id]['name']}！（玩具已消耗）"
+                    ok, result = True, f"🎾 和{cat_name}玩了{ITEMS[toy_id]['name']}！（玩具已消耗）"
                 elif not cat_present:
-                    result = f"🎾 {cat_name}现在不在这里，玩具没有消耗"
+                    ok, result = False, f"🎾 {cat_name}现在不在这里，玩具没有消耗"
                 else:
-                    result = f"🎾 {cat_name}看了看{ITEMS[toy_id]['name']}，暂时不想玩，玩具没有消耗"
+                    ok, result = False, f"🎾 {cat_name}看了看{ITEMS[toy_id]['name']}，暂时不想玩，玩具没有消耗"
 
     elif action == "buy_pot":
         if len(parts) != 1:
-            result = "❌ 用法：buy_pot"
+            ok, result = False, "❌ 用法：buy_pot"
         elif state["max_pots"] >= MAX_POTS:
-            result = f"❌ 已经有{MAX_POTS}个花盆了，无法再扩展！"
+            ok, result = False, f"❌ 已经有{MAX_POTS}个花盆了，无法再扩展！"
         else:
             next_pot_number = state["max_pots"] + 1
             pot_cost = get_next_pot_cost(state)
             if pot_cost is None:
-                result = f"❌ 已经有{MAX_POTS}个花盆了，无法再扩展！"
+                ok, result = False, f"❌ 已经有{MAX_POTS}个花盆了，无法再扩展！"
             elif state["money"] < pot_cost:
-                result = f"❌ 解锁第{next_pot_number}个花盆需要{pot_cost}块，钱不够！"
+                ok, result = False, f"❌ 解锁第{next_pot_number}个花盆需要{pot_cost}块，钱不够！"
             else:
                 state["money"] -= pot_cost
                 state["pots"].append(None)
                 state["max_pots"] += 1
-                result = (
+                ok, result = True, (
                     f"✅ 解锁了第{next_pot_number}个花盆！"
                     f"现在有{state['max_pots']}个花盆 (-{pot_cost}块)"
                 )
 
     elif action == "collectibles":
         if len(parts) != 1:
-            result = "❌ 用法：collectibles"
+            ok, result = False, "❌ 用法：collectibles"
         else:
             unique_count = get_collectible_unique_count(state)
             total_count = sum(state["collectibles"].values())
@@ -5551,11 +5566,11 @@ def process_command(state, command, *, event_source="system", letter_context=Non
                     if boost_hint:
                         lines.append(f"     {boost_hint}")
 
-            result = "\n".join(lines)
+            ok, result = True, "\n".join(lines)
 
     elif action == "letters":
         if len(parts) != 1:
-            result = "❌ 用法：letters"
+            ok, result = False, "❌ 用法：letters"
         else:
             lines = [
                 "✉️ 猫咪来信",
@@ -5568,11 +5583,11 @@ def process_command(state, command, *, event_source="system", letter_context=Non
                     letter = CAT_LETTERS[idx]
                     lines.append(f"\n  第{idx + 1}封《{letter['title']}》")
                     lines.extend(f"    {line}" for line in letter["text"].splitlines())
-            result = "\n".join(lines)
+            ok, result = True, "\n".join(lines)
 
     elif action == "encyclopedia":
         if len(parts) != 1:
-            result = "❌ 用法：encyclopedia"
+            ok, result = False, "❌ 用法：encyclopedia"
         else:
             lines = ["📚 图鉴"]
             for flower_id, flower_data in FLOWERS.items():
@@ -5581,16 +5596,16 @@ def process_command(state, command, *, event_source="system", letter_context=Non
                 else:
                     lines.append("  ❓ ???")
             lines.append(f"\n进度：{len(state['encyclopedia'])}/{len(FLOWERS)}")
-            result = "\n".join(lines)
+            ok, result = True, "\n".join(lines)
 
     elif action == "status":
         if len(parts) != 1:
-            result = "❌ 用法：status"
+            ok, result = False, "❌ 用法：status"
         else:
-            result = get_status(state, weather_data)
+            ok, result = True, get_status(state, weather_data)
 
     elif action == "help":
-        result = f"""💡 命令帮助：
+        ok, result = True, f"""💡 命令帮助：
 shop - 查看商店
 buy <商品ID> [数量] - 买东西；商品ID必须使用catalog中flowers/items的key（如daisy、basic_food），数量必须是正整数
 buy_cottage_furniture <furniture_id> - 用共同余额为小屋添置一件主家具
@@ -5665,7 +5680,7 @@ help - 显示帮助
 - 任意状态都可使用 remove_vase <位置> 移除，且不返还花朵或金币"""
 
     else:
-        result = "❌ 未知命令，输入 help 查看帮助"
+        ok, result = False, "❌ 未知命令，输入 help 查看帮助"
 
     if action != "pet" or _is_cat_present_for_interaction(state):
         _resolve_letter_progress(state, now=now, letter_context=letter_context)
@@ -5676,11 +5691,11 @@ help - 显示帮助
     if letter_context["messages"]:
         result = result + "\n" + "\n".join(letter_context["messages"])
 
-    if action != "status" or result.startswith("❌"):
+    if action != "status" or (not ok and not all_event_messages):
         result += "\n\n" + _summary(state)
 
     state["last_active_at"] = now
-    return result
+    return CommandResult(ok, result)
 
 
 _BASE_NORMALIZE_STATE = normalize_state
@@ -5892,15 +5907,19 @@ def check_pests(state, now):
 
 
 def _harvest_one_pot(state, pot_idx, now, weather_data):
+    return _harvest_one_pot_result(state, pot_idx, now, weather_data).message
+
+
+def _harvest_one_pot_result(state, pot_idx, now, weather_data) -> CommandResult:
     if pot_idx < 0 or pot_idx >= state["max_pots"]:
-        return f"❌ 盆号必须是1-{state['max_pots']}"
+        return CommandResult(False, f"❌ 盆号必须是1-{state['max_pots']}")
     pot = state["pots"][pot_idx]
     if pot is None:
-        return "❌ 这个盆是空的"
+        return CommandResult(False, "❌ 这个盆是空的")
     if is_pot_withered(pot):
-        return f"❌ 这盆花已经枯萎，请使用 clear {pot_idx + 1} 清理"
+        return CommandResult(False, f"❌ 这盆花已经枯萎，请使用 clear {pot_idx + 1} 清理")
     if _has_pest_blocker(state, pot_idx, pot):
-        return "❌ 花有虫害，先治疗后才能收获"
+        return CommandResult(False, "❌ 花有虫害，先治疗后才能收获")
     flower_id = pot["flower_id"]
     flower_data = FLOWERS[flower_id]
     grow_time = flower_data["grow_time"]
@@ -5909,10 +5928,10 @@ def _harvest_one_pot(state, pot_idx, now, weather_data):
     harvest_total_before = get_total_flower_harvests(state)
     if progress < grow_time:
         if not pot.get("watered", True):
-            return "❌ 这盆花还没浇水，生长暂停"
+            return CommandResult(False, "❌ 这盆花还没浇水，生长暂停")
         speed = weather_data["grow_speed"]
         remaining = (grow_time - progress) / speed
-        return f"❌ 还没成熟，还需约{format_time(remaining)}"
+        return CommandResult(False, f"❌ 还没成熟，还需约{format_time(remaining)}")
     state["inventory"]["flowers"][flower_id] = state["inventory"]["flowers"].get(flower_id, 0) + 1
     harvest_counts = state.setdefault("flower_harvest_counts", {})
     harvest_counts[flower_id] = int(harvest_counts.get(flower_id, 0) or 0) + 1
@@ -5961,7 +5980,7 @@ def _harvest_one_pot(state, pot_idx, now, weather_data):
     )
     if newly_unlocked:
         result += "\n🔁 商店新解锁：" + "、".join(newly_unlocked)
-    return result
+    return CommandResult(True, result)
 
 
 def cmd(command):

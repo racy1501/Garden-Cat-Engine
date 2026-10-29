@@ -36,6 +36,79 @@ def fresh_state():
     return state
 
 
+@pytest.mark.parametrize("command", [
+    "", "unknown_command", "buy missing_item", "buy red_spider_lily",
+    "buy daisy 999", "buy daisy 0", "buy_cottage_furniture missing_item",
+    "plant missing_flower 1", "plant red_spider_lily 1", "water 1",
+    "harvest 1", "harvest all", "treat 1", "clear 1",
+    "craft_bouquet bouquet_id=first_meeting", "make_bouquet bouquet_id=missing",
+    "gift_bouquet instance_id=missing", "list_bouquet instance_id=missing",
+    "establish_flower_shop", "upgrade_flower_shop_shelf",
+    "buy_flower_shop_freshener", "set_flower_shop_hours 14:00",
+    "launch_flower_shop", "arrange daisy", "vase extra", "remove_vase 1",
+    "sell all", "adopt", "rename_cat 栗子", "feed basic", "give_water",
+    "refill_food basic", "refill_water", "switch_food premium", "give_treat",
+    "pet", "play ball", "buy_pot extra", "collectibles extra",
+    "letters extra", "encyclopedia extra", "status extra",
+])
+def test_command_result_reports_business_failures(command):
+    state = get_default_state()
+    state["cat_state"]["next_visit_at"] = int(time.time()) + 3600
+    result = ge.execute_command(state, command)
+    assert result.ok is False
+    assert isinstance(result.message, str)
+    assert result.message
+
+
+@pytest.mark.parametrize("command", [
+    "shop", "help", "status", "vase", "encyclopedia", "collectibles",
+    "letters", "make_bouquet", "buy daisy", "buy basic_food", "buy_pot",
+])
+def test_command_result_preserves_text_entry_point(command, monkeypatch):
+    monkeypatch.setattr(ge.time, "time", lambda: 1_790_985_600)
+    state = get_default_state()
+    structured_state = copy.deepcopy(state)
+    random_state = ge.random.getstate()
+    text = process_command(state, command)
+    ge.random.setstate(random_state)
+    result = ge.execute_command(structured_state, command)
+    assert result.ok is True
+    assert isinstance(text, str)
+    assert result.message == text
+    assert structured_state == state
+
+
+def test_command_result_propagates_harvest_and_bouquet_outcomes():
+    state = get_default_state()
+    state["inventory"]["seeds"]["daisy"] = 1
+    assert ge.execute_command(state, "plant daisy 1").ok is True
+    assert ge.execute_command(state, "water 1").ok is True
+    assert ge.execute_command(state, "harvest 1").ok is False
+    state["pots"][0]["growth_progress"] = FLOWERS["daisy"]["grow_time"]
+    assert ge.execute_command(state, "harvest 1").ok is True
+    assert state["inventory"]["flowers"]["daisy"] == 1
+    assert ge.execute_command(state, "harvest 1").ok is False
+    state["encyclopedia"] = list(FLOWERS)
+    state["inventory"]["flowers"] = dict(BOUQUETS["first_meeting"]["components"])
+    assert ge.execute_command(state, "craft_bouquet bouquet_id=first_meeting").ok is True
+    assert ge.execute_command(state, "craft_bouquet bouquet_id=first_meeting").ok is False
+    instance_id = state["bouquet_inventory"][0]["instance_id"]
+    assert ge.execute_command(state, f"gift_bouquet instance_id={instance_id}").ok is True
+    assert ge.execute_command(state, f"gift_bouquet instance_id={instance_id}").ok is False
+
+
+def test_cli_cmd_keeps_plain_text_result(monkeypatch):
+    state = get_default_state()
+    saved = []
+    monkeypatch.setattr(ge, "load_game", lambda: state)
+    monkeypatch.setattr(ge, "save_game", lambda current: saved.append(current))
+    result = ge.cmd("buy daisy")
+    assert isinstance(result, str)
+    assert "买了1包雏菊种子" in result
+    assert state["inventory"]["seeds"]["daisy"] == 1
+    assert saved == [state]
+
+
 def test_new_game_starts_with_five_cat_food_servings_and_other_resources_unchanged(tmp_path, monkeypatch):
     save_path = tmp_path / "new-game.json"
     monkeypatch.setattr(ge, "SAVE_FILE", str(save_path))

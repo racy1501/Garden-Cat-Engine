@@ -284,6 +284,68 @@ def create_human_garden(client):
     return payload["session_id"], {"X-Garden-Token": payload["garden_token"]}
 
 
+@pytest.mark.parametrize("route", ["/api/cmd", "/web/cmd"])
+@pytest.mark.parametrize("command, expected_ok", [
+    ("buy daisy", True),
+    ("buy missing_item", False),
+    ("buy red_spider_lily", False),
+    ("buy daisy 999", False),
+    ("pet", False),
+    ("harvest 1", False),
+    ("notes invalid_page", False),
+    ("notes", True),
+    ("note", False),
+])
+def test_command_response_uses_business_outcome(api, route, command, expected_ok):
+    module, client = api
+    session_id, human_headers = create_human_garden(client)
+    state = module.db_load_state(session_id)
+    state["cat"] = None
+    state["cat_state"].update(phase=ge.CAT_PHASE_VISITOR, location=ge.CAT_LOCATION_AWAY,
+                              next_visit_at=int(ge.time.time()) + 3600)
+    module.db_save_state(session_id, state)
+    headers = {"X-API-Key": "test-key"} if route.startswith("/api/") else human_headers
+    response = client.post(route, headers=headers,
+                           json={"session_id": session_id, "command": command})
+    assert response.status_code == 200
+    assert response.get_json()["ok"] is expected_ok
+
+
+@pytest.mark.parametrize("command, expected_ok", [("buy missing_item", False), ("buy daisy", True)])
+@pytest.mark.parametrize("with_event", [False, True])
+@pytest.mark.parametrize("with_update_notice", [False, True])
+def test_api_command_outcome_survives_extra_notices(
+    api, monkeypatch, command, expected_ok, with_event, with_update_notice,
+):
+    module, client = api
+    session_id, _ = create_human_garden(client)
+    state = module.db_load_state(session_id)
+    state["ai_v5_update_notice_seen"] = not with_update_notice
+    module.db_save_state(session_id, state)
+    event_text = "🌤️ 天气发生了变化"
+    if with_event:
+        monkeypatch.setattr(ge, "get_weather_info", lambda state, now: (ge.WEATHER[state["weather"]], [event_text]))
+    response = client.post("/api/cmd", headers={"X-API-Key": "test-key"},
+                           json={"session_id": session_id, "command": command})
+    payload = response.get_json()
+    assert response.status_code == 200
+    assert payload["ok"] is expected_ok
+    assert (module.AI_V5_UPDATE_NOTICE in payload["message"]) is with_update_notice
+    assert (event_text in payload["message"]) is with_event
+    assert ("买了1包" if expected_ok else "商店没有这个东西") in payload["message"]
+
+
+@pytest.mark.parametrize("ok, message", [(False, "操作没有完成"), (True, "❌ 仅用于验证文本不决定结果")])
+def test_api_command_does_not_infer_outcome_from_message(api, monkeypatch, ok, message):
+    module, client = api
+    session_id, _ = create_human_garden(client)
+    monkeypatch.setattr(module, "execute_command", lambda *args, **kwargs: ge.CommandResult(ok, message))
+    payload = client.post("/api/cmd", headers={"X-API-Key": "test-key"},
+                          json={"session_id": session_id, "command": "status"}).get_json()
+    assert payload["ok"] is ok
+    assert payload["message"] == message
+
+
 def write_raw_state(module, session_id, state):
     payload = json.dumps(state, ensure_ascii=False)
     with module._get_conn() as conn:
