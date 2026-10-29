@@ -5605,6 +5605,15 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
             ok, result = True, get_status(state, weather_data)
 
     elif action == "help":
+        weather_help = "\n".join(
+            f"{weather['emoji']} {weather['name']}：花生长×{weather['grow_speed']:.1f}，"
+            + ("自动浇水" if weather.get("auto_water") else "需手动浇水")
+            for weather in WEATHER.values()
+        )
+        flower_unlock_help = "\n".join(
+            f"- {flower['name']}：{get_unlock_message(flower_id)}"
+            for flower_id, flower in FLOWERS.items()
+        )
         ok, result = True, f"""💡 命令帮助：
 shop - 查看商店
 buy <商品ID> [数量] - 买东西；商品ID必须使用catalog中flowers/items的key（如daisy、basic_food），数量必须是正整数
@@ -5641,9 +5650,8 @@ status - 查看状态
 help - 显示帮助
 
 🌤️ 天气系统（真实时间）：
-☀️ 晴天：花生长×1.1，需手动浇水，猫心情净+1.0/小时
-🌧️ 下雨：花生长×1.2，自动浇水，猫心情净-2.0/小时
-☁️ 多云：花生长×1.0，需手动浇水，猫心情净-0.5/小时
+{weather_help}
+天气不直接改变猫咪心情数值。
 天气到期后在下一次游戏指令时变化一次；离线期间不补算多轮天气
 
 💧 浇水系统：
@@ -5653,17 +5661,15 @@ help - 显示帮助
 - 雨天自动滋润所有花盆
 
 🐱 猫咪系统（真实时间）：
-  饱食度：-5/小时    口渴度：-6/小时
-  心情：基础衰减-0.5/小时，天气影响；单次离线最多结算前2小时
-  亲密度：自然衰减-0.5/小时
-         饱食或口渴<50时额外-2.0/小时
-  被动衰减保护：各项最低停在20，不会因长期离线继续下降
+  饱食度：-5/小时    口渴度：-5/小时
+  心情：基础衰减-{MOOD_BASE_DECAY:g}/小时；单次离线最多结算前{MOOD_OFFLINE_CAP_REAL_HOURS:g}小时
+  亲密度：visitor / stayed_waiting_name 不发生被动衰减
+         adopted 每小时被动衰减{AFFECTION_NATURAL_DECAY:g}，最低到30
+         已低于30的旧状态不会自动抬高；主动互动增益保持原规则
 
 🌸 花卉解锁：
-- 开局：雏菊、郁金香、向日葵、玫瑰
-- 图鉴2种：解锁薰衣草、百合
-- 图鉴5种：解锁樱花
-- 图鉴7种：解锁月光花
+{flower_unlock_help}
+已收录的花卉保持解锁。
 
 🎉 特殊事件：
 🌈 雨后彩虹：获得金币或普通种子

@@ -916,7 +916,7 @@ def _build_inventory_counts_for_ai(state: dict[str, Any]) -> dict[str, int]:
         "seed_total": sum(int(qty or 0) for qty in seeds.values()),
         "flower_types": sum(1 for qty in flowers.values() if int(qty or 0) > 0),
         "flower_total": sum(int(qty or 0) for qty in flowers.values()),
-        "cat_food_servings": int(items.get("cat_food", 0) or 0),
+        "cat_food_servings": int(items.get("basic_food", 0) or 0),
         "water_servings": int(items.get("water", 0) or 0),
     }
 
@@ -1261,7 +1261,7 @@ def health():
 
 @app.route("/api/info", methods=["GET"])
 def info():
-    """公开接口。AI 可先阅读此页，再注册自己的独立花园。"""
+    """公开接口。AI 可先阅读此页，再接入人类已创建的花园。"""
     base = request.host_url.rstrip("/") + "/api"
     try:
         garden_count = db_count_sessions()
@@ -1273,18 +1273,17 @@ def info():
             "game": f"花园与猫咪 {APP_VERSION} 🌸",
             "welcome": (
                 "欢迎来到花园世界。\n"
-                "在这里，每个 AI 都可以拥有一座独立保存的小花园：\n"
+                "由人类在网页端创建花园后，AI 可使用已有的有效 session_id 一起照料：\n"
                 "种下喜欢的花，布置花瓶，等待猫咪来访，与它相处，并在它愿意留下后正式收养。"
             ),
             "world": f"🌍 目前共有 {garden_count} 个花园在这个世界里",
             "description": "一个同时支持 AI 接口与人类可视化网页的养成游戏。绑定后，AI 与人类可在同一 session_id 下共享花园与便签。",
             "how_to_start": [
-                "第一步：注册并获得专属 session_id（只需一次）",
-                f"  POST {base}/register",
-                "  Header: X-API-Key: <密钥>",
-                '  可选 Body: {"name": "花园名字"}',
+                "第一步：由人类在网页端注册或建档，并提供已有花园的有效 session_id",
+                f"  网页入口：{request.host_url.rstrip('/')}/",
+                "  AI/API 端不能注册或创建新存档。",
                 "",
-                "第二步：保存返回的 session_id，之后每次操作都带上它",
+                "第二步：使用该 session_id，通过正式 API 查看状态和执行命令",
                 f"  POST {base}/cmd",
                 "  Header: X-API-Key: <密钥>",
                 '  Body: {"command": "status", "session_id": "你的ID"}',
@@ -1327,11 +1326,10 @@ def info():
             "endpoints": {
                 f"GET  {base}/info": "游戏说明（无需密钥）",
                 f"GET  {base}/catalog": "商品目录；flowers/items 对象的 key 即 buy 使用的商品ID",
-                f"POST {base}/register": "注册独立花园",
                 f"POST {base}/cmd": "执行游戏命令",
                 f"GET  {base}/status?session_id=xxx": "查看并结算状态",
                 f"GET  {base}/state?session_id=xxx": "已停用，不再通过 API 暴露原始存档",
-                f"POST {base}/new_game": "重置指定存档（慎用）",
+                f"POST {base}/new_game": "仅限人类网页端确认，AI/API 端不可使用",
                 f"GET/POST {base}/notes": "AI查看或写共享便签",
                 f"GET/POST {request.host_url.rstrip('/')}/web/notes": "人类网页查看或写共享便签",
                 f"GET  {request.host_url.rstrip('/')}/": "人类玩家可视化网页",

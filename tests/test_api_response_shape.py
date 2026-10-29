@@ -800,6 +800,40 @@ def test_api_info_welcome_no_longer_mentions_saving_money_to_adopt(api):
     assert "等待猫咪来访" in welcome
 
 
+def test_api_info_directs_ai_to_existing_human_created_garden(api):
+    _, client = api
+    payload = client.get("/api/info").get_json()
+    public_text = json.dumps(payload, ensure_ascii=False)
+    assert "/api/register" not in public_text
+    assert "人类在网页端" in public_text
+    assert "有效 session_id" in public_text
+    assert "AI/API 端不能注册或创建新存档" in public_text
+    assert any("/api/cmd" in endpoint for endpoint in payload["endpoints"])
+    assert client.post("/api/register", headers={"X-API-Key": "test-key"}).status_code == 403
+
+
+@pytest.mark.parametrize("basic_food", [0, 13])
+def test_ai_inventory_counts_use_basic_food_and_preserve_other_counts(api, basic_food):
+    module, client = api
+    state = ge.get_default_state()
+    state["cat_state"]["next_visit_at"] = int(ge.time.time()) + 3600
+    state["inventory"] = {
+        "seeds": {"daisy": 2, "rose": 3},
+        "flowers": {"rose": 4},
+        "items": {"premium_food": 9, "water": 7},
+    }
+    if basic_food:
+        state["inventory"]["items"]["basic_food"] = basic_food
+    module.db_save_state("food-counts", state)
+    payload = client.get("/api/status?session_id=food-counts",
+                         headers={"X-API-Key": "test-key"}).get_json()
+    assert payload["state"]["inventory_counts"] == {
+        "seed_types": 2, "seed_total": 5,
+        "flower_types": 1, "flower_total": 4,
+        "cat_food_servings": basic_food, "water_servings": 7,
+    }
+
+
 def test_summary_recognizes_pest_active(api):
     module, client = api
     session_id, _human_headers = create_human_garden(client)
