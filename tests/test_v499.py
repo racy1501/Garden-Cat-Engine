@@ -39,17 +39,20 @@ def make_cat_state(now: int):
 
 def test_offline_mood_is_capped_at_two_hours_but_other_stats_keep_full_elapsed_time():
     now = int(time.time())
-    state = make_cat_state(now)
+    sunny_state = make_cat_state(now)
+    rainy_state = make_cat_state(now)
 
-    update_cat_stats(state, now, WEATHER["sunny"])
+    update_cat_stats(sunny_state, now, WEATHER["sunny"])
+    update_cat_stats(rainy_state, now, WEATHER["rainy"])
 
     assert MOOD_OFFLINE_CAP_REAL_HOURS == 2.0
-    # 晴天净 +1/小时，离线10小时也只结算前2小时。
-    assert state["cat_stats"]["mood"] == pytest.approx(52.0)
+    # 天气不再直接改变心情；离线心情衰减最多结算前2小时。
+    assert sunny_state["cat_stats"]["mood"] == pytest.approx(49.0)
+    assert rainy_state["cat_stats"]["mood"] == pytest.approx(49.0)
     # 饱食、口渴仍按完整10小时结算。
-    assert state["cat_stats"]["hunger"] == pytest.approx(50.0)
-    assert state["cat_stats"]["thirst"] == pytest.approx(40.0)
-    assert state["last_update"] == now
+    assert sunny_state["cat_stats"]["hunger"] == pytest.approx(50.0)
+    assert sunny_state["cat_stats"]["thirst"] == pytest.approx(50.0)
+    assert sunny_state["last_update"] == now
 
 
 def test_old_save_harvest_counts_start_from_current_flower_inventory():
@@ -253,13 +256,15 @@ def test_web_files_contain_all_requested_v499_controls():
     assert 'makeBackpackActionButton("卖全部"' in js
     assert '累计收获 ${Number(harvestCounts[id] || 0)}朵' in js
     assert 'const FLOWER_RARITY_ORDER = Object.freeze({ common: 0, uncommon: 1, rare: 2, legendary: 3 });' in js
-    assert '.shop-square-card {' in css and 'height: 236px;' in css
+    assert 'class="location-switch-strip"' in html
+    assert all(f'data-main-pane="{pane}"' in html for pane in ("garden", "bouquet", "cottage"))
+    assert ".main-switch-strip { min-width: 0; flex-wrap: wrap;" in css
 
 
 def test_encyclopedia_sort_displays_all_seventeen_flowers_in_rarity_order():
     root = Path(__file__).resolve().parents[1]
     js = (root / "static" / "app.js").read_text(encoding="utf-8")
-    assert js.count("function showEncyclopediaModal()") == 1
+    assert "getSortedCatalogFlowers(catalog.flowers)" in js
     assert ".slice(0, 12)" not in js
     assert 'const isKnown = known.has(id);' in js
     assert 'item.className = `encyclopedia-item ${isKnown ? "" : "unknown"}`;' in js

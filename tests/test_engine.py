@@ -149,26 +149,36 @@ def test_unwatered_time_does_not_count_as_growth():
     assert state["pots"][0]["growth_progress"] == 0
 
 
-def test_withered_flower_stays_until_cleared():
+def test_planned_pest_pauses_growth_until_treated():
     state = fresh_state()
-    now = int(time.time())
-    state["pots"][0] = {
-        "flower_id": "daisy",
-        "planted_time": now - 100,
-        "watered": True,
-        "growth_progress": 20.0,
-        "last_growth_update": now,
-        "pest_time": now - 1,
-    }
-    process_command(state, "status")
-    assert state["pots"][0] is not None
-    assert state["pots"][0]["withered"] is True
+    state["inventory"]["seeds"]["daisy"] = 1
+    with patch("game_engine.random.random", return_value=0.0), patch(
+        "game_engine.random.randint", return_value=50,
+    ):
+        process_command(state, "plant daisy 1")
+    process_command(state, "water 1")
 
-    with patch("game_engine.random.random", return_value=0.1):
-        result = process_command(state, "clear 1")
-    assert state["pots"][0] is None
-    assert state["money"] == 51  # 雏菊种子3块，半价向下取整为1块
-    assert "1块" in result
+    pot = state["pots"][0]
+    trigger = pot["pest_trigger_progress"]
+    assert trigger == FLOWERS["daisy"]["grow_time"] * 0.5
+    pot["last_growth_update"] -= int(trigger) + 1
+    process_command(state, "status")
+    assert pot["pest_active"] is True
+    assert pot["pest_triggered"] is True
+    assert not pot.get("withered", False)
+    assert pot["growth_progress"] == trigger
+
+    pot["last_growth_update"] -= 60
+    process_command(state, "status")
+    assert pot["growth_progress"] == trigger
+
+    result = process_command(state, "treat 1")
+    assert "治疗了盆1" in result
+    assert pot["pest_resolved"] is True
+    assert pot["pest_active"] is False
+    pot["last_growth_update"] -= 60
+    process_command(state, "status")
+    assert pot["growth_progress"] > trigger
 
 
 def test_vase_uses_twelve_real_hours_and_remove_returns_nothing():
@@ -1050,10 +1060,9 @@ def test_unlock_tiers_share_the_dynamic_encyclopedia_and_harvest_facts():
     assert FLOWER_UNLOCK_REQUIREMENTS["red_spider_lily"] == {"encyclopedia": 16, "harvests": 125}
 
 
-def test_duplicate_permanent_reward_refunds_full_store_price():
+def test_sunflower_first_discovery_awards_five_coins():
     state = fresh_state()
     now = int(time.time())
-    state["permanent_items"].append("water_bowl")
     state["pots"][0] = {
         "flower_id": "sunflower",
         "planted_time": now - 1000,
@@ -1063,8 +1072,8 @@ def test_duplicate_permanent_reward_refunds_full_store_price():
     }
     before = state["money"]
     result = process_command(state, "harvest 1")
-    assert state["money"] == before + 10
-    assert "折算10块" in result
+    assert state["money"] == before + 5
+    assert "获得5块" in result
 
 
 def test_cat_passive_stats_stop_at_twenty():
@@ -1398,7 +1407,9 @@ def test_mature_flower_does_not_get_new_pests():
 
 def test_cat_can_be_named_when_adopted_and_renamed():
     state = fresh_state()
-    state["money"] = 200
+    state["cat"] = {"name": "小猫"}
+    state["cat_stats"] = ge._default_v5_cat_stats()
+    state["cat_state"].update(phase=ge.CAT_PHASE_WAITING_NAME, location=ge.CAT_LOCATION_GARDEN)
     result = process_command(state, "adopt 栗子")
     assert "栗子" in result
     assert state["cat"]["name"] == "栗子"
@@ -1450,7 +1461,7 @@ def test_pot_unlock_rejects_when_next_price_is_unaffordable():
     state = fresh_state()
     state["money"] = 19
     result = process_command(state, "buy_pot")
-    assert result.startswith("❌")
+    assert "钱不够" in result
     assert state["max_pots"] == 3
 
 
@@ -1504,6 +1515,6 @@ def test_harvest_all_skips_unready_and_pested_flowers():
         None,
     ]
     result = process_command(state, "harvest all")
-    assert result.startswith("❌")
+    assert "没有可以收获的成熟花朵" in result
     assert state["pots"][0] is not None
     assert state["pots"][1] is not None

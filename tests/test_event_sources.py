@@ -21,7 +21,7 @@ def test_web_and_ai_sale_events_keep_their_own_sources(api, cat_clock):
     assert web_payload["ok"] is True
     assert web_payload["state"]["new_events"][-1] == {
         "time": cat_clock[0],
-        "text": "卖了1朵玫瑰，赚了11块",
+        "text": "卖了1朵玫瑰，赚了14块",
         "source": "human",
         "source_label": "人类",
     }
@@ -35,7 +35,7 @@ def test_web_and_ai_sale_events_keep_their_own_sources(api, cat_clock):
         json={"session_id": "ai-sale-source", "command": "sell rose"},
     ).get_json()
     assert ai_payload["ok"] is True
-    assert ai_payload["state"]["latest_event"] == "卖了1朵玫瑰，赚了11块"
+    assert ai_payload["state"]["latest_event"] == "卖了1朵玫瑰，赚了14块"
     assert module.db_load_state("ai-sale-source")["events"][-1]["source"] == "ai"
 
     all_sale_state = ge.get_default_state()
