@@ -2216,4 +2216,6 @@ html, body { min-width: 0; }
 
 @media (max-width: 430px) {
   .dashboard-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .main-switch-strip { min-width: 0; flex-wrap: wrap; gap: 8px; }
+  .main-strip-actions { flex: 1 1 100%; min-width: 0; flex-wrap: wrap; gap: 8px; }
 }
