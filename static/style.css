@@ -2180,17 +2180,37 @@ html, body { min-width: 0; }
 .bouquet-craft-card select { width: 100%; min-width: 0; padding: 5px; border: 1px solid var(--line); border-radius: 8px; }
 .bouquet-craft-card .flower-shop-actions { margin-top: auto; flex-wrap: wrap; justify-content: center; }
 .flower-shop-facilities { display: grid; gap: 6px; }
-.flower-shop-buff { display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 8px 10px; border-radius: 10px; background: rgba(247,213,112,.22); color: var(--green-dark); }
-.flower-shop-buff[hidden] { display: none; }
-.flower-shop-buff-image { width: 56px; height: 56px; object-fit: contain; flex: 0 0 auto; }
-.flower-shop-buff-details { display: grid; gap: 3px; flex: 1; min-width: 0; }
+.flower-shop-display { display: grid; grid-template-columns: minmax(0, 31fr) minmax(0, 69fr); gap: 10px; min-width: 0; align-items: stretch; }
+.flower-shop-buff { display: flex; flex-direction: column; justify-content: space-between; align-self: end; grid-column: 1; grid-row: 1; gap: 8px; width: 100%; min-width: 0; min-height: 210px; box-sizing: border-box; padding: 12px 12px 8px; border-radius: 14px; background: linear-gradient(155deg, rgba(246,240,222,.72), rgba(237,231,212,.4)); color: var(--green-dark); }
+.flower-shop-buff-tray { position: relative; width: 90%; max-width: 240px; min-width: 0; align-self: center; margin: auto 0 0; }
+.flower-shop-buff-tray-image { display: block; width: 100%; height: auto; }
+.flower-shop-buff-image { position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); width: 26%; height: 28%; object-fit: contain; filter: drop-shadow(0 3px 2px rgba(55, 36, 19, .2)); }
+.flower-shop-buff-details { display: grid; align-content: start; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+.flower-shop-buff-heading { color: #76836b; font-size: 13px; font-weight: 650; line-height: 1.3; }
+.flower-shop-buff-details > small { color: var(--muted); font-size: 12px; line-height: 1.5; }
+.flower-shop-buff-active { display: grid; gap: 5px; }
+.flower-shop-buff-item-name { color: var(--green-dark); font-size: clamp(16px, 1.45vw, 20px); line-height: 1.25; }
+.flower-shop-buff-active > small:not(.flower-shop-buff-status) { color: var(--muted); font-size: 12px; line-height: 1.45; }
+.flower-shop-buff-status { display: inline-flex; width: fit-content; max-width: 100%; padding: 3px 7px; border-radius: 999px; color: #6e765e; background: rgba(224,229,207,.66); font-size: 11px; line-height: 1.35; overflow-wrap: anywhere; }
+.flower-shop-buff-active[hidden], .flower-shop-buff-image[hidden] { display: none; }
 .flower-shop-row input { min-width: 0; padding: 6px; border: 1px solid rgba(92,111,84,.22); border-radius: 8px; }
-.flower-shop-shelves { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 10px; border: 1px solid #d7c9b2; border-radius: 14px; background: #e7ddcb; }
+.flower-shop-shelves { grid-column: 2; grid-row: 1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 10px; border: 1px solid #d7c9b2; border-radius: 14px; background: #e7ddcb; }
 .flower-shop-shelves article { box-sizing: border-box; min-width: 0; height: 200px; display: grid; gap: 4px; align-content: safe center; justify-items: center; padding: 8px 5px; border: 1px solid #d8d2c3; border-radius: 9px; background: #fffaf2; color: var(--green-dark); font-size: 13px; text-align: center; overflow-wrap: anywhere; overflow: auto; }
 .flower-shop-shelves article.locked { background: #eeeae2; color: #a59d90; }
 .flower-shop-shelf-artwork { width: 100%; display: flex; justify-content: center; }
 .flower-shop-shelf-artwork .bouquet-artwork { height: 72px; }
 .flower-shop-shelves small { color: var(--muted); font-size: 12px; line-height: 1.3; }
+@media (max-width: 700px) {
+  .flower-shop-display { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+  .flower-shop-shelves { grid-column: 1; grid-row: 1; }
+  .flower-shop-buff { display: grid; grid-column: 1; grid-row: 2; grid-template-columns: minmax(0, 1fr) minmax(150px, 40%); align-self: start; align-items: center; gap: 10px; width: min(100%, 440px); min-height: 160px; padding: 10px 14px; }
+  .flower-shop-buff-tray { width: 90%; max-width: 210px; margin: 0 auto; }
+  .flower-shop-buff-item-name { font-size: 18px; }
+}
+@media (max-width: 380px) {
+  .flower-shop-buff { display: flex; width: 100%; min-height: 0; gap: 8px; }
+  .flower-shop-buff-tray { width: min(82%, 210px); margin: 4px auto 0; }
+}
 
 .cottage-panel { min-height: 420px; }
 .cottage-shop-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }

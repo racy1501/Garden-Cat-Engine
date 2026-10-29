@@ -410,7 +410,7 @@ const formalIds=['first_meeting','morning_light','sunny_field','heart_note','eve
 const pricing_profiles={normal:[{until_seconds:14400,multiplier:1.15},{until_seconds:86400,multiplier:0.65}],freshener:[{until_seconds:21600,multiplier:1.15},{until_seconds:86400,multiplier:0.65}]};
 const ctx={document:{createElement:element},$:(s)=>nodes[s]||(nodes[s]=element('root')),
 catalog:{flowers:{daisy:{name:'雏菊'}},bouquets:Object.fromEntries(formalIds.map(id=>[id,{name:id,components:{daisy:1},base_price:30}]))},bouquetVisitNewGiftIndexes:new Set(),bouquetWorkshopTab:'shelf',
- CUSTOM_ASSETS:{pebble:'data:image/png;base64,example'},elapsed:0,getSnapshotElapsedSeconds(){return ctx.elapsed},
+ CUSTOM_ASSETS:{pebble:'pebble-image',gray_feather:'feather-image',maple_leaf:'leaf-image'},elapsed:0,getSnapshotElapsedSeconds(){return ctx.elapsed},
  runCommand(command){executed.push(command)},
  formatDuration:()=> '2小时',makeButton(label,command,cls,disabled){const b=element('button');b.textContent=label;b.command=command;b.disabled=disabled;commands.push(b);return b},
  currentState:{money:10000,bouquet_gifts:[],bouquet_options:[{bouquet_id:'first_meeting',name:'初见',components:{daisy:1},can_make:true}],
@@ -423,6 +423,11 @@ const body=ctx.$('#bouquetPageContent');
 const walk=(node)=>[node,...node.children.flatMap(walk)];
 const find=(cls)=>walk(body).find(n=>n.className===cls);
 ctx.renderBouquetPage();
+if(!find('flower-shop-buff')||!walk(find('flower-shop-buff')).some(n=>n.src==='/static/assets/v5/flower_shop/cat_buff_tray.png')||!walk(find('flower-shop-buff')).some(n=>n.textContent==='外出回来时，它偶尔会给花店带点什么。'))throw Error('empty tray missing');
+if(!walk(find('flower-shop-buff')).some(n=>n.textContent==='猫咪的小惊喜'))throw Error('surprise title');
+ctx.currentState.cat={name:'栗子'};ctx.renderBouquetPage();
+if(!walk(find('flower-shop-buff')).some(n=>n.textContent==='外出回来时，它偶尔会给花店带点什么。'))throw Error('idle hint should stay lightweight');
+ctx.currentState.cat=null;ctx.renderBouquetPage();
 const pageTabs=find('bouquet-collection-tabs bouquet-page-tabs');
 if(!pageTabs||pageTabs.children.map(b=>b.textContent).join('/')!=='花束/赠礼')throw Error('shop-level tabs');
 let tabs=find('bouquet-collection-tabs bouquet-workshop-tabs');
@@ -430,20 +435,24 @@ if(tabs.children.map(b=>b.textContent).join('/')!=='货架/制作'||!tabs.childr
 if(walk(body).some(n=>n.textContent.includes('解锁条件')))throw Error('eligibility persists after unlock');
 if(walk(body).filter(n=>n.tag==='h3').map(n=>n.textContent).join('/')!=='售卖货架')throw Error('shelf title hierarchy');
 let shelves=find('flower-shop-shelves');
+const display=find('flower-shop-display');
+if(!display||display.children[0]!==shelves||display.children[1].className!=='flower-shop-buff')throw Error('shelf should precede the surprise corner in narrow-screen flow');
 if(shelves.children.length!==9||shelves.children.filter(n=>n.className==='locked').length!==6)throw Error('capacity');
 if(!walk(shelves.children[1]).some(n=>n.textContent==='暂无上架')||walk(shelves.children[1]).some(n=>n.tag==='img'))throw Error('empty slot');
 const first=walk(shelves.children[0]);
 if(!first.some(n=>n.src==='/static/assets/v5/bouquets/other_shore_poem.png')||!first.some(n=>n.textContent==='彼岸诗 ×1')||!first.some(n=>n.textContent.includes('基础价 100 → 当前售价 123')))throw Error('listed slot price relationship');
 if(!walk(body).some(n=>n.textContent==='保鲜设备：未安装')||!walk(body).some(n=>n.textContent.includes('相对基础售价：0–4小时 ×1.15'))||!walk(body).some(n=>n.textContent.includes('上架满24小时后报废')))throw Error('ordinary shelf pricing explanation');
-ctx.currentState.collectible_catalog=[{id:'pebble',name:'小石子',display_name:'小石子'}];
+ctx.currentState.collectible_catalog=[{id:'pebble',name:'小石子',display_name:'小石子'},{id:'gray_feather',name:'羽毛'},{id:'maple_leaf',name:'枫叶'}];
 Object.assign(ctx.currentState.flower_shop,{shop_buff_active:true,shop_buff_collectible_id:'pebble',shop_buff_effect:'成交金额 +10%',shop_buff_remaining_seconds:7200});
 ctx.renderBouquetPage();
 let buff=find('flower-shop-buff');
 if(!buff||!walk(buff).some(n=>n.src===ctx.CUSTOM_ASSETS.pebble&&n.alt==='小石子')||!walk(buff).some(n=>n.textContent==='小石子')||!walk(buff).some(n=>n.textContent==='猫咪把它放在了花店柜台上。')||!walk(buff).some(n=>n.textContent==='成交金额 +10%｜剩余 2小时'))throw Error('real buff collectible missing');
+ctx.currentState.cat={name:'麻薯'};ctx.renderBouquetPage();buff=find('flower-shop-buff');if(!walk(buff).some(n=>n.textContent==='麻薯把它放在了花店柜台上。'))throw Error('named cat should appear in the active buff note');ctx.currentState.cat=null;
+for(const id of ['gray_feather','maple_leaf']){ctx.currentState.flower_shop.shop_buff_collectible_id=id;ctx.renderBouquetPage();buff=find('flower-shop-buff');if(!walk(buff).some(n=>n.className==='flower-shop-buff-image'&&n.src===ctx.CUSTOM_ASSETS[id]))throw Error('collectible overlay '+id)}
 ctx.currentState.flower_shop.shop_buff_collectible_id=null;ctx.renderBouquetPage();buff=find('flower-shop-buff');
-if(!buff||!walk(buff).some(n=>n.textContent==='🐾 猫咪好运')||walk(buff).some(n=>n.tag==='img'))throw Error('legacy buff fallback');
+if(!buff||!walk(buff).some(n=>n.textContent==='🐾 猫咪好运')||walk(buff).some(n=>n.className==='flower-shop-buff-image'))throw Error('legacy buff fallback');
 ctx.currentState.flower_shop.shop_buff_collectible_id='pebble';ctx.elapsed=7200;ctx.renderBouquetPage();
-if(find('flower-shop-buff'))throw Error('expired buff displayed');
+buff=find('flower-shop-buff');if(!buff||walk(buff).some(n=>n.className==='flower-shop-buff-image')||!walk(buff).some(n=>n.textContent==='外出回来时，它偶尔会给花店带点什么。'&&!n.hidden))throw Error('expired buff must leave empty tray');
 ctx.elapsed=0;ctx.currentState.flower_shop.shop_buff_active=false;ctx.renderBouquetPage();
 if(!commands.some(b=>b.command==='buy_flower_shop_freshener'&&b.textContent==='安装 · 1800'))throw Error('freshener purchase entry missing');
 const freshenerButtonsBefore=commands.filter(b=>b.command==='buy_flower_shop_freshener').length;
@@ -879,9 +888,9 @@ def test_shop_buff_live_countdown_hides_at_expiry():
     script = r"""
 const fs=require('fs'),vm=require('vm');
 const source=fs.readFileSync('static/app.js','utf8');
-const box={hidden:false}, text={textContent:''};
+const box={hidden:false}, item={hidden:false}, empty={hidden:true}, text={textContent:''};
 const ctx={elapsed:1,currentState:{pots:[],vase:{flowers:[]},flower_shop:{shop_buff_active:true,shop_buff_remaining_seconds:2,shop_buff_effect:'成交金额 +10%'}},
- document:{visibilityState:'visible',querySelector:s=>s==='[data-live-shop-buff]'?box:s==='[data-live-shop-buff-text]'?text:null},
+ document:{visibilityState:'visible',querySelector:s=>s==='[data-live-shop-buff]'?box:s==='[data-live-shop-buff-text]'?text:s==='[data-live-shop-buff-item]'?item:s==='[data-live-shop-buff-empty]'?empty:null},
  getSnapshotElapsedSeconds(){return ctx.elapsed},updateLiveGameTime(){},formatDuration:seconds=>`${seconds}秒`,queueLiveRefresh(){}};
 vm.createContext(ctx);
 const start=source.indexOf('function updateLiveCountdowns('),end=source.indexOf('\nfunction showToast(',start);
@@ -889,7 +898,7 @@ vm.runInContext(source.slice(start,end),ctx);
 ctx.updateLiveCountdowns();
 if(box.hidden||text.textContent!=='成交金额 +10%｜剩余 1秒')throw Error('live countdown');
 ctx.elapsed=2;ctx.updateLiveCountdowns();
-if(!box.hidden)throw Error('expired collectible remains visible');
+if(!box.hidden||!item.hidden||empty.hidden)throw Error('expired collectible remains visible or empty tray hint missing');
 """
     result = subprocess.run(["node", "-e", script], cwd=root, encoding="utf-8", capture_output=True)
     assert result.returncode == 0, result.stderr
