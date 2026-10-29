@@ -1,6 +1,6 @@
 const STORAGE_KEY = "garden_cat_web_credentials_v1";
 const REQUIRED_CONFIRM_TEXT = "\u786e\u8ba4";
-const UPDATE_ANNOUNCEMENT_SEEN_KEY = "garden_cat_update_seen_v5_0";
+const UPDATE_ANNOUNCEMENT_SEEN_KEY = "garden_cat_update_seen_v5_2_0";
 
 const FLOWER_ICON_ASSET = {
   lavender: "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA5NiA5NiI+CiAgPGRlZnM+CiAgICA8bGluZWFyR3JhZGllbnQgaWQ9InN0ZW0iIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIxIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjNmY5YjU3Ii8+CiAgICAgIDxzdG9wIG9mZnNldD0iMSIgc3RvcC1jb2xvcj0iIzNmNmYzZSIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICAgIDxsaW5lYXJHcmFkaWVudCBpZD0icGV0YWwiIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIxIj4KICAgICAgPHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjYjk5OWU4Ii8+CiAgICAgIDxzdG9wIG9mZnNldD0iMSIgc3RvcC1jb2xvcj0iIzc2NTRiNyIvPgogICAgPC9saW5lYXJHcmFkaWVudD4KICA8L2RlZnM+CiAgPHBhdGggZD0iTTQ4IDgyQzQ3IDY1IDQ5IDQ4IDUyIDI3IiBmaWxsPSJub25lIiBzdHJva2U9InVybCgjc3RlbSkiIHN0cm9rZS13aWR0aD0iNSIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CiAgPHBhdGggZD0iTTQ3IDY3QzM2IDYzIDMxIDU2IDI4IDQ5IiBmaWxsPSJub25lIiBzdHJva2U9InVybCgjc3RlbSkiIHN0cm9rZS13aWR0aD0iNCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CiAgPHBhdGggZD0iTTQ4IDczQzU5IDY5IDY1IDYyIDY5IDU0IiBmaWxsPSJub25lIiBzdHJva2U9InVybCgjc3RlbSkiIHN0cm9rZS13aWR0aD0iNCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CiAgPGVsbGlwc2UgY3g9IjQ5IiBjeT0iMjIiIHJ4PSI4IiByeT0iMTEiIGZpbGw9InVybCgjcGV0YWwpIiB0cmFuc2Zvcm09InJvdGF0ZSg4IDQ5IDIyKSIvPgogIDxlbGxpcHNlIGN4PSIzOSIgY3k9IjMxIiByeD0iOCIgcnk9IjExIiBmaWxsPSJ1cmwoI3BldGFsKSIgdHJhbnNmb3JtPSJyb3RhdGUoLTM1IDM5IDMxKSIvPgogIDxlbGxpcHNlIGN4PSI1NyIgY3k9IjM0IiByeD0iOCIgcnk9IjExIiBmaWxsPSJ1cmwoI3BldGFsKSIgdHJhbnNmb3JtPSJyb3RhdGUoMzQgNTcgMzQpIi8+CiAgPGVsbGlwc2UgY3g9IjM2IiBjeT0iNDMiIHJ4PSI3IiByeT0iMTAiIGZpbGw9InVybCgjcGV0YWwpIiB0cmFuc2Zvcm09InJvdGF0ZSgtNDYgMzYgNDMpIi8+CiAgPGVsbGlwc2UgY3g9IjU4IiBjeT0iNDciIHJ4PSI3IiByeT0iMTAiIGZpbGw9InVybCgjcGV0YWwpIiB0cmFuc2Zvcm09InJvdGF0ZSg0MyA1OCA0NykiLz4KICA8ZWxsaXBzZSBjeD0iNDMiIGN5PSI1NCIgcng9IjciIHJ5PSIxMCIgZmlsbD0idXJsKCNwZXRhbCkiIHRyYW5zZm9ybT0icm90YXRlKC0yMiA0MyA1NCkiLz4KICA8cGF0aCBkPSJNMzAgNTFDMzcgNTIgNDIgNTYgNDYgNjJDMzggNjMgMzIgNTkgMzAgNTFaIiBmaWxsPSIjNzhhNjVlIi8+CiAgPHBhdGggZD0iTTY4IDU1QzYxIDU2IDU2IDYxIDUxIDY3QzYwIDY4IDY2IDYzIDY4IDU1WiIgZmlsbD0iIzc4YTY1ZSIvPgo8L3N2Zz4=",
@@ -3191,7 +3191,7 @@ function appendUpdateSection(body, title, paragraphs, options = {}) {
 function showUpdateAnnouncementModal({ auto = false } = {}) {
   resetModalPresentation();
   activeModalKind = "update-announcement";
-  $("#modalTitle").textContent = "花园与猫 v5.1.1 更新公告 🌸";
+  $("#modalTitle").textContent = "花园与猫 v5.2.0 更新公告 🌸";
   $(".modal-card").classList.add("modal-card-wide");
 
   const body = $("#modalBody");
@@ -3201,57 +3201,34 @@ function showUpdateAnnouncementModal({ auto = false } = {}) {
   const intro = document.createElement("p");
   intro.className = "update-intro";
   intro.textContent =
-    "欢迎回到花园。v5.0 重新整理了游戏时间、猫咪生活和花园成长，在游玩体验、游戏机制上做了优化。旧花园可以继续游玩；是否开启全新花园，可以根据下面的变化决定。";
+    "欢迎回到花园。v5.2.0 带来了花园、花店、小屋三个地点，一起种花、经营，也慢慢布置共同的小屋。";
   body.append(intro);
 
-  appendUpdateSection(body, "v5.1.1 小更新", [
-    "修复极端情况下金币和种子全部耗尽后，花园无法继续经营的问题。",
-    "优化天气、彩虹与蝴蝶事件的结算逻辑。",
+  appendUpdateSection(body, "【花与花店】", [
+    "17 种花、12 款正式花束。发现配方后，可制作入库存，再选择赠送或上架售卖。",
+    "花店支持营业时间、货架扩容与保鲜设备。上架花束随新鲜度折价，24 小时仍未售出就会报废；保鲜设备只延后折价。",
+    "顶层为花园 / 花店 / 小屋；花店内有花束 / 赠礼，花束内有货架 / 制作。",
   ]);
-
-  appendUpdateSection(body, "【时间与离线】", [
-    "所有花园统一使用北京时间，昼夜与现实时间同步。",
-    "花朵成长、天气变化、猫咪生活和离线进度，都按照真实经过时间推进。",
-    "离线最多结算 72 小时；超过后会进入暂停保护，避免长时间未登录造成过多损失。",
+  appendUpdateSection(body, "【共同小屋】", [
+    "共同小屋 v1-B 与家具商店已开放：9 件金币购买家具、4 件花卉奖励装饰，获得后逐步点亮小屋，不提供属性或经营加成。",
   ]);
-  appendUpdateSection(body, "【猫咪生活】", [
-    "猫咪会经历来访、停留等待取名和正式收养。",
-    "正式收养不再需要支付旧版的收养费用。",
-    "收养后的猫咪会在家生活，也可能外出后再回到花园。",
-    "新增猫窝、粮碗、水碗、普通猫粮、高级猫粮、零食和玩具等照料内容。",
-    "猫咪会根据自己的状态吃饭、喝水和回应互动，也可能带回属于它的小收藏。",
+  appendUpdateSection(body, "【猫咪与收藏】", [
+    "猫咪会经历来访、决定留下等待取名，再免费正式收养。补充粮水、摸猫、零食和玩具都能陪它生活，收养后还会外出归来。",
+    "16 种猫咪藏品、12 封顺序来信，以及花园压花和事件纪念；新发现会提醒你。赠礼花束与卡片永久收藏。",
   ]);
-  appendUpdateSection(body, "【花园变化】", [
-    "花卉扩充至 12 种，并补充了对应的花朵和种子素材。",
-    "商店、背包、花盆和花卉图鉴的展示进行了整理。",
-    "加入持续变化的天气，以及彩虹、蝴蝶等花园小事件。",
-    "虫害改为更温和的机制，不会再因为旧版倒计时突然让花朵死亡。",
-    "花朵在离线期间仍会成长，成熟后等待你亲自回来收获。",
+  appendUpdateSection(body, "【种植与时间】", [
+    "虫害在种植时确定，达到触发点后暂停生长，治疗后继续。成熟花等待收获。",
+    "昼夜使用北京时间，成长按现实时间推进；常规离线补算最多 72 小时，花店货架仍按真实时间结算。",
   ]);
-  appendUpdateSection(body, "【继续旧花园】", [
-    "继续旧档，可以保留现有的花园、金币、物品、花盆、猫咪和已有进度，并在之后的游玩中逐渐体验大部分新版内容。",
-    "如果猫咪已经被正式收养，它不会重新经历第一次来访和收养过程。",
-    "旧档不会自动补发新档专属的初始物资。",
+  appendUpdateSection(body, "【存档选择】", [
+    "可以继续旧花园，保留已有进度；旧档不会自动补发新档初始物资。",
+    "也可开启全新花园，或在已正式收养猫咪后带猫搬家。搬家只保留猫咪名字和已收养状态，其余游戏进度重置。",
+    "重开和搬家都会覆盖当前花园，需在人类网页端输入完整中文“确认”；共享便签保留。",
   ]);
-  appendUpdateSection(body, "【开启全新花园】", [
-    "开启全新花园后，可以从头体验猫咪第一次来访、停留、取名和正式收养的完整过程。",
-  ]);
-  appendUpdateSection(body, "新版初始物资为：", [], {
-    listItems: ["金币 50", "花盆 3 个", "雏菊种子 3 颗", "普通猫粮 15 份"],
+  appendUpdateSection(body, "新花园初始物资：", [], {
+    listItems: ["金币 50", "花盆 3 个", "雏菊种子 3 颗", "普通猫粮 5 份"],
     listClassName: "update-resource-list",
   });
-  appendUpdateSection(body, "【开启全新花园说明】", [
-    "开启全新花园会覆盖当前花园，旧档不能与新档同时保留。执行时必须输入完整中文“确认”。",
-  ]);
-  appendUpdateSection(body, "【带猫搬家】", [
-    "如果旧花园已经正式收养猫咪，也可以选择带猫搬家。",
-    "猫咪的名字和已收养状态会保留，其他花园进度、物品、收藏和猫咪状态将重新开始。执行时同样需要输入完整中文“确认”。",
-  ]);
-  appendUpdateSection(body, "【如何选择】", [
-    "如果舍不得现在的花园和已有进度，可以放心继续旧档。",
-    "如果想从头体验完整的新版开局和猫咪生命周期，可以开启全新花园。",
-    "如果想开始一座新花园，又不愿意和已经收养的猫咪分别，可以选择带猫搬家。",
-  ]);
 
   const actions = document.createElement("div");
   actions.className = "modal-actions update-modal-actions";

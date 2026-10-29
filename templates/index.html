@@ -29,7 +29,7 @@
 <textarea id="importKey" placeholder='{"session_id":"web_...","garden_token":"..."}' rows="4"></textarea>
 <button class="secondary-btn" id="importBtn" type="button">打开旧花园</button>
 </details>
-<p class="privacy-note">每位玩家与每个 AI 都拥有独立花园。钥匙只保存在当前浏览器中。</p>
+<p class="privacy-note">人类创建花园后，AI 通过同一个 session_id 共享该花园。钥匙只保存在当前浏览器中。</p>
 </div>
 </section>
 <div class="app-shell hidden" id="app">
@@ -66,7 +66,7 @@
 </article>
 <article aria-label="打开花卉图鉴" class="metric-card metric-link" id="encyclopediaCard" role="button" tabindex="0" title="点击查看花卉图鉴">
 <span class="metric-icon custom-metric-icon" id="encyclopediaIcon"></span>
-<div><small>图鉴</small><strong id="encyclopediaValue">0 / 8</strong></div>
+<div><small>图鉴</small><strong id="encyclopediaValue">—</strong></div>
 </article>
 <article class="metric-card">
 <span class="metric-icon custom-metric-icon" id="earnedIcon"></span>

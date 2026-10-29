@@ -1,7 +1,10 @@
 import importlib
+import json
 import os
+import re
 import sys
 import time
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -29,6 +32,62 @@ def create_human_garden(client):
     assert response.status_code == 200
     payload = response.get_json()
     return payload["session_id"], {"X-Garden-Token": payload["garden_token"]}
+
+
+def test_release_versions_and_public_api_introduction(api):
+    module, client = api
+    root = Path(__file__).resolve().parents[1]
+    metadata = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
+    assert module.APP_VERSION == "v5.2.0"
+    assert metadata["project"]["version"] == module.APP_VERSION.removeprefix("v")
+    html = client.get("/").get_data(as_text=True)
+    assert f"花园与猫咪 {module.APP_VERSION}" in html
+    assert f"/static/app.js?v={module.APP_VERSION}" in html
+    assert "v4.9.9" not in html
+    assert "0 / 8" not in html
+    assert "同一个 session_id" in html
+
+    info = client.get("/api/info").get_json()
+    public_text = json.dumps(info, ensure_ascii=False)
+    assert module.APP_VERSION in info["game"]
+    assert "/api/register" not in public_text
+    assert "有效 session_id" in public_text
+    assert "X-API-Key" in public_text
+    assert "AI/API 端不能注册或创建新存档" in public_text
+    assert "害虫每5分钟" not in public_text
+    assert "达到触发点后暂停生长" in public_text
+    for feature in ("17 种花", "12 款正式花束", "花店", "小屋", "家具商店"):
+        assert feature in public_text
+    state_help = next(value for key, value in info["endpoints"].items() if "/api/state" in key)
+    assert "已停用" in state_help
+    catalog = client.get("/api/catalog").get_json()
+    assert catalog["version"] == module.APP_VERSION
+
+
+def test_readme_describes_current_release_and_formal_bouquet_catalog(api):
+    module, _ = api
+    root = Path(__file__).resolve().parents[1]
+    readme = (root / "README.md").read_text(encoding="utf-8")
+    assert readme.startswith(f"# 🌸 花园与猫咪 {module.APP_VERSION}")
+    for obsolete in (
+        "POST /api/register", "不存在花束中间库存", "不出售、不产生金币",
+        "第一版固定花束", "每 5 分钟最多检查一次", "12种花", "12 种花",
+        "网页顶部的「花束」与花园、商店同级",
+    ):
+        assert obsolete not in readme
+    for current in (
+        "有效的 `session_id`", "X-API-Key", "GET /api/catalog", "bouquet inventory",
+        "craft_bouquet", "gift_bouquet", "list_bouquet", "24 小时", "共同小屋 v1-B",
+        "9 件金币购买家具", "4 件花卉奖励装饰", "免费正式收养",
+    ):
+        assert current in readme
+    listed = re.search(r"正式 12 款花束：([^。]+)。", readme).group(1).split("、")
+    expected = ["初见", "晨光", "晴野", "心笺", "晚风", "柔云", "蓝信", "樱枝", "春宴", "春山", "月下书", "彼岸诗"]
+    assert listed == expected
+    assert listed == [bouquet["name"] for bouquet in module.BOUQUETS.values()]
+    assert "暖阳、紫雾、小花园只作为旧存档历史赠礼兼容展示" in readme
+    flower_rows = re.findall(r"^\| (\S+) \| (\d+)分钟 \|$", readme, re.MULTILINE)
+    assert flower_rows == [(flower["name"], str(flower["grow_time"] // 60)) for flower in module.FLOWERS.values()]
 
 
 def test_human_and_ai_share_timeline_with_separate_cooldowns(api):
@@ -127,7 +186,8 @@ def test_ui_command_help_and_pet_cooldown_regression(api):
     html = home.get_data(as_text=True)
     assert home.status_code == 200
     assert 'id="notesBtn"' in html
-    assert "v4.9.9" in html
+    assert module.APP_VERSION == "v5.2.0"
+    assert f"花园与猫咪 {module.APP_VERSION}" in html
 
     write = client.post(
         "/api/cmd",

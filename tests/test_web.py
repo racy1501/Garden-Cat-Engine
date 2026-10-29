@@ -33,6 +33,59 @@ def test_new_state_initial_resources_include_five_cat_food_servings(tmp_path):
     assert state["inventory"]["seeds"]["daisy"] == 3
 
 
+def test_v520_announcement_renders_and_is_seen_once_after_old_announcement():
+    root = Path(__file__).resolve().parents[1]
+    script = r"""
+const fs=require('fs'),vm=require('vm'),assert=require('assert');
+const source=fs.readFileSync('static/app.js','utf8');
+const key=source.match(/const UPDATE_ANNOUNCEMENT_SEEN_KEY = "([^"]+)";/)[1];
+assert.strictEqual(key,'garden_cat_update_seen_v5_2_0');
+const storage=new Map([['garden_cat_update_seen_v5_0','1']]);
+function createPage(){
+  function element(){return {textContent:'',children:[],listeners:{},
+    classList:{add(){},remove(){},contains(){return false;}},
+    append(...children){this.children.push(...children);},
+    addEventListener(event,callback){this.listeners[event]=callback;}};}
+  const nodes={};
+  const context={
+    $:selector=>nodes[selector]||(nodes[selector]=element()),
+    document:{createElement:element},
+    localStorage:{getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,v)},
+    currentState:{},hasTriedAutoUpdateAnnouncement:false,
+    resetModalPresentation(){},closeModal(){}
+  };
+  vm.createContext(context);
+  vm.runInContext(`const UPDATE_ANNOUNCEMENT_SEEN_KEY=${JSON.stringify(key)};`+
+    source.slice(source.indexOf('function hasSeenUpdateAnnouncement()'),
+                 source.indexOf('function showNewGameModal()')),context);
+  return {context,nodes};
+}
+function text(node){return [node.textContent,...node.children.map(text)].join('\n');}
+const first=createPage();
+first.context.maybeAutoShowUpdateAnnouncement();
+assert(first.nodes['#modalTitle'].textContent.includes('v5.2.0'));
+const body=first.nodes['#modalBody'],content=text(body);
+for(const feature of ['17 种花','12 款正式花束','家具商店','普通猫粮 5 份'])
+  assert(content.includes(feature),feature);
+assert(!content.includes('普通猫粮 15 份'));
+assert(!content.includes('扩充至 12 种'));
+const childCount=body.children.length;
+first.context.maybeAutoShowUpdateAnnouncement();
+assert.strictEqual(body.children.length,childCount);
+const confirm=body.children.at(-1).children[0];
+confirm.listeners.click();
+assert.strictEqual(storage.get(key),'1');
+assert.strictEqual(storage.get('garden_cat_update_seen_v5_0'),'1');
+const reloaded=createPage();
+reloaded.context.maybeAutoShowUpdateAnnouncement();
+assert.strictEqual(reloaded.nodes['#modalTitle'],undefined);
+console.log('ok');
+"""
+    result = subprocess.run(["node", "-e", script], cwd=root, capture_output=True, text=True, encoding="utf-8")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "ok"
+
+
 def test_three_locations_keep_the_original_garden_function_strip():
     root = Path(__file__).resolve().parents[1]
     html = (root / "templates" / "index.html").read_text(encoding="utf-8")
