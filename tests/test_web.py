@@ -628,6 +628,20 @@ def test_web_summary_includes_time_speed_and_pet_cooldown(tmp_path):
     assert summary["cat"]["pet_cooldown_remaining_seconds"] == 0
 
 
+def test_adopted_cat_hint_matches_home_or_away_location():
+    root = Path(__file__).resolve().parents[1]
+    js = (root / "static" / "app.js").read_text(encoding="utf-8")
+    active_renderer = js.rsplit("function renderCatHouseV5() {", 1)[1]
+    hint_logic = active_renderer.split("portrait.append(hint);", 1)[0].rsplit("const hint = document.createElement(\"p\");", 1)[1]
+
+    assert '`位置 · ${CAT_LOCATION_LABELS[location] || "未知"}`' in active_renderer
+    assert 'else if (isAdopted && location === "home")' in hint_logic
+    assert 'hint.textContent = "猫咪已经在家安顿下来，可以慢慢照料它。";' in hint_logic
+    assert 'else if (isAdopted && location === "away")' in hint_logic
+    assert 'hint.textContent = "猫咪现在正在外出，回来后可以继续照料。";' in hint_logic
+    assert 'if (isAdopted) {' not in hint_logic
+
+
 def test_v485_ui_assets_and_labels():
     from pathlib import Path
     root = Path(__file__).resolve().parents[1]

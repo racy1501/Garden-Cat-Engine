@@ -2046,8 +2046,9 @@ function renderCatHouseV5() {
     hint.textContent = "猫咪会先来花园做客，愿意留下后再正式收养。";
   } else if (phase === "stayed_waiting_name") {
     hint.textContent = "猫咪愿意留下来了，正在等一个正式的名字。";
-  }
-  if (isAdopted) {
+  } else if (isAdopted && location === "away") {
+    hint.textContent = "猫咪现在正在外出，回来后可以继续照料。";
+  } else if (isAdopted && location === "home") {
     hint.textContent = "猫咪已经在家安顿下来，可以慢慢照料它。";
   }
   portrait.append(hint);
