@@ -63,12 +63,14 @@ function createPage(){
 function text(node){return [node.textContent,...node.children.map(text)].join('\n');}
 const first=createPage();
 first.context.maybeAutoShowUpdateAnnouncement();
-assert(first.nodes['#modalTitle'].textContent.includes('v5.2.0'));
+assert.strictEqual(first.nodes['#modalTitle'].textContent,'🌷 v5.2.0 大型更新：花店开张，小屋亮灯');
 const body=first.nodes['#modalBody'],content=text(body);
-for(const feature of ['17 种花','12 款正式花束','家具商店','普通猫粮 5 份'])
+for(const feature of ['三个可以生活的地方','17 种花','12 款正式花束','3×3 售卖货架',
+  '额外好生意','共同小屋','藏品与信件','花园手记'])
   assert(content.includes(feature),feature);
-assert(!content.includes('普通猫粮 15 份'));
-assert(!content.includes('扩充至 12 种'));
+assert(content.includes('都有固定的位置，不需要自行摆放'));
+assert(content.includes('花卉奖励装饰则会随游戏进程解锁'));
+assert(!content.includes('布置出喜欢的模样'));
 const childCount=body.children.length;
 first.context.maybeAutoShowUpdateAnnouncement();
 assert.strictEqual(body.children.length,childCount);

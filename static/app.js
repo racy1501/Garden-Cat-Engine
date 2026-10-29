@@ -3259,7 +3259,7 @@ function appendUpdateSection(body, title, paragraphs, options = {}) {
 function showUpdateAnnouncementModal({ auto = false } = {}) {
   resetModalPresentation();
   activeModalKind = "update-announcement";
-  $("#modalTitle").textContent = "花园与猫 v5.2.0 更新公告 🌸";
+  $("#modalTitle").textContent = "🌷 v5.2.0 大型更新：花店开张，小屋亮灯";
   $(".modal-card").classList.add("modal-card-wide");
 
   const body = $("#modalBody");
@@ -3269,34 +3269,33 @@ function showUpdateAnnouncementModal({ auto = false } = {}) {
   const intro = document.createElement("p");
   intro.className = "update-intro";
   intro.textContent =
-    "欢迎回到花园。v5.2.0 带来了花园、花店、小屋三个地点，一起种花、经营，也慢慢布置共同的小屋。";
+    "欢迎来到更大的花园。熟悉的花圃旁，花店开张了，共同小屋也亮起暖暖的灯；从此，这里不只有花开，还有可以一起生活、经营和布置的小日子。";
   body.append(intro);
 
-  appendUpdateSection(body, "【花与花店】", [
-    "17 种花、12 款正式花束。发现配方后，可制作入库存，再选择赠送或上架售卖。",
-    "花店支持营业时间、货架扩容与保鲜设备。上架花束随新鲜度折价，24 小时仍未售出就会报废；保鲜设备只延后折价。",
-    "顶层为花园 / 花店 / 小屋；花店内有花束 / 赠礼，花束内有货架 / 制作。",
+  appendUpdateSection(body, "【三个可以生活的地方】", [
+    "花园、花店与共同小屋连成了一个更大的小世界：可以照料花朵、打理生意，也能和猫咪一起慢慢布置生活。",
   ]);
-  appendUpdateSection(body, "【共同小屋】", [
-    "共同小屋 v1-B 与家具商店已开放：9 件金币购买家具、4 件花卉奖励装饰，获得后逐步点亮小屋，不提供属性或经营加成。",
+  appendUpdateSection(body, "【花开成束】", [
+    "花园如今有 17 种花，也能制作 12 款正式花束。做好后先收进库存，再决定送给谁，或摆上花店货架。",
   ]);
-  appendUpdateSection(body, "【猫咪与收藏】", [
-    "猫咪会经历来访、决定留下等待取名，再免费正式收养。补充粮水、摸猫、零食和玩具都能陪它生活，收养后还会外出归来。",
-    "16 种猫咪藏品、12 封顺序来信，以及花园压花和事件纪念；新发现会提醒你。赠礼花束与卡片永久收藏。",
+  appendUpdateSection(body, "【花店开张】", [
+    "布置好 3×3 售卖货架，选定营业时间，让花束在新鲜时遇见客人；保鲜设备也能帮忙留住好状态。",
+    "猫咪偶尔会把旅途中的小惊喜带到柜台，让花店在一段时间里收获额外好生意。",
   ]);
-  appendUpdateSection(body, "【种植与时间】", [
-    "虫害在种植时确定，达到触发点后暂停生长，治疗后继续。成熟花等待收获。",
-    "昼夜使用北京时间，成长按现实时间推进；常规离线补算最多 72 小时，花店货架仍按真实时间结算。",
+  appendUpdateSection(body, "【小屋亮灯】", [
+    "共同小屋里的家具与装饰都有固定的位置，不需要自行摆放。家具可以从商店逐步购入，花卉奖励装饰则会随游戏进程解锁；猫咪的生活区也在这里。",
   ]);
-  appendUpdateSection(body, "【存档选择】", [
-    "可以继续旧花园，保留已有进度；旧档不会自动补发新档初始物资。",
-    "也可开启全新花园，或在已正式收养猫咪后带猫搬家。搬家只保留猫咪名字和已收养状态，其余游戏进度重置。",
-    "重开和搬家都会覆盖当前花园，需在人类网页端输入完整中文“确认”；共享便签保留。",
+  appendUpdateSection(body, "【猫咪的日常与发现】", [
+    "猫咪有了更完整的生活节奏，会出门再回来，也可能带回藏品与信件。每一次归来，都让这个小世界多一点值得珍藏的故事。",
   ]);
-  appendUpdateSection(body, "新花园初始物资：", [], {
-    listItems: ["金币 50", "花盆 3 个", "雏菊种子 3 颗", "普通猫粮 5 份"],
-    listClassName: "update-resource-list",
-  });
+  appendUpdateSection(body, "【把日子记下来】", [
+    "花园、花店和小屋各自会分享刚发生的消息，花园手记则替大家记下这个小世界一路走来的点滴。",
+  ]);
+
+  const closing = document.createElement("p");
+  closing.className = "update-closing";
+  closing.textContent = "愿每一束花、每一次归来，都让这里变得更像一个家。";
+  body.append(closing);
 
   const actions = document.createElement("div");
   actions.className = "modal-actions update-modal-actions";
