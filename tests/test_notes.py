@@ -77,10 +77,21 @@ def test_readme_describes_current_release_and_formal_bouquet_catalog(api):
         assert obsolete not in readme
     for current in (
         "有效的 `session_id`", "X-API-Key", "GET /api/catalog", "bouquet inventory",
-        "craft_bouquet", "gift_bouquet", "list_bouquet", "24 小时", "共同小屋 v1-B",
-        "9 件金币购买家具", "4 件花卉奖励装饰", "免费正式收养",
+        "craft_bouquet", "gift_bouquet", "list_bouquet", "24 小时", "共同小屋",
     ):
         assert current in readme
+    release_intro = re.search(
+        r"^## v5\.2\.0 发布介绍\n(.*?)(?=^## |\Z)", readme, re.MULTILINE | re.DOTALL
+    ).group(1)
+    cottage_intro = next(
+        line for line in release_intro.splitlines() if "**共同小屋**" in line
+    )
+    assert "9 件" in cottage_intro and "家具" in cottage_intro and "可购买" in cottage_intro
+    assert "4 件" in cottage_intro and "奖励装饰" in cottage_intro
+    cat_intro = next(
+        line for line in release_intro.splitlines() if "**猫咪生活与收藏**" in line
+    )
+    assert "正式收养" in cat_intro
     listed = re.search(r"正式 12 款花束：([^。]+)。", readme).group(1).split("、")
     expected = ["初见", "晨光", "晴野", "心笺", "晚风", "柔云", "蓝信", "樱枝", "春宴", "春山", "月下书", "彼岸诗"]
     assert listed == expected
