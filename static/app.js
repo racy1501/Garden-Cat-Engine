@@ -800,7 +800,13 @@ function renderCottage() {
     const id = item.id;
     const card = document.createElement("article");
     card.className = `cottage-item-card ${ownedIds.has(id) ? "owned" : "locked"}`;
-    card.innerHTML = `<strong>${item.name}</strong><small>${ownedIds.has(id) ? "已经留在小屋里" : "尚未获得"}</small>`;
+    const title = document.createElement("strong");
+    title.textContent = item.name;
+    const status = document.createElement("small");
+    status.textContent = ownedIds.has(id) ? "已经留在小屋里" : "尚未获得";
+    const requirement = document.createElement("small");
+    requirement.textContent = `获取条件：${item.reward_requirement_text || ""}`;
+    card.append(title, status, requirement);
     rewardGrid.append(card);
   }
   rewardSection.append(rewardTitle, rewardGrid);

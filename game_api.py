@@ -53,6 +53,7 @@ from game_engine import (
     get_game_time_info,
     get_flower_shop_public_summary,
     get_cottage_public_summary,
+    get_cottage_reward_requirement_text,
     get_next_pot_cost,
     refresh_garden_events,
     is_collectible_unlocked,
@@ -1364,7 +1365,21 @@ def catalog():
                 for bouquet_id, bouquet in BOUQUETS.items()
             },
             "items": ITEMS,
-            "cottage_items": [dict(item) for item in COTTAGE_ITEM_CATALOG.values()],
+            "cottage_items": [
+                {
+                    **item,
+                    **(
+                        {
+                            "reward_requirement_text": get_cottage_reward_requirement_text(
+                                item["id"]
+                            )
+                        }
+                        if item.get("reward_only")
+                        else {}
+                    ),
+                }
+                for item in COTTAGE_ITEM_CATALOG.values()
+            ],
             "collectibles": [
                 {
                     **item,

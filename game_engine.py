@@ -263,6 +263,23 @@ COTTAGE_REWARD_REQUIREMENTS = {
     "beanbag_reward": {"flowers": {"moonflower", "red_spider_lily"}},
 }
 
+
+def get_cottage_reward_requirement_text(item_id):
+    """从正式解锁条件生成小屋奖励的展示文案。"""
+    requirement = COTTAGE_REWARD_REQUIREMENTS.get(item_id, {})
+    flower_ids = requirement.get("flowers", set())
+    flower_names = [
+        FLOWERS[flower_id]["name"]
+        for flower_id in FLOWERS
+        if flower_id in flower_ids
+    ]
+    if not flower_names:
+        return ""
+    if len(flower_names) == 1:
+        return f"首次收获{flower_names[0]}"
+    return f"收录{' + '.join(flower_names)}"
+
+
 COTTAGE_REWARD_ID_ALIASES = {
     "small_photo_frame": "potted_plant",
     "small_wall_art": "wall_art",

@@ -112,6 +112,28 @@ def test_cottage_rewards_are_idempotent_and_preserve_existing_record():
     assert ge.sync_cottage_rewards(state, now=400) == []
 
 
+def test_catalog_exposes_cottage_reward_conditions_from_formal_requirements(api):
+    _, client = api
+    response = client.get("/api/catalog")
+    assert response.status_code == 200
+    items = {item["id"]: item for item in response.get_json()["cottage_items"]}
+
+    reward_ids = set(ge.COTTAGE_REWARD_REQUIREMENTS)
+    assert {item_id for item_id, item in items.items() if item.get("reward_only")} == reward_ids
+    for item_id in reward_ids:
+        assert items[item_id]["reward_requirement_text"] == ge.get_cottage_reward_requirement_text(item_id)
+    assert items["potted_plant"]["reward_requirement_text"] == "首次收获满天星"
+    assert items["wall_art"]["reward_requirement_text"] == "首次收获洋桔梗"
+    assert items["hanging_plant"]["reward_requirement_text"] == "首次收获山茶花"
+    assert items["beanbag_reward"]["reward_requirement_text"] == "收录月光花 + 彼岸花"
+    purchasable_ids = {
+        item_id
+        for item_id, item in ge.COTTAGE_ITEM_CATALOG.items()
+        if "price" in item
+    }
+    assert all("reward_requirement_text" not in items[item_id] for item_id in purchasable_ids)
+
+
 def test_first_harvest_immediately_syncs_cottage_reward():
     now = 1_700_000_000
     state = ge.get_default_state()
@@ -182,7 +204,13 @@ def test_cottage_shop_uses_public_catalog_and_keeps_tab_after_purchase():
     before = ge.get_cottage_public_summary(state)
     ge.process_command(state, "buy_cottage_furniture bookshelf", event_source="human")
     after = ge.get_cottage_public_summary(state)
-    data = {"before": before, "after": after, "catalog": list(ge.COTTAGE_ITEM_CATALOG.values())}
+    catalog_items = []
+    for item in ge.COTTAGE_ITEM_CATALOG.values():
+        catalog_item = dict(item)
+        if item.get("reward_only"):
+            catalog_item["reward_requirement_text"] = ge.get_cottage_reward_requirement_text(item["id"])
+        catalog_items.append(catalog_item)
+    data = {"before": before, "after": after, "catalog": catalog_items}
     script = r"""
 const fs=require('fs'),vm=require('vm');
 const data=JSON.parse(process.argv[1]);
@@ -206,6 +234,11 @@ ctx.renderCottage();
 let tabs=root.children[0];
 if(tabs.children.map(b=>b.textContent).join('/')!=='小屋/家具商店'||cat.hidden||!find('cottage-scene'))throw Error('default cottage view');
 if(!walk(root).some(n=>n.src==='/static/assets/v5/cottage/locked/low_bookshelf.png'))throw Error('unowned overlay');
+const rewardCard=id=>walk(root).find(n=>n.className==='cottage-item-card locked'&&walk(n).some(child=>child.textContent===data.catalog.find(item=>item.id===id).name));
+for(const item of data.catalog.filter(item=>item.reward_only)){
+ const card=rewardCard(item.id);
+ if(!card||!walk(card).some(n=>n.textContent==='尚未获得')||!walk(card).some(n=>n.textContent===`获取条件：${item.reward_requirement_text}`))throw Error('reward condition missing');
+}
 tabs.children[1].listeners.click();
 if(!cat.hidden||find('cottage-scene'))throw Error('shop must hide cottage and cat');
 let cards=find('cat-collection-grid cottage-shop-grid').children;
@@ -219,6 +252,10 @@ cards=find('cat-collection-grid cottage-shop-grid').children;
 if(!walk(card('bookshelf')).some(n=>n.textContent==='已拥有'&&n.disabled))throw Error('owned purchase button');
 root.children[0].children[0].listeners.click();
 if(cat.hidden||!find('cottage-scene')||walk(root).some(n=>n.src==='/static/assets/v5/cottage/locked/low_bookshelf.png'))throw Error('owned scene');
+ctx.currentState.cottage.owned_items.push({id:'beanbag_reward',name:'豆袋懒人沙发',category:'decoration',source:'system'});
+ctx.renderCottage();
+const ownedReward=walk(root).find(n=>n.className==='cottage-item-card owned'&&walk(n).some(child=>child.textContent==='豆袋懒人沙发')&&walk(n).some(child=>child.textContent==='获取条件：收录月光花 + 彼岸花'));
+if(!ownedReward||!walk(ownedReward).some(n=>n.textContent==='已经留在小屋里')||!walk(ownedReward).some(n=>n.textContent==='获取条件：收录月光花 + 彼岸花'))throw Error('owned reward condition missing');
 console.log('ok');
 """
     result = subprocess.run(["node", "-e", script, json.dumps(data, ensure_ascii=False)], cwd=root, encoding="utf-8", capture_output=True)
