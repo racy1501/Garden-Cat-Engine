@@ -1671,12 +1671,16 @@ def cmd_route():
         should_save_state = True
     if should_save_state:
         db_save_state(session_id, state)
+    public_state = _ai_summary(state, events_before=events_before)
+    if request.args.get("compact") == "1":
+        public_state["cottage"].pop("purchasable_items", None)
+        public_state["flower_shop"].pop("pricing_profiles", None)
     return jsonify(
         {
             "ok": result.ok,
             "session_id": session_id,
             "message": message,
-            "state": _ai_summary(state, events_before=events_before),
+            "state": public_state,
         }
     )
 

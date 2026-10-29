@@ -408,7 +408,7 @@ def test_legacy_shop_pending_is_saved_without_offline_changes(api, cat_clock):
     assert second["flower_shop"]["pending_business_start_minute"] is None
 
 
-@pytest.mark.parametrize("route", ["/web/cmd", "/api/cmd"])
+@pytest.mark.parametrize("route", ["/web/cmd", "/api/cmd", "/api/cmd?compact=1"])
 def test_flower_shop_hours_response_announces_next_date_and_new_window(api, cat_clock, route):
     from datetime import datetime
 
@@ -706,6 +706,61 @@ def test_api_status_uses_slim_ai_summary(api):
     assert "cat_summary" in state
 
 
+def test_compact_command_preserves_default_state_and_status(api, monkeypatch):
+    module, client = api
+    now = int(ge.time.time())
+    monkeypatch.setattr(module.time, "time", lambda: now)
+    session_id, _ = create_human_garden(client)
+    saved = module.db_load_state(session_id)
+    saved["cottage"]["items"]["ottoman"] = {"acquired_at": now, "source": "human"}
+    module.db_save_state(session_id, saved)
+    headers = {"X-API-Key": "test-key"}
+    body = {"session_id": session_id, "command": "status"}
+
+    client.get("/api/status", headers=headers, query_string={"session_id": session_id})
+    default = client.post("/api/cmd", headers=headers, json=body).get_json()
+    compact = client.post("/api/cmd?compact=1", headers=headers, json=body).get_json()
+    status = client.get("/api/status", headers=headers, query_string={"session_id": session_id}).get_json()
+    assert default["ok"] is compact["ok"] is True
+    assert default["message"] == compact["message"]
+    assert default["session_id"] == compact["session_id"] == session_id
+    assert "purchasable_items" in default["state"]["cottage"]
+    assert "pricing_profiles" in default["state"]["flower_shop"]
+    assert "purchasable_items" in status["state"]["cottage"]
+    assert "pricing_profiles" in status["state"]["flower_shop"]
+    assert "purchasable_items" not in compact["state"]["cottage"]
+    assert "pricing_profiles" not in compact["state"]["flower_shop"]
+    assert any(item["id"] == "ottoman" for item in compact["state"]["cottage"]["owned_items"])
+    default["state"]["cottage"].pop("purchasable_items")
+    default["state"]["flower_shop"].pop("pricing_profiles")
+    assert compact["state"] == default["state"]
+
+
+def test_compact_command_success_and_failure_keep_dynamic_state(api):
+    module, client = api
+    session_id, _ = create_human_garden(client)
+    headers = {"X-API-Key": "test-key"}
+    plant = client.post("/api/cmd?compact=1", headers=headers,
+                        json={"session_id": session_id, "command": "plant daisy 1"}).get_json()
+    assert plant["ok"] is True
+    assert "盆1" in plant["message"] and "water 1" in plant["message"]
+    assert plant["state"]["pots_summary"]["growing_pots"] == 1
+    assert plant["state"]["inventory_counts"]["seed_total"] == 2
+    failed = client.post("/api/cmd?compact=1", headers=headers,
+                         json={"session_id": session_id, "command": "harvest 1"}).get_json()
+    assert failed["ok"] is False
+    assert "没浇水" in failed["message"]
+    assert failed["session_id"] == session_id
+    state = failed["state"]
+    assert {"money", "cat_summary", "pots_summary", "inventory_counts", "garden_events",
+            "latest_event", "bouquet_inventory"} <= state.keys()
+    assert "owned_items" in state["cottage"]
+    assert {"established", "is_open", "slots", "eligibility_progress", "business_start_minute",
+            "pending_business_start_minute", "pending_business_effective_at"} <= state["flower_shop"].keys()
+    assert "purchasable_items" not in state["cottage"]
+    assert "pricing_profiles" not in state["flower_shop"]
+
+
 def test_web_status_keeps_wide_summary(api):
     module, client = api
     session_id, human_headers = create_human_garden(client)
@@ -992,7 +1047,8 @@ def test_ai_bouquet_command_and_web_collection_state(api):
     assert len(catalog["bouquets"]) == 12
 
 
-def test_flower_shop_and_bouquet_inventory_have_public_summary_only(api):
+@pytest.mark.parametrize("cmd_url", ["/api/cmd", "/api/cmd?compact=1"])
+def test_flower_shop_and_bouquet_inventory_have_public_summary_only(api, cmd_url):
     module, client = api
     session_id, human_headers = create_human_garden(client)
     state = module.db_load_state(session_id)
@@ -1006,7 +1062,7 @@ def test_flower_shop_and_bouquet_inventory_have_public_summary_only(api):
     ai_headers = {"X-API-Key": "test-key"}
 
     crafted = client.post(
-        "/api/cmd", headers=ai_headers,
+        cmd_url, headers=ai_headers,
         json={"session_id": session_id, "command": "craft_bouquet bouquet_id=first_meeting"},
     ).get_json()
     assert crafted["ok"] is True
@@ -1051,7 +1107,8 @@ def test_flower_shop_and_bouquet_inventory_have_public_summary_only(api):
     assert "buff_roll" not in active_shop
 
 
-def test_flower_shop_listing_summary_exposes_price_but_hides_random_facts(api, monkeypatch):
+@pytest.mark.parametrize("cmd_url", ["/api/cmd", "/api/cmd?compact=1"])
+def test_flower_shop_listing_summary_exposes_price_but_hides_random_facts(api, monkeypatch, cmd_url):
     module, client = api
     session_id, _ = create_human_garden(client)
     now = int(ge.time.time())
@@ -1073,7 +1130,7 @@ def test_flower_shop_listing_summary_exposes_price_but_hides_random_facts(api, m
     monkeypatch.setattr(ge, "_roll_flower_shop_sale_plan", lambda: (True, 7200))
 
     response = client.post(
-        "/api/cmd",
+        cmd_url,
         headers={"X-API-Key": "test-key"},
         json={"session_id": session_id, "command": "list_bouquet instance_id=api-listing slot=1"},
     )
@@ -1083,6 +1140,7 @@ def test_flower_shop_listing_summary_exposes_price_but_hides_random_facts(api, m
     assert public_slot["empty"] is False
     assert public_slot["name"] == "初见"
     assert public_slot["current_price"] == 55
+    assert public_slot["price_stage"]
     assert public_slot["expires_in_seconds"] <= 24 * 3600
     assert "will_sell" not in public_slot
     assert "sale_business_seconds_remaining" not in public_slot
