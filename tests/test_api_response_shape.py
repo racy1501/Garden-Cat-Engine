@@ -681,7 +681,9 @@ def test_api_cmd_uses_slim_ai_summary(api):
     assert "garden_collection_log" not in state
     assert "recent_events" not in state
     assert "cat_state" not in state
-    assert "pots" not in state
+    assert all(set(pot) == {"slot", "flower_id", "status"} for pot in state["pots"])
+    assert all(pot["status"] in {"empty", "needs_water", "growing", "pest_blocked", "ready", "withered"}
+               for pot in state["pots"])
     assert "inventory_counts" in state
     assert "pots_summary" in state
     assert "garden_events" in state
@@ -737,9 +739,84 @@ def test_api_status_uses_slim_ai_summary(api):
     assert "letters" not in state
     assert "collectibles" not in state
     assert "recent_events" not in state
-    assert "pots" not in state
+    assert all(set(pot) == {"slot", "flower_id", "status"} for pot in state["pots"])
+    assert all(pot["status"] in {"empty", "needs_water", "growing", "pest_blocked", "ready", "withered"}
+               for pot in state["pots"])
     assert "inventory_counts" in state
     assert "cat_summary" in state
+
+
+@pytest.mark.parametrize(("seeds", "flowers", "expected_seeds", "expected_flowers"), [
+    ({}, {}, {}, {}),
+    ({"daisy": 3}, {"rose": 2}, {"daisy": 3}, {"rose": 2}),
+    ({"daisy": 3, "rose": 1, "lily": 0}, {"daisy": 5, "rose": 2, "lily": 0},
+     {"daisy": 3, "rose": 1}, {"daisy": 5, "rose": 2}),
+])
+def test_ai_inventory_gardening_details_are_positive_and_read_only(api, seeds, flowers, expected_seeds, expected_flowers):
+    module, _ = api
+    state = ge.get_default_state()
+    state["inventory"]["seeds"] = seeds.copy()
+    state["inventory"]["flowers"] = flowers.copy()
+    original = json.loads(json.dumps(state))
+    counts = module._build_inventory_counts_for_ai(state)
+    assert counts["seeds"] == expected_seeds
+    assert counts["flowers"] == expected_flowers
+    assert state == original
+
+
+def test_ai_gardening_details_match_across_routes_without_changing_save(api, cat_clock):
+    module, client = api
+    session_id, _ = create_human_garden(client)
+    now = cat_clock[0]
+    pot = {"flower_id": "daisy", "growth_progress": 0, "watered": True, "last_growth_update": now}
+    state = module.db_load_state(session_id)
+    state["max_pots"] = 6
+    state["pots"] = [
+        None,
+        {**pot, "watered": False},
+        dict(pot),
+        {**pot, "pest_active": True},
+        {**pot, "growth_progress": ge.FLOWERS["daisy"]["grow_time"]},
+        {**pot, "withered": True},
+    ]
+    state["inventory"]["seeds"] = {"daisy": 3, "rose": 1}
+    state["inventory"]["flowers"] = {"daisy": 5, "rose": 2}
+    ge.normalize_state(state, now)
+    expected_pots = [
+        {"slot": index, "flower_id": None if index == 1 else "daisy", "status": status}
+        for index, status in enumerate(("empty", "needs_water", "growing", "pest_blocked", "ready", "withered"), 1)
+    ]
+    original = json.loads(json.dumps(state))
+    assert module._build_pots_for_ai(state) == expected_pots
+    assert module._build_inventory_counts_for_ai(state)["seeds"] == {"daisy": 3, "rose": 1}
+    assert state == original
+    module._ai_summary(state)
+    assert state["pots"] == original["pots"]
+    assert state["inventory"] == original["inventory"]
+    headers = {"X-API-Key": "test-key"}
+    for route in ("/api/status", "/api/cmd", "/api/cmd?compact=1"):
+        module.db_save_state(session_id, state)
+        before = module.db_load_state(session_id)
+        if route == "/api/status":
+            response = client.get(route, headers=headers, query_string={"session_id": session_id})
+        else:
+            response = client.post(route, headers=headers, json={"session_id": session_id, "command": "status"})
+        assert response.status_code == 200
+        result = response.get_json()["state"]
+        assert result["pots"] == expected_pots
+        assert result["inventory_counts"]["seeds"] == {"daisy": 3, "rose": 1}
+        assert result["inventory_counts"]["flowers"] == {"daisy": 5, "rose": 2}
+        after = module.db_load_state(session_id)
+        assert after["pots"] == before["pots"]
+        assert after["inventory"] == before["inventory"]
+
+
+def test_ai_pot_status_respects_harvest_priority_and_legacy_pest(api):
+    module, _ = api
+    state = ge.get_default_state()
+    mature = {"flower_id": "daisy", "growth_progress": ge.FLOWERS["daisy"]["grow_time"], "watered": False}
+    state["pots"] = [dict(mature), {**mature, "pest_time": 1}, {**mature, "pest_time": 1, "pest_resolved": True}]
+    assert [pot["status"] for pot in module._build_pots_for_ai(state)] == ["ready", "pest_blocked", "ready"]
 
 
 def test_compact_command_preserves_default_state_and_status(api, monkeypatch):
@@ -750,6 +827,9 @@ def test_compact_command_preserves_default_state_and_status(api, monkeypatch):
     saved = module.db_load_state(session_id)
     saved["cottage"]["items"]["ottoman"] = {"acquired_at": now, "source": "human"}
     saved["cottage"]["items"]["potted_plant"] = {"acquired_at": now, "source": "system"}
+    saved["cat_care"]["water_bowl"]["remaining_portions"] = 2
+    saved["inventory"]["seeds"] = {"daisy": 3, "rose": 1}
+    saved["inventory"]["flowers"] = {"daisy": 5, "rose": 2}
     original_items = json.loads(json.dumps(saved["cottage"]["items"]))
     expected_owned = ge.get_cottage_public_summary(saved)["owned_items"]
     expected_ids = [item["id"] for item in expected_owned]
@@ -773,18 +853,43 @@ def test_compact_command_preserves_default_state_and_status(api, monkeypatch):
         owned_items = payload["state"]["cottage"]["owned_items"]
         assert [item["id"] for item in owned_items] == expected_ids
         assert all(complete_owned_fields <= item.keys() for item in owned_items)
+        assert "water_servings" in payload["state"]["inventory_counts"]
+        assert "weather_emoji" in payload["state"]
+        assert payload["state"]["inventory_counts"]["seeds"] == {"daisy": 3, "rose": 1}
+        assert payload["state"]["inventory_counts"]["flowers"] == {"daisy": 5, "rose": 2}
+        assert all(set(pot) == {"slot", "flower_id", "status"} for pot in payload["state"]["pots"])
+        assert payload["state"]["cottage"]["cat_area"]["water_bowl"]["remaining_portions"] == 2
     assert "purchasable_items" not in compact["state"]["cottage"]
     assert "pricing_profiles" not in compact["state"]["flower_shop"]
+    assert "water_servings" not in compact["state"]["inventory_counts"]
+    assert "weather_emoji" not in compact["state"]
+    assert "weather" in compact["state"]
+    assert "is_open" in compact["state"]["flower_shop"]
+    assert "slots" in compact["state"]["flower_shop"]
+    assert all("is_open" not in slot for slot in compact["state"]["flower_shop"]["slots"])
+    assert compact["state"]["cottage"]["cat_area"]["water_bowl"]["remaining_portions"] == 2
+    assert all(set(pot) == {"slot", "flower_id", "status"} for pot in compact["state"]["pots"])
+    assert compact["state"]["inventory_counts"]["seeds"] == {"daisy": 3, "rose": 1}
+    assert compact["state"]["inventory_counts"]["flowers"] == {"daisy": 5, "rose": 2}
     compact_owned_items = compact["state"]["cottage"]["owned_items"]
     assert compact_owned_items == [{"id": item_id} for item_id in expected_ids]
     assert all(set(item) == {"id"} for item in compact_owned_items)
     assert {"ottoman", "potted_plant"} <= set(expected_ids)
     assert len(expected_ids) == len(set(expected_ids))
     assert module.db_load_state(session_id)["cottage"]["items"] == original_items
-    default["state"]["cottage"].pop("purchasable_items")
-    default["state"]["flower_shop"].pop("pricing_profiles")
-    default["state"]["cottage"]["owned_items"] = compact_owned_items
-    assert compact["state"] == default["state"]
+    expected_compact_state = json.loads(json.dumps(default["state"]))
+    expected_compact_state["cottage"].pop("purchasable_items")
+    expected_compact_state["flower_shop"].pop("pricing_profiles")
+    expected_compact_state["inventory_counts"].pop("water_servings")
+    expected_compact_state.pop("weather_emoji")
+    expected_compact_state["cottage"]["owned_items"] = compact_owned_items
+    expected_compact_state["bouquet_options"] = [
+        {"bouquet_id": option["bouquet_id"], "can_make": option["can_make"], "missing": option["missing"]}
+        for option in expected_compact_state["bouquet_options"]
+    ]
+    for slot in expected_compact_state["flower_shop"]["slots"]:
+        slot.pop("is_open", None)
+    assert compact["state"] == expected_compact_state
 
 
 def test_compact_command_returns_empty_owned_items_array(api):

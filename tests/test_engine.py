@@ -1613,6 +1613,21 @@ def test_harvest_all_skips_unready_and_pested_flowers():
     assert state["pots"][1] is not None
 
 
+@pytest.mark.parametrize(("pot_kind", "can_water"), [
+    ("empty", False), ("withered", False), ("watered", False), ("unwatered", True),
+])
+def test_water_condition_matches_command(pot_kind, can_water):
+    state = fresh_state()
+    now = int(time.time())
+    state["weather"] = "sunny"
+    state["weather_change_time"] = now + 3600
+    pot = {"flower_id": "daisy", "watered": pot_kind == "watered", "growth_progress": 0,
+           "last_growth_update": now, "withered": pot_kind == "withered"}
+    state["pots"][0] = None if pot_kind == "empty" else pot
+    assert ge.pot_needs_water(state["pots"][0]) is can_water
+    assert ge.execute_command(state, "water 1").ok is can_water
+
+
 def test_harvest_readiness_matches_mixed_pot_states():
     state = fresh_state()
     now = int(time.time())

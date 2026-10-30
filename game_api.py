@@ -67,6 +67,7 @@ from game_engine import (
     get_vase_flower_status,
     is_flower_unlocked,
     is_pot_withered,
+    pot_needs_water,
     normalize_state,
     process_command,
     execute_command,
@@ -911,12 +912,32 @@ def _build_pot_summary_for_ai(state: dict[str, Any]) -> dict[str, int]:
     }
 
 
-def _build_inventory_counts_for_ai(state: dict[str, Any]) -> dict[str, int]:
+def _build_pots_for_ai(state: dict[str, Any]) -> list[dict[str, Any]]:
+    pots = []
+    for index, pot in enumerate(state.get("pots", [])):
+        blocker = get_pot_harvest_blocker(state, index, pot)
+        if blocker is None:
+            status = "ready"
+        elif blocker == "pest":
+            status = "pest_blocked"
+        elif blocker in ("empty", "withered"):
+            status = blocker
+        elif pot_needs_water(pot):
+            status = "needs_water"
+        else:
+            status = "growing"
+        pots.append({"slot": index + 1, "flower_id": pot.get("flower_id") if pot else None, "status": status})
+    return pots
+
+
+def _build_inventory_counts_for_ai(state: dict[str, Any]) -> dict[str, Any]:
     inventory = state.get("inventory", {})
     seeds = inventory.get("seeds", {}) if isinstance(inventory, dict) else {}
     flowers = inventory.get("flowers", {}) if isinstance(inventory, dict) else {}
     items = inventory.get("items", {}) if isinstance(inventory, dict) else {}
     return {
+        "seeds": {flower_id: int(qty) for flower_id, qty in seeds.items() if int(qty or 0) > 0},
+        "flowers": {flower_id: int(qty) for flower_id, qty in flowers.items() if int(qty or 0) > 0},
         "seed_types": sum(1 for qty in seeds.values() if int(qty or 0) > 0),
         "seed_total": sum(int(qty or 0) for qty in seeds.values()),
         "flower_types": sum(1 for qty in flowers.values() if int(qty or 0) > 0),
@@ -1010,6 +1031,7 @@ def _ai_summary(state: dict[str, Any], *, events_before: list | None = None) -> 
         "weather_name": weather.get("name", ""),
         **time_summary,
         "pots_summary": _build_pot_summary_for_ai(state),
+        "pots": _build_pots_for_ai(state),
         "cat_summary": _build_cat_summary_for_ai(state),
         "garden_events": {
             "has_pests": bool(garden_events.get("has_pests")),

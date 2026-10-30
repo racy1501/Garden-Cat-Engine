@@ -3893,6 +3893,10 @@ def is_pot_withered(pot):
     return isinstance(pot, dict) and bool(pot.get("withered", False))
 
 
+def pot_needs_water(pot):
+    return pot is not None and not is_pot_withered(pot) and not pot.get("watered", True)
+
+
 def get_vase_flower_status(entry, now):
     arranged_time = int(entry.get("arranged_time", now))
     elapsed = max(0, now - arranged_time)
@@ -4815,7 +4819,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
                         has_withered_flower = True
                         continue
                     has_growing_flower = True
-                    if not pot.get("watered", True):
+                    if pot_needs_water(pot):
                         pot["watered"] = True
                         pot["last_growth_update"] = now
                         watered_count += 1
