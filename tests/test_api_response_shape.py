@@ -963,26 +963,43 @@ def test_api_info_directs_ai_to_existing_human_created_garden(api):
     assert client.post("/api/register", headers={"X-API-Key": "test-key"}).status_code == 403
 
 
-@pytest.mark.parametrize("basic_food", [0, 13])
-def test_ai_inventory_counts_use_basic_food_and_preserve_other_counts(api, basic_food):
+@pytest.mark.parametrize(("basic_food", "premium_food"), [(13, 0), (0, 9), (5, 4), (0, 0)])
+def test_ai_inventory_counts_expose_food_types_and_preserve_legacy_alias(api, basic_food, premium_food):
     module, client = api
     state = ge.get_default_state()
     state["cat_state"]["next_visit_at"] = int(ge.time.time()) + 3600
     state["inventory"] = {
         "seeds": {"daisy": 2, "rose": 3},
         "flowers": {"rose": 4},
-        "items": {"premium_food": 9, "water": 7},
+        "items": {"basic_food": basic_food, "premium_food": premium_food, "water": 7},
     }
-    if basic_food:
-        state["inventory"]["items"]["basic_food"] = basic_food
-    module.db_save_state("food-counts", state)
-    payload = client.get("/api/status?session_id=food-counts",
-                         headers={"X-API-Key": "test-key"}).get_json()
-    assert payload["state"]["inventory_counts"] == {
-        "seed_types": 2, "seed_total": 5,
-        "flower_types": 1, "flower_total": 4,
-        "cat_food_servings": basic_food, "water_servings": 7,
-    }
+    original_inventory = json.loads(json.dumps(state["inventory"]))
+    original_state = json.loads(json.dumps(state))
+    counts = module._build_inventory_counts_for_ai(state)
+    assert counts["basic_food_servings"] == basic_food
+    assert counts["premium_food_servings"] == premium_food
+    assert counts["cat_food_servings"] == basic_food
+    assert counts["cat_food_servings"] == counts["basic_food_servings"]
+    assert state["inventory"] == original_inventory
+    assert state == original_state
+
+    for route in ("/api/status", "/api/cmd", "/api/cmd?compact=1"):
+        module.db_save_state("food-counts", state)
+        if route == "/api/status":
+            response = client.get(f"{route}?session_id=food-counts", headers={"X-API-Key": "test-key"})
+        else:
+            response = client.post(route, headers={"X-API-Key": "test-key"},
+                                   json={"session_id": "food-counts", "command": "help"})
+        assert response.status_code == 200
+        counts = response.get_json()["state"]["inventory_counts"]
+        assert counts["seed_types"] == 2
+        assert counts["seed_total"] == 5
+        assert counts["flower_types"] == 1
+        assert counts["flower_total"] == 4
+        assert counts["basic_food_servings"] == basic_food
+        assert counts["premium_food_servings"] == premium_food
+        assert counts["cat_food_servings"] == basic_food
+        assert counts["water_servings"] == 7
 
 
 def test_summary_recognizes_pest_active(api):

@@ -919,6 +919,8 @@ def _build_inventory_counts_for_ai(state: dict[str, Any]) -> dict[str, int]:
         "seed_total": sum(int(qty or 0) for qty in seeds.values()),
         "flower_types": sum(1 for qty in flowers.values() if int(qty or 0) > 0),
         "flower_total": sum(int(qty or 0) for qty in flowers.values()),
+        "basic_food_servings": int(items.get("basic_food", 0) or 0),
+        "premium_food_servings": int(items.get("premium_food", 0) or 0),
         "cat_food_servings": int(items.get("basic_food", 0) or 0),
         "water_servings": int(items.get("water", 0) or 0),
     }
