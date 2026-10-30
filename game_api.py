@@ -889,7 +889,7 @@ def _build_pot_summary_for_ai(state: dict[str, Any]) -> dict[str, int]:
         if is_pot_withered(pot):
             withered_pots += 1
             continue
-        if bool(pot.get("pest_active")):
+        if get_pot_harvest_blocker(state, pot_idx, pot) == "pest":
             pest_pots += 1
         flower_id = pot.get("flower_id")
         flower = FLOWERS.get(flower_id)
@@ -1007,7 +1007,7 @@ def _ai_summary(state: dict[str, Any], *, events_before: list | None = None) -> 
         events_before = events_before + _new_request_events(state, summary_events_before)
     weather_id = state.get("weather", "sunny")
     weather = WEATHER.get(weather_id, WEATHER["sunny"])
-    garden_events = _build_garden_event_summary(state, now)
+    garden_events = refresh_garden_events(state, now)
     time_summary = _build_time_summary(state, now)
 
     new_events = _new_request_events(state, events_before)

@@ -819,6 +819,99 @@ def test_ai_pot_status_respects_harvest_priority_and_legacy_pest(api):
     assert [pot["status"] for pot in module._build_pots_for_ai(state)] == ["ready", "pest_blocked", "ready"]
 
 
+@pytest.mark.parametrize(("pest_fields", "blocked"), [
+    ({"pest_active": True}, True),
+    ({"pest_active": False, "pest_resolved": True}, False),
+    ({"pest_time": 1}, True),
+    ({"pest_time": 4_000_000_000}, True),
+    ({"pest_time": 1, "pest_resolved": True}, False),
+])
+def test_ai_pest_summaries_follow_harvest_blocker_before_normalization(pest_fields, blocked):
+    import game_api as module
+
+    state = ge.get_default_state()
+    state["pots"][0] = {
+        "flower_id": "daisy", "growth_progress": 10, "watered": True, **pest_fields,
+    }
+    pot = state["pots"][0]
+    assert (ge.get_pot_harvest_blocker(state, 0, pot) == "pest") is blocked
+    events = ge.refresh_garden_events(state, now=2_000_000_000)
+    assert events["has_pests"] is blocked
+    assert events["pest_pots"] == ([1] if blocked else [])
+    assert module._build_pot_summary_for_ai(state)["pest_pots"] == int(blocked)
+
+
+def test_ai_pest_summary_matches_pot_status_after_normalization():
+    import game_api as module
+
+    now = int(ge.time.time())
+    state = ge.get_default_state()
+    state["max_pots"] = 5
+    pot = {"flower_id": "daisy", "growth_progress": 10, "watered": True,
+           "last_growth_update": now}
+    state["pots"] = [
+        {**pot, "pest_active": True},
+        {**pot, "pest_time": 1},
+        {**pot, "pest_time": now + 100, "pest_resolved": True},
+        {**pot, "pest_active": True, "pest_resolved": True},
+        {**pot, "pest_active": True, "withered": True},
+    ]
+    summary = module._ai_summary(state)
+    blocked_slots = [pot["slot"] for pot in summary["pots"] if pot["status"] == "pest_blocked"]
+    assert blocked_slots == [1, 2]
+    assert summary["garden_events"]["pest_pots"] == blocked_slots
+    assert summary["garden_events"]["has_pests"] is True
+    assert summary["pots_summary"]["pest_pots"] == len(blocked_slots)
+    assert state["pots"][3]["pest_active"] is False
+    assert ge.get_pot_harvest_blocker(state, 3, state["pots"][3]) != "pest"
+
+
+def test_ai_pest_summaries_clear_after_treat_with_isolated_sqlite(monkeypatch):
+    import sqlite3
+    from contextlib import contextmanager
+    import game_api as module
+
+    now = int(ge.time.time())
+    monkeypatch.setattr(ge.time, "time", lambda: now)
+    monkeypatch.setattr(module, "API_KEY", "isolated-test-key")
+    monkeypatch.setattr(module, "USE_POSTGRES", False)
+    connection = sqlite3.connect(":memory:", check_same_thread=False)
+    connection.row_factory = sqlite3.Row
+
+    @contextmanager
+    def isolated_connection():
+        yield connection
+
+    monkeypatch.setattr(module, "_get_conn", isolated_connection)
+    try:
+        state = ge.get_default_state()
+        state["ai_v5_update_notice_seen"] = True
+        state["weather"] = "sunny"
+        state["weather_change_time"] = now + 3600
+        state["pots"][0] = {
+            "flower_id": "daisy", "growth_progress": 10, "watered": True,
+            "last_growth_update": now, "pest_active": True,
+        }
+        module.db_save_state("isolated-pest", state)
+        client = module.app.test_client()
+        headers = {"X-API-Key": "isolated-test-key"}
+        before = client.get("/api/status?session_id=isolated-pest", headers=headers).get_json()["state"]
+        assert before["garden_events"]["pest_pots"] == [1]
+        assert before["pots_summary"]["pest_pots"] == 1
+        response = client.post("/api/cmd?compact=1", headers=headers,
+                               json={"session_id": "isolated-pest", "command": "treat 1"})
+        assert response.status_code == 200
+        payload = response.get_json()
+        assert payload["ok"] is True
+        after = payload["state"]
+        assert after["garden_events"]["pest_pots"] == []
+        assert after["garden_events"]["has_pests"] is False
+        assert after["pots_summary"]["pest_pots"] == 0
+        assert after["pots"][0]["status"] != "pest_blocked"
+    finally:
+        connection.close()
+
+
 def test_compact_command_preserves_default_state_and_status(api, monkeypatch):
     module, client = api
     now = int(ge.time.time())
