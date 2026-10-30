@@ -1054,17 +1054,18 @@ def _summary(state: dict[str, Any], *, events_before: list | None = None) -> dic
     pots = []
     for index, pot in enumerate(state.get("pots", [])):
         slot = index + 1
-        if pot is None:
-            pots.append({"slot": slot, "status": "empty"})
+        pot_status = get_pot_ai_status(state, index, pot)
+        if pot_status == "empty":
+            pots.append({"slot": slot, "status": pot_status})
             continue
 
         flower_id = pot["flower_id"]
         flower = FLOWERS[flower_id]
-        if is_pot_withered(pot):
+        if pot_status == "withered":
             pots.append(
                 {
                     "slot": slot,
-                    "status": "withered",
+                    "status": pot_status,
                     "flower": flower_id,
                     "flower_name": flower["name"],
                     "clear_command": f"clear {slot}",
@@ -1076,21 +1077,20 @@ def _summary(state: dict[str, Any], *, events_before: list | None = None) -> dic
         progress_pct = min(100, int(progress / flower["grow_time"] * 100))
         speed = get_actual_grow_speed(pot, weather)
         remaining = None
-        if progress < flower["grow_time"] and speed > 0:
+        if pot_status == "growing" and speed > 0:
             remaining = max(0, int((flower["grow_time"] - progress) / speed))
 
         pots.append(
             {
                 "slot": slot,
-                "status": "ready" if progress >= flower["grow_time"] else "growing",
+                "status": pot_status,
                 "flower": flower_id,
                 "flower_name": flower["name"],
                 "progress_pct": progress_pct,
-                "ready": progress >= flower["grow_time"],
+                "ready": pot_status == "ready",
                 "watered": bool(pot.get("watered", True)),
                 "remaining_seconds": remaining,
-                "has_pest": bool(pot.get("pest_active"))
-                or ("pest_time" in pot and now < int(pot["pest_time"])),
+                "has_pest": pot_status == "pest_blocked",
                 "pest_deadline": pot.get("pest_time"),
                 "grow_speed": round(speed, 2),
             }

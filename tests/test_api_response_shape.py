@@ -912,6 +912,70 @@ def test_ai_pest_summaries_clear_after_treat_with_isolated_sqlite(monkeypatch):
         connection.close()
 
 
+def test_web_pot_status_matches_formal_status_on_both_routes(monkeypatch):
+    import sqlite3
+    from contextlib import contextmanager
+    import game_api as module
+
+    now = int(ge.time.time())
+    monkeypatch.setattr(ge.time, "time", lambda: now)
+    monkeypatch.setattr(module, "USE_POSTGRES", False)
+    connection = sqlite3.connect(":memory:", check_same_thread=False)
+    connection.row_factory = sqlite3.Row
+
+    @contextmanager
+    def isolated_connection():
+        yield connection
+
+    monkeypatch.setattr(module, "_get_conn", isolated_connection)
+    try:
+        client = module.app.test_client()
+        session_id, headers = create_human_garden(client)
+        state = module.db_load_state(session_id)
+        state["weather"] = "sunny"
+        state["weather_change_time"] = now + 3600
+        state["max_pots"] = 6
+        pot = {"flower_id": "daisy", "growth_progress": ge.FLOWERS["daisy"]["grow_time"],
+               "last_growth_update": now, "watered": True}
+        state["pots"] = [
+            dict(pot),
+            {**pot, "pest_active": True},
+            {**pot, "growth_progress": 10, "pest_active": True},
+            {**pot, "growth_progress": 10, "watered": False},
+            {**pot, "withered": True},
+            {**pot, "growth_progress": 10},
+        ]
+        module.db_save_state(session_id, state)
+        status = client.get(f"/web/status?session_id={session_id}", headers=headers)
+        command = client.post("/web/cmd", headers=headers,
+                              json={"session_id": session_id, "command": "status"})
+        assert status.status_code == command.status_code == 200
+        pots = status.get_json()["state"]["pots"]
+        assert command.get_json()["state"]["pots"] == pots
+        assert [pot["status"] for pot in pots] == [
+            "ready", "pest_blocked", "pest_blocked", "needs_water", "withered", "growing",
+        ]
+        assert [(pot["ready"], pot["has_pest"]) for pot in (pots[0], pots[1], pots[2], pots[3])] == [
+            (True, False), (False, True), (False, True), (False, False),
+        ]
+        assert pots[1]["remaining_seconds"] is None
+        assert pots[2]["remaining_seconds"] is None
+
+        for slot, expected in ((2, "ready"), (3, "growing")):
+            response = client.post("/web/cmd", headers=headers,
+                                   json={"session_id": session_id, "command": f"treat {slot}"})
+            payload = response.get_json()
+            assert response.status_code == 200 and payload["ok"] is True
+            treated = payload["state"]["pots"][slot - 1]
+            assert treated["status"] == expected
+            assert treated["ready"] is (expected == "ready")
+            assert treated["has_pest"] is False
+            refreshed = client.get(f"/web/status?session_id={session_id}", headers=headers).get_json()
+            assert refreshed["state"]["pots"][slot - 1] == treated
+    finally:
+        connection.close()
+
+
 def test_compact_command_preserves_default_state_and_status(api, monkeypatch):
     module, client = api
     now = int(ge.time.time())

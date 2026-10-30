@@ -1038,7 +1038,7 @@ function renderPots() {
     const pot=currentState.pots[slot-1]||{slot,status:"empty"};
     const card=document.createElement("div"); card.className=`pot-card ${pot.status==="empty"?"empty-pot":""} ${pot.status==="withered"?"withered-pot":""}`;
     const number=document.createElement("span"); number.className="pot-number"; number.textContent=`POT ${String(slot).padStart(2,"0")}`; card.append(number);
-    if(!["empty","withered"].includes(pot.status)){const badge=document.createElement("span"); badge.className=`growth-badge ${pot.grow_speed>0?"":"paused"}`; badge.textContent=pot.grow_speed>0?`×${Number(pot.grow_speed).toFixed(1)} 生长`:"生长暂停"; card.append(badge);}
+    if(["growing","needs_water","pest_blocked"].includes(pot.status)){const badge=document.createElement("span"); const growing=pot.status==="growing"&&pot.grow_speed>0; badge.className=`growth-badge ${growing?"":"paused"}`; badge.textContent=growing?`×${Number(pot.grow_speed).toFixed(1)} 生长`:"生长暂停"; card.append(badge);}
     const visual=document.createElement("div"); visual.className="plant-visual";
     if(pot.status==="empty") visual.textContent="🪴";
     else if(pot.status==="withered"){const im=document.createElement("img"); im.src=CUSTOM_ASSETS.withered; im.className="stage-icon"; im.alt="枯萎植物"; visual.append(im);}
@@ -1050,7 +1050,7 @@ function renderPots() {
     const status=document.createElement("div"); status.className="pot-status"; status.dataset.livePotStatus=String(slot);
     if(pot.status==="empty") status.textContent="泥土松软，正等着一粒种子。";
     else if(pot.status==="withered") status.textContent="花已经枯萎，需要清理后才能重新种植。";
-    else if(pot.has_pest) status.textContent="正在遭受虫害，请尽快治疗。";
+    else if(pot.has_pest) status.textContent="正在遭受虫害，生长暂停，请尽快治疗。";
     else if(pot.status==="ready") status.textContent="花已经盛开，可以收获了。";
     else if(!pot.watered) status.textContent="尚未浇水，生长暂停。";
     else status.textContent=`生长中，还需约${formatDuration(pot.remaining_seconds)}`;

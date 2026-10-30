@@ -33,6 +33,50 @@ def test_new_state_initial_resources_include_five_cat_food_servings(tmp_path):
     assert state["inventory"]["seeds"]["daisy"] == 3
 
 
+def test_pot_cards_show_pest_pause_and_only_harvest_ready_flowers():
+    root = Path(__file__).resolve().parents[1]
+    script = r"""
+const fs = require('fs'), vm = require('vm'), assert = require('assert');
+const source = fs.readFileSync('static/app.js', 'utf8');
+function element(tag) {
+  return {tag, className:'', textContent:'', children:[], style:{}, dataset:{},
+    append(...children){this.children.push(...children)}, addEventListener(){}};
+}
+const grid = element('grid');
+const statuses = ['ready', 'pest_blocked', 'pest_blocked', 'needs_water', 'withered', 'growing'];
+const pots = statuses.map((status, i) => ({slot:i+1, status, flower:'daisy', flower_name:'雏菊',
+  has_pest:status==='pest_blocked', watered:status!=='needs_water', grow_speed:1.1,
+  progress_pct:i===1?100:50, remaining_seconds:20}));
+const context = {
+  $:()=>grid, document:{createElement:element},
+  currentState:{pots, pot_capacity:6, max_pots:6, money:50, weather:'sunny'},
+  catalog:{max_pots:6}, CUSTOM_ASSETS:{withered:'w',bud:'b',pest:'p'},
+  setFlowerIcon(){}, formatDuration(){return '20秒'},
+  makeButton(text){const button=element('button');button.textContent=text;return button}
+};
+vm.createContext(context);
+vm.runInContext(source.slice(source.indexOf('function renderPots()'), source.indexOf('function renderVase()')), context);
+context.renderPots();
+const walk = node => [node, ...node.children.flatMap(walk)];
+const nodes = card => walk(card);
+const text = card => nodes(card).map(node=>node.textContent).join(' ');
+assert(text(grid.children[0]).includes('可以收获'));
+assert(nodes(grid.children[0]).some(node=>node.tag==='button' && node.textContent==='收获'));
+for (const i of [1,2]) {
+  const card=grid.children[i], badge=nodes(card).find(node=>node.className.includes('growth-badge'));
+  assert.strictEqual(badge.textContent,'生长暂停');
+  assert(text(card).includes('虫害') && text(card).includes('生长暂停'));
+  assert(!text(card).includes('可收获'));
+  assert(!nodes(card).some(node=>node.tag==='button' && node.textContent==='收获'));
+}
+assert.strictEqual(nodes(grid.children[3]).find(node=>node.className.includes('growth-badge')).textContent,'生长暂停');
+assert(!nodes(grid.children[4]).some(node=>node.className.includes('growth-badge')));
+assert(nodes(grid.children[5]).find(node=>node.className.includes('growth-badge')).textContent.includes('生长'));
+"""
+    result = subprocess.run(["node", "-e", script], cwd=root, capture_output=True, text=True, encoding="utf-8")
+    assert result.returncode == 0, result.stderr
+
+
 def test_v520_announcement_renders_and_is_seen_once_after_old_announcement():
     root = Path(__file__).resolve().parents[1]
     script = r"""
