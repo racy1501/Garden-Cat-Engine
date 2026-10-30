@@ -1692,6 +1692,9 @@ def cmd_route():
     public_state = _ai_summary(state, events_before=events_before)
     if request.args.get("compact") == "1":
         public_state["cottage"].pop("purchasable_items", None)
+        public_state["cottage"]["owned_items"] = [
+            {"id": item["id"]} for item in public_state["cottage"].get("owned_items", [])
+        ]
         public_state["flower_shop"].pop("pricing_profiles", None)
     return jsonify(
         {

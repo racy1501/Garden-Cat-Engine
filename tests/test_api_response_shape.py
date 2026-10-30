@@ -749,6 +749,10 @@ def test_compact_command_preserves_default_state_and_status(api, monkeypatch):
     session_id, _ = create_human_garden(client)
     saved = module.db_load_state(session_id)
     saved["cottage"]["items"]["ottoman"] = {"acquired_at": now, "source": "human"}
+    saved["cottage"]["items"]["potted_plant"] = {"acquired_at": now, "source": "system"}
+    original_items = json.loads(json.dumps(saved["cottage"]["items"]))
+    expected_owned = ge.get_cottage_public_summary(saved)["owned_items"]
+    expected_ids = [item["id"] for item in expected_owned]
     module.db_save_state(session_id, saved)
     headers = {"X-API-Key": "test-key"}
     body = {"session_id": session_id, "command": "status"}
@@ -764,12 +768,38 @@ def test_compact_command_preserves_default_state_and_status(api, monkeypatch):
     assert "pricing_profiles" in default["state"]["flower_shop"]
     assert "purchasable_items" in status["state"]["cottage"]
     assert "pricing_profiles" in status["state"]["flower_shop"]
+    complete_owned_fields = {"id", "name", "category", "slot_key", "asset_key", "acquired_at", "source"}
+    for payload in (status, default):
+        owned_items = payload["state"]["cottage"]["owned_items"]
+        assert [item["id"] for item in owned_items] == expected_ids
+        assert all(complete_owned_fields <= item.keys() for item in owned_items)
     assert "purchasable_items" not in compact["state"]["cottage"]
     assert "pricing_profiles" not in compact["state"]["flower_shop"]
-    assert any(item["id"] == "ottoman" for item in compact["state"]["cottage"]["owned_items"])
+    compact_owned_items = compact["state"]["cottage"]["owned_items"]
+    assert compact_owned_items == [{"id": item_id} for item_id in expected_ids]
+    assert all(set(item) == {"id"} for item in compact_owned_items)
+    assert {"ottoman", "potted_plant"} <= set(expected_ids)
+    assert len(expected_ids) == len(set(expected_ids))
+    assert module.db_load_state(session_id)["cottage"]["items"] == original_items
     default["state"]["cottage"].pop("purchasable_items")
     default["state"]["flower_shop"].pop("pricing_profiles")
+    default["state"]["cottage"]["owned_items"] = compact_owned_items
     assert compact["state"] == default["state"]
+
+
+def test_compact_command_returns_empty_owned_items_array(api):
+    module, client = api
+    session_id, _ = create_human_garden(client)
+    state = module.db_load_state(session_id)
+    state["cottage"]["items"] = {}
+    state["encyclopedia"] = []
+    module.db_save_state(session_id, state)
+
+    response = client.post("/api/cmd?compact=1", headers={"X-API-Key": "test-key"},
+                           json={"session_id": session_id, "command": "status"})
+
+    assert response.status_code == 200
+    assert response.get_json()["state"]["cottage"]["owned_items"] == []
 
 
 def test_compact_command_success_and_failure_keep_dynamic_state(api):
