@@ -4892,6 +4892,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
                     pot["pest_resolved"] = True
                     pot["last_growth_update"] = now
                     state["pest_treatment"].pop(pot_idx, None)
+                    refresh_garden_events(state, now)
                     ok, result = True, (
                         f"✅ 治疗了盆{pot_idx + 1}的花！(-{PEST_TREATMENT_COST}块)\n"
                         "   这盆花在本轮生长周期内不会再长虫。"

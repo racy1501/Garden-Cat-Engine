@@ -250,6 +250,85 @@ def test_status_text_hides_growth_eta_while_pest_pauses_and_restores_after_treat
     assert ge.execute_command(state, "harvest 1").ok is True
 
 
+def test_treat_refreshes_garden_events_immediately_and_restores_mature_harvest(monkeypatch):
+    now = int(time.time())
+    monkeypatch.setattr(ge.time, "time", lambda: now)
+    state = fresh_state()
+    state["weather"] = "sunny"
+    state["weather_change_time"] = now + 3600
+    state["last_pest_check_time"] = now
+    state["pots"][0] = {
+        "flower_id": "daisy",
+        "growth_progress": FLOWERS["daisy"]["grow_time"],
+        "last_growth_update": now,
+        "watered": True,
+        "pest_active": True,
+        "pest_triggered": True,
+        "pest_resolved": False,
+    }
+    ge.refresh_garden_events(state, now)
+    assert state["garden_events"]["has_pests"] is True
+    assert state["garden_events"]["pest_pots"] == [1]
+    assert ge.get_pot_ai_status(state, 0, state["pots"][0]) == "pest_blocked"
+
+    treated = ge.execute_command(state, "treat 1")
+
+    assert treated.ok is True
+    assert state["garden_events"]["has_pests"] is False
+    assert state["garden_events"]["pest_pots"] == []
+    assert ge.get_pot_ai_status(state, 0, state["pots"][0]) == "ready"
+    from game_api import _build_pot_summary_for_ai
+    assert _build_pot_summary_for_ai(state)["ready_pots"] == 1
+    assert ge.execute_command(state, "harvest 1").ok is True
+
+
+def test_treat_refresh_keeps_other_active_pests(monkeypatch):
+    now = int(time.time())
+    monkeypatch.setattr(ge.time, "time", lambda: now)
+    state = fresh_state()
+    state["weather"] = "sunny"
+    state["weather_change_time"] = now + 3600
+    state["last_pest_check_time"] = now
+    pest_pot = {
+        "flower_id": "daisy", "growth_progress": 20, "last_growth_update": now,
+        "watered": True, "pest_active": True, "pest_triggered": True,
+        "pest_resolved": False,
+    }
+    state["pots"][0] = dict(pest_pot)
+    state["pots"][1] = dict(pest_pot)
+    ge.refresh_garden_events(state, now)
+    assert state["garden_events"]["pest_pots"] == [1, 2]
+
+    result = ge.execute_command(state, "treat 1")
+
+    assert result.ok is True
+    assert state["garden_events"]["has_pests"] is True
+    assert state["garden_events"]["pest_pots"] == [2]
+
+
+def test_failed_treat_does_not_refresh_or_change_garden_events(monkeypatch):
+    now = int(time.time())
+    monkeypatch.setattr(ge.time, "time", lambda: now)
+    state = fresh_state()
+    state["weather"] = "sunny"
+    state["weather_change_time"] = now + 3600
+    state["last_pest_check_time"] = now
+    state["pots"][0] = {
+        "flower_id": "daisy", "growth_progress": 20, "last_growth_update": now,
+        "watered": True, "pest_active": True, "pest_triggered": True,
+        "pest_resolved": False,
+    }
+    ge.refresh_garden_events(state, now)
+    before = copy.deepcopy(state["garden_events"])
+    state["money"] = 0
+
+    result = ge.execute_command(state, "treat 1")
+
+    assert result.ok is False
+    assert state["garden_events"] == before
+    assert state["pots"][0]["pest_active"] is True
+
+
 def test_vase_uses_twelve_real_hours_and_remove_returns_nothing():
     state = fresh_state()
     state["inventory"]["flowers"]["rose"] = 1
