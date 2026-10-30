@@ -155,6 +155,27 @@ console.log(JSON.stringify({notice:get('#gardenNoticeText').textContent,rows:row
     assert len(json.loads(result.stdout)["rows"]) == 3
 
 
+def test_frontend_diary_prefers_name_and_keeps_legacy_labels():
+    root = Path(__file__).resolve().parents[1]
+    script = r"""
+const fs=require('fs'),vm=require('vm');const src=fs.readFileSync('static/app.js','utf8');
+const root={children:[],set innerHTML(v){this.children=[]},append(v){this.children.push(v)}};
+const ctx={currentState:{recent_event_records:[
+ {time:1,text:'种花',source:'human',source_label:'人类',source_name:'阿屿'},
+ {time:2,text:'摸猫',source:'ai',source_label:'AI',source_name:'砚川'},
+ {time:3,text:'旧人类',source:'human',source_label:'人类'},
+ {time:4,text:'旧AI',source:'ai',source_label:'AI'},
+ {time:5,text:'系统事件',source:'system',source_label:'系统'},
+ {time:6,text:'空名字',source:'ai',source_label:'AI',source_name:'  '}
+]},Date,document:{createElement(){return {textContent:'',className:''}}},$:()=>root};
+vm.createContext(ctx);vm.runInContext(src.slice(src.indexOf('function renderEvents('),src.indexOf('function showLetterModal(')),ctx);ctx.renderEvents();
+for(const [label,content] of [['阿屿','种花'],['砚川','摸猫'],['人类','旧人类'],['AI','旧AI'],['系统','系统事件'],['AI','空名字']])
+ if(!root.children.some(row=>row.textContent.includes(label+' ·')&&row.textContent.includes(content)))throw Error(label+' '+content);
+"""
+    result = subprocess.run(["node", "-e", script], cwd=root, encoding="utf-8", capture_output=True)
+    assert result.returncode == 0, result.stderr
+
+
 @pytest.mark.parametrize("command,area", [
     ("water 1", "garden"),
     ("buy_flower_shop_freshener", "flower_shop"),

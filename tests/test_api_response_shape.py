@@ -28,6 +28,7 @@ def adopted_cat_state():
 
 def test_cat_offline_events_use_transition_times(cat_clock, monkeypatch):
     state = adopted_cat_state()
+    initial_event_count = len(state["events"])
     start = cat_clock[0]
     recorded = []
     original = ge.add_event
@@ -43,7 +44,7 @@ def test_cat_offline_events_use_transition_times(cat_clock, monkeypatch):
     assert [event["time"] - start for event in recorded] == [5400, 6600, 12000, 13200, 18600, 19800]
     assert state["cat_state"]["location"] == "home"
     assert state["cat_state"]["next_outing_at"] == start + 25200
-    assert len(state["events"]) == 6  # 六次出门/归来都保留。
+    assert len(state["events"]) == initial_event_count + 6  # 六次出门/归来都保留。
     for delta in (0, 60, 180):
         cat_clock[0] = start + 21600 + delta
         ge.process_command(state, "status")

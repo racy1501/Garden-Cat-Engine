@@ -2343,10 +2343,10 @@ def _consume_water_serving(state, now=None, source=None, letter_context=None):
     )
 
 
-def _record_cat_care_event(state, event_text, *, source=None, now=None):
+def _record_cat_care_event(state, event_text, *, source=None, now=None, event_source="system", source_name=None, area=None):
     if source in {"offline_food", "offline_water"}:
         return
-    add_event(state, event_text, now=now)
+    add_event(state, event_text, now=now, source=event_source, source_name=source_name, area=area)
 
 
 def _trigger_food_bowl_roll(state, now=None, source=None, letter_context=None):
@@ -2501,7 +2501,7 @@ def _roll_interaction_acceptance(state, interaction_id):
     return random.random() < _get_interaction_acceptance_rate(state, interaction_id)
 
 
-def _refill_food_bowl(state, requested_food_type, now=None, source=None, letter_context=None):
+def _refill_food_bowl(state, requested_food_type, now=None, source=None, letter_context=None, event_source="system", source_name=None):
     bowl = state["cat_care"]["food_bowl"]
     original_remaining = _safe_nonnegative_int(bowl.get("remaining_portions", 0), 0)
     refill_type = str(bowl.get("food_type", DEFAULT_CAT_FOOD_TYPE)) if original_remaining > 0 else requested_food_type
@@ -2513,7 +2513,7 @@ def _refill_food_bowl(state, requested_food_type, now=None, source=None, letter_
         _use_inventory_item(state, refill_type, added)
         bowl["remaining_portions"] = original_remaining + added
         food_name = ITEMS.get(refill_type, ITEMS[DEFAULT_CAT_FOOD_TYPE]).get("name", ITEMS[DEFAULT_CAT_FOOD_TYPE]["name"])
-        _record_cat_care_event(state, f"给粮碗补充了{food_name}。", source=source)
+        _record_cat_care_event(state, f"给粮碗补充了{food_name}。", source=source, now=now, event_source=event_source, source_name=source_name, area="cottage")
     eaten = 0
     if original_remaining <= 0 and added > 0:
         eaten, _ = _trigger_food_bowl_roll(
@@ -2532,13 +2532,13 @@ def _refill_food_bowl(state, requested_food_type, now=None, source=None, letter_
     }
 
 
-def _refill_water_bowl(state, now=None, source=None, letter_context=None):
+def _refill_water_bowl(state, now=None, source=None, letter_context=None, event_source="system", source_name=None):
     bowl = state["cat_care"]["water_bowl"]
     original_remaining = _safe_nonnegative_int(bowl.get("remaining_portions", 0), 0)
     space = max(0, bowl["capacity"] - original_remaining)
     if space > 0:
         bowl["remaining_portions"] = original_remaining + space
-        _record_cat_care_event(state, "给水碗补满了水。", source=source)
+        _record_cat_care_event(state, "给水碗补满了水。", source=source, now=now, event_source=event_source, source_name=source_name, area="cottage")
     drank = 0
     if original_remaining <= 0 and space > 0:
         drank, _ = _trigger_water_bowl_roll(
@@ -4057,7 +4057,7 @@ def _retain_latest_events(events):
         event.get("time", 0), 0) if isinstance(event, dict) else 0)[-EVENT_HISTORY_LIMIT:]
 
 
-def add_event(state, event_text, *, now=None, source="system", area=None):
+def add_event(state, event_text, *, now=None, source="system", source_name=None, area=None):
     event = {
         "time": int(time.time() if now is None else now),
         "text": event_text,
@@ -4065,6 +4065,8 @@ def add_event(state, event_text, *, now=None, source="system", area=None):
     }
     if area in EVENT_AREAS:
         event["area"] = area
+    if event["source"] in ("human", "ai") and isinstance(source_name, str) and source_name.strip():
+        event["source_name"] = source_name.strip()
     state["events"].append(event)
     _retain_latest_events(state["events"])
 
@@ -4573,7 +4575,7 @@ def _craft_bouquet_instance(state, bouquet_id):
     }, None
 
 
-def _record_bouquet_gift(state, bouquet_instance, now, message=None, *, event_source="system"):
+def _record_bouquet_gift(state, bouquet_instance, now, message=None, *, event_source="system", source_name=None):
     bouquet_id = bouquet_instance["bouquet_id"]
     bouquet = BOUQUETS[bouquet_id]
     state.setdefault("bouquet_gifts", []).append(
@@ -4587,7 +4589,7 @@ def _record_bouquet_gift(state, bouquet_instance, now, message=None, *, event_so
     event_text = f"💐 送出了一束「{bouquet['name']}」。"
     if message:
         event_text = event_text[:-1] + "，还附了一张小卡片。"
-    add_event(state, event_text, now=now, source=event_source, area="flower_shop")
+    add_event(state, event_text, now=now, source=event_source, source_name=source_name, area="flower_shop")
 
 
 def _parse_flower_shop_start_minute(value):
@@ -4616,14 +4618,14 @@ class CommandResult:
     action_message: str | None = None
 
 
-def process_command(state, command, *, event_source="system", letter_context=None) -> str:
+def process_command(state, command, *, event_source="system", source_name=None, letter_context=None) -> str:
     """保留纯文本调用方式；命令执行与结果判断由 execute_command 统一负责。"""
     return execute_command(
-        state, command, event_source=event_source, letter_context=letter_context,
+        state, command, event_source=event_source, source_name=source_name, letter_context=letter_context,
     ).message
 
 
-def execute_command(state, command, *, event_source="system", letter_context=None) -> CommandResult:
+def execute_command(state, command, *, event_source="system", source_name=None, letter_context=None) -> CommandResult:
     """在传入的存档字典上执行命令，并原地更新状态。
 
     该入口供 Flask API / 数据库存档调用，不读取或写入本地 JSON 文件。
@@ -4705,6 +4707,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
                     else:
                         state["money"] -= price
                         state["inventory"]["seeds"][item_id] = state["inventory"]["seeds"].get(item_id, 0) + quantity
+                        add_event(state, f"买了{quantity}包{FLOWERS[item_id]['name']}种子", now=now, source=event_source, source_name=source_name, area="garden")
                         ok, result = True, f"✅ 买了{quantity}包{FLOWERS[item_id]['name']}种子！(-{price}块)"
             elif item_id in ITEMS:
                 item_data = ITEMS[item_id]
@@ -4718,6 +4721,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
                     else:
                         state["money"] -= item_data["price"]
                         _apply_facility_purchase(state, item_id)
+                        add_event(state, f"添置了{item_data['name']}", now=now, source=event_source, source_name=source_name, area="cottage")
                         ok, result = True, f"✅ 买了{item_data['name']}！永久生效 (-{item_data['price']}块)"
                 else:
                     price = item_data["price"] * quantity
@@ -4728,6 +4732,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
                         total_portions = quantity * package_size
                         state["money"] -= price
                         _add_inventory_item(state, item_id, total_portions)
+                        add_event(state, f"买了{quantity}个{item_data['name']}", now=now, source=event_source, source_name=source_name, area="cottage")
                         ok, result = True, f"✅ 买了{quantity}个{item_data['name']}！(-{price}块)"
             else:
                 ok, result = False, "❌ 商店没有这个东西"
@@ -4752,7 +4757,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
             else:
                 state["money"] -= item["price"]
                 cottage_items[item_id] = {"acquired_at": now, "source": event_source}
-                add_event(state, f"为小屋添置了{item['name']}", now=now, source=event_source, area="cottage")
+                add_event(state, f"为小屋添置了{item['name']}", now=now, source=event_source, source_name=source_name, area="cottage")
                 ok, result = True, f"🏠 添置了{item['name']}！(-{item['price']}块)"
 
     elif action == "plant":
@@ -4788,6 +4793,8 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
                 state["inventory"]["seeds"][flower_id] -= 1
                 if state["inventory"]["seeds"][flower_id] <= 0:
                     del state["inventory"]["seeds"][flower_id]
+
+                add_event(state, f"在盆{pot_idx + 1}种下了{FLOWERS[flower_id]['name']}", now=now, source=event_source, source_name=source_name, area="garden")
 
                 ok, result = True, f"🌱 在盆{pot_idx + 1}种下了{FLOWERS[flower_id]['name']}！"
                 if is_rainy:
@@ -4831,6 +4838,9 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
                         pot["last_growth_update"] = now
                         watered_count += 1
 
+                if watered_count:
+                    add_event(state, f"给{watered_count}盆花浇了水", now=now, source=event_source, source_name=source_name, area="garden")
+
                 if weather_data.get("auto_water") and has_growing_flower:
                     ok = True
                     if has_pest_blocked_flower:
@@ -4863,7 +4873,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
                 ok, result = False, "❌ 现在没有可以收获的成熟花朵"
             else:
                 harvested_messages = [
-                    _harvest_one_pot_result(state, pot_idx, now, weather_data, event_source=event_source).message
+                    _harvest_one_pot_result(state, pot_idx, now, weather_data, event_source=event_source, source_name=source_name).message
                     for pot_idx in ready_indices
                 ]
                 ok, result = True, (
@@ -4875,7 +4885,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
             if pot_idx is None:
                 ok, result = False, f"❌ 盆号必须是1-{state['max_pots']}"
             else:
-                harvest_result = _harvest_one_pot_result(state, pot_idx, now, weather_data, event_source=event_source)
+                harvest_result = _harvest_one_pot_result(state, pot_idx, now, weather_data, event_source=event_source, source_name=source_name)
                 ok, result = harvest_result.ok, harvest_result.message
 
     elif action == "treat":
@@ -4904,6 +4914,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
                     pot["last_growth_update"] = now
                     state["pest_treatment"].pop(pot_idx, None)
                     refresh_garden_events(state, now)
+                    add_event(state, f"处理了盆{pot_idx + 1}的虫害", now=now, source=event_source, source_name=source_name, area="garden")
                     ok, result = True, (
                         f"✅ 治疗了盆{pot_idx + 1}的花！(-{PEST_TREATMENT_COST}块)\n"
                         "   这盆花在本轮生长周期内不会再长虫。"
@@ -4936,7 +4947,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
                         )
                     else:
                         ok, result = True, f"🧹 清理了盆{pot_idx + 1}枯萎的{flower_name}，花盆重新空出来了。"
-                    add_event(state, f"清理枯萎的{flower_name}（盆{pot_idx + 1}）", now=now, source=event_source, area="garden")
+                    add_event(state, f"清理枯萎的{flower_name}（盆{pot_idx + 1}）", now=now, source=event_source, source_name=source_name, area="garden")
 
     elif action == "make_bouquet":
         bouquet_id, message = _parse_bouquet_arguments(parts)
@@ -4947,7 +4958,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
             if error:
                 ok, result = False, error
             else:
-                _record_bouquet_gift(state, bouquet_instance, now, message, event_source=event_source)
+                _record_bouquet_gift(state, bouquet_instance, now, message, event_source=event_source, source_name=source_name)
                 ok, result = True, f"💐 已将{BOUQUETS[bouquet_id]['name']}送给人类！"
                 if message:
                     result += " 已附上小卡片。"
@@ -4963,7 +4974,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
             else:
                 state.setdefault("bouquet_inventory", []).append(bouquet_instance)
                 bouquet_name = BOUQUETS[bouquet_id]["name"]
-                add_event(state, f"制作了一束「{bouquet_name}」", now=now, source=event_source, area="flower_shop")
+                add_event(state, f"制作了一束「{bouquet_name}」", now=now, source=event_source, source_name=source_name, area="flower_shop")
                 ok, result = True, f"💐 已制作{bouquet_name}，可从花束背包赠送给人类。"
 
     elif action == "gift_bouquet":
@@ -4991,7 +5002,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
             else:
                 bouquet_instance = bouquet_inventory.pop(instance_index)
                 message = " ".join(message_parts).strip() or None
-                _record_bouquet_gift(state, bouquet_instance, now, message, event_source=event_source)
+                _record_bouquet_gift(state, bouquet_instance, now, message, event_source=event_source, source_name=source_name)
                 ok, result = True, f"💐 已将{BOUQUETS[bouquet_instance['bouquet_id']]['name']}送给人类！"
                 if message:
                     result += " 已附上小卡片。"
@@ -5070,7 +5081,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
                 bouquet_name = BOUQUETS.get(bouquet_instance["bouquet_id"], {}).get(
                     "name", bouquet_instance["bouquet_id"]
                 )
-                add_event(state, f"🏪 将「{bouquet_name}」放上货架{slot_index + 1}开始销售。", now=now, source=event_source, area="flower_shop")
+                add_event(state, f"🏪 将「{bouquet_name}」放上货架{slot_index + 1}开始销售。", now=now, source=event_source, source_name=source_name, area="flower_shop")
                 settlement_results = settle_flower_shop(state, now)
                 immediate_sale = next(
                     (entry for entry in settlement_results if entry.get("slot") == slot_index + 1),
@@ -5102,7 +5113,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
                 "shelf_capacity": FLOWER_SHOP_SHELF_CAPACITY,
                 "slots": [None] * FLOWER_SHOP_SHELF_CAPACITY,
             }
-            add_event(state, "建好了花店，准备了3个空货架", now=now, source=event_source, area="flower_shop")
+            add_event(state, "建好了花店，准备了3个空货架", now=now, source=event_source, source_name=source_name, area="flower_shop")
             ok, result = True, "🏪 花店建好了！现在有3个空货架，请先设置每天的营业开始时间。"
 
     elif action == "upgrade_flower_shop_shelf":
@@ -5124,6 +5135,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
             state["money"] -= upgrade_cost
             shop["shelf_capacity"] = next_capacity
             slots.extend([None] * (next_capacity - len(slots)))
+            add_event(state, f"将花店货架扩建至{next_capacity}格", now=now, source=event_source, source_name=source_name, area="flower_shop")
             ok, result = True, f"🏪 货架已扩建至{next_capacity}格，花费{upgrade_cost}块。"
 
     elif action == "buy_flower_shop_freshener":
@@ -5137,7 +5149,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
         else:
             state["money"] -= FLOWER_SHOP_FRESHENER_COST
             shop["has_freshener"] = True
-            add_event(state, "🏪 安装了花店保鲜设备。", now=now, source=event_source, area="flower_shop")
+            add_event(state, "🏪 安装了花店保鲜设备。", now=now, source=event_source, source_name=source_name, area="flower_shop")
             ok, result = True, "🏪 保鲜设备已安装；之后新上架的花束会更晚进入折价阶段，但仍会在24小时后报废。"
 
     elif action == "set_flower_shop_hours":
@@ -5177,7 +5189,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
 
             if ok:
                 add_event(state, f"🕙 设置花店营业时段：{start_minute // 60:02d}:{start_minute % 60:02d}–{end_label}。",
-                          now=now, source=event_source, area="flower_shop")
+                          now=now, source=event_source, source_name=source_name, area="flower_shop")
 
     elif action == "launch_flower_shop":
         shop = state["flower_shop"]
@@ -5189,6 +5201,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
             ok, result = False, "❌ 请先设置每天的营业开始时间。"
         else:
             shop["launched_at"] = now
+            add_event(state, "花店正式开业了", now=now, source=event_source, source_name=source_name, area="flower_shop")
             if _flower_shop_is_open_for_start(shop.get("business_start_minute"), now):
                 ok, result = True, "🎉 花店正式开业！当前正处于营业时间。"
             else:
@@ -5215,7 +5228,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
                     f"💐 把一朵{FLOWERS[flower_id]['name']}插进了花瓶。"
                     f"\n   花瓶里的花不能再出售，可保持约{VASE_LIFESPAN_REAL_HOURS}小时。"
                 )
-                add_event(state, f"把{FLOWERS[flower_id]['name']}插进花瓶", now=now, source=event_source, area="garden")
+                add_event(state, f"把{FLOWERS[flower_id]['name']}插进花瓶", now=now, source=event_source, source_name=source_name, area="garden")
 
     elif action == "vase":
         if len(parts) != 1:
@@ -5245,7 +5258,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
                         f"🧹 从花瓶位置{vase_idx + 1}移除了{flower_name}。"
                         "\n   花朵和金币都不会返还。"
                     )
-                    add_event(state, f"从花瓶移除{flower_name}", now=now, source=event_source, area="garden")
+                    add_event(state, f"从花瓶移除{flower_name}", now=now, source=event_source, source_name=source_name, area="garden")
 
     elif action == "sell":
         if len(parts) < 2:
@@ -5266,7 +5279,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
                     state["total_earned"] += total
                     state["direct_flower_sale_earned"] += total
                     state["inventory"]["flowers"] = {}
-                    add_event(state, f"卖掉所有花，赚了{total}块", source=event_source, area="garden")
+                    add_event(state, f"卖掉所有花，赚了{total}块", source=event_source, source_name=source_name, area="garden")
                     ok, result = True, f"💰 卖掉所有花，赚了{total}块！"
         else:
             flower_id = parts[1].lower()
@@ -5290,7 +5303,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
                 add_event(
                     state,
                     f"卖了{quantity}朵{FLOWERS[flower_id]['name']}，赚了{price}块",
-                    source=event_source, area="garden",
+                    source=event_source, source_name=source_name, area="garden",
                 )
                 ok, result = True, f"💰 卖了{quantity}朵{FLOWERS[flower_id]['name']}，赚了{price}块！"
 
@@ -5319,6 +5332,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
             if state.get("cat_last_pet_real_time", 0) <= 0:
                 state["cat_last_pet_real_time"] = now - (PET_COOLDOWN_REAL_MINUTES * 60)
             _sync_cat_stats_views(state)
+            add_event(state, f"收养了{cat_name}", now=now, source=event_source, source_name=source_name, area="garden")
             ok, result = True, f"🎉 成功收养了{cat_name}！记得喂它哦~"
 
     elif action == "rename_cat":
@@ -5333,6 +5347,8 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
             else:
                 old_name = state["cat"].get("name", "小猫")
                 state["cat"]["name"] = new_name
+                if old_name != new_name:
+                    add_event(state, f"把{old_name}改名为{new_name}", now=now, source=event_source, source_name=source_name, area="cottage")
                 ok, result = True, f"🐱 {old_name}现在叫{new_name}了！"
 
     elif action == "feed":
@@ -5348,6 +5364,8 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
                 now=now,
                 source=f"feed:{food_type}",
                 letter_context=letter_context,
+                event_source=event_source,
+                source_name=source_name,
             )
             food_name = ITEMS[refill_result["refill_type"]]["name"]
             cat_name = get_current_cat_name(state)
@@ -5373,6 +5391,8 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
                 now=now,
                 source="give_water",
                 letter_context=letter_context,
+                event_source=event_source,
+                source_name=source_name,
             )
             cat_name = get_current_cat_name(state)
             if refill_result["space"] <= 0:
@@ -5396,6 +5416,8 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
                 now=now,
                 source=f"refill_food:{parts[1].lower()}",
                 letter_context=letter_context,
+                event_source=event_source,
+                source_name=source_name,
             )
             bowl = state["cat_care"]["food_bowl"]
             food_type = refill_result["refill_type"]
@@ -5423,6 +5445,8 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
                 now=now,
                 source="refill_water",
                 letter_context=letter_context,
+                event_source=event_source,
+                source_name=source_name,
             )
             bowl = state["cat_care"]["water_bowl"]
             if refill_result["space"] <= 0:
@@ -5443,6 +5467,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
             ok, result = False, "鉂?杩樻病鏈夌尗"
         else:
             food_type = CAT_CARE_FOOD_TYPES[parts[1].lower()]
+            previous_food_type = state["cat_care"]["food_bowl"]["food_type"]
             switch_result = _switch_food_bowl(
                 state,
                 food_type,
@@ -5455,6 +5480,10 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
             else:
                 state["cat_care"]["food_bowl"]["food_type"] = food_type
                 ok, result = True, f"✅ 当前猫粮已切换为{ITEMS[food_type]['name']}"
+                if previous_food_type != food_type:
+                    add_event(state, f"将猫粮切换为{ITEMS[food_type]['name']}", now=now, source=event_source, source_name=source_name, area="cottage")
+                elif switch_result["refill_amount"] > switch_result["old_remaining"]:
+                    add_event(state, f"给粮碗补充了{ITEMS[food_type]['name']}。", now=now, source=event_source, source_name=source_name, area="cottage")
 
     elif action == "give_treat":
         if len(parts) != 1:
@@ -5484,6 +5513,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
             )
             if state.get("_interaction_accepted") is not False:
                 ok, result = True, f"🍬 给{cat_name}喂了零食，心情和亲密都上升了一点"
+                add_event(state, f"给{cat_name}吃了零食", now=now, source=event_source, source_name=source_name, area="cottage")
             elif not cat_present:
                 ok, result = False, f"🍬 {cat_name}现在不在这里，零食没有消耗"
             else:
@@ -5514,6 +5544,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
                     letter_context=letter_context,
                 )
                 ok, result = True, f"🤗 抚摸了{cat_name}，它很开心！心情和亲密都上升了一点"
+                add_event(state, f"摸了摸{cat_name}", now=now, source=event_source, source_name=source_name, area="cottage")
 
     elif action == "play":
         if state["cat"] is None:
@@ -5545,6 +5576,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
                 )
                 if state.get("_interaction_accepted") is not False:
                     ok, result = True, f"🎾 和{cat_name}玩了{ITEMS[toy_id]['name']}！（玩具已消耗）"
+                    add_event(state, f"和{cat_name}玩了一会儿", now=now, source=event_source, source_name=source_name, area="cottage")
                 elif not cat_present:
                     ok, result = False, f"🎾 {cat_name}现在不在这里，玩具没有消耗"
                 else:
@@ -5566,6 +5598,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
                 state["money"] -= pot_cost
                 state["pots"].append(None)
                 state["max_pots"] += 1
+                add_event(state, f"添置了第{next_pot_number}个花盆", now=now, source=event_source, source_name=source_name, area="garden")
                 ok, result = True, (
                     f"✅ 解锁了第{next_pot_number}个花盆！"
                     f"现在有{state['max_pots']}个花盆 (-{pot_cost}块)"
@@ -5993,7 +6026,7 @@ def _harvest_one_pot(state, pot_idx, now, weather_data):
     return _harvest_one_pot_result(state, pot_idx, now, weather_data).message
 
 
-def _harvest_one_pot_result(state, pot_idx, now, weather_data, *, event_source="system") -> CommandResult:
+def _harvest_one_pot_result(state, pot_idx, now, weather_data, *, event_source="system", source_name=None) -> CommandResult:
     pot = state["pots"][pot_idx] if 0 <= pot_idx < len(state["pots"]) else None
     blocker = get_pot_harvest_blocker(state, pot_idx, pot)
     if blocker == "invalid_index":
@@ -6034,7 +6067,7 @@ def _harvest_one_pot_result(state, pot_idx, now, weather_data, *, event_source="
             f"✨ 新发现！{flower_data['name']}已加入图鉴 ({len(state['encyclopedia'])}/{len(FLOWERS)})"
         )
         reward = ENCYCLOPEDIA_REWARDS.get(flower_id, {})
-    add_event(state, f"收获了{flower_data['name']}", now=now, source=event_source, area="garden")
+    add_event(state, f"收获了{flower_data['name']}", now=now, source=event_source, source_name=source_name, area="garden")
     reward_text = []
     before_count = len(encyclopedia_before)
     after_count = len(state["encyclopedia"])

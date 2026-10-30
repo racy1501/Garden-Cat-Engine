@@ -18,6 +18,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from functools import wraps
 from typing import Any, Iterator
+from urllib.parse import unquote
 
 from flask import Flask, g, has_request_context, jsonify, render_template, request
 
@@ -992,7 +993,16 @@ def _event_record_for_client(event: dict[str, Any]) -> dict[str, Any]:
     if event.get("source"):
         record["source"] = event["source"]
         record["source_label"] = get_event_source_label(event["source"])
+        name = event.get("source_name")
+        if event["source"] in ("human", "ai") and isinstance(name, str) and name.strip():
+            record["source_name"] = name.strip()
     return record
+
+
+def _request_event_source_name(source: str) -> str | None:
+    header = {"human": "X-Garden-Human-Name", "ai": "X-Garden-Owner-Name"}.get(source)
+    name = unquote(request.headers.get(header, "")).strip() if header else ""
+    return name or None
 
 
 def _ai_summary(state: dict[str, Any], *, events_before: list | None = None) -> dict[str, Any]:
@@ -1506,7 +1516,7 @@ def web_cmd():
         return _web_auth_error()
     result = _handle_note_command(session_id, command, "human")
     if result is None:
-        result = execute_command(state, command, event_source="human", letter_context=_request_letter_context())
+        result = execute_command(state, command, event_source="human", source_name=_request_event_source_name("human"), letter_context=_request_letter_context())
         if command.strip().lower() == "help":
             result = CommandResult(result.ok, result.message + NOTE_HELP_TEXT)
         db_save_state(session_id, state)
@@ -1691,7 +1701,7 @@ def cmd_route():
     result = _handle_note_command(session_id, command, "ai")
     should_save_state = False
     if result is None:
-        result = execute_command(state, command, event_source="ai", letter_context=_request_letter_context())
+        result = execute_command(state, command, event_source="ai", source_name=_request_event_source_name("ai"), letter_context=_request_letter_context())
         if command.strip().lower() == "help":
             result = CommandResult(result.ok, result.message + NOTE_HELP_TEXT)
         should_save_state = True

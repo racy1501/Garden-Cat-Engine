@@ -2922,7 +2922,7 @@ function renderEvents() {
     line.className = "event-line";
     const time = event.time ? new Date(event.time * 1000).toLocaleString("zh-CN", { hour12: false }) : "";
     const sourceLabels = { human: "人类", ai: "AI", system: "系统" };
-    const source = event.source_label || sourceLabels[event.source] || "";
+    const source = (typeof event.source_name === "string" && event.source_name.trim()) || event.source_label || sourceLabels[event.source] || "";
     const area = areaLabels[event.area] ? `[${areaLabels[event.area]}]` : "";
     const prefix = [time, source, area].filter(Boolean).join(" · ");
     line.textContent = prefix ? `${prefix} · ${event.text}` : event.text;
