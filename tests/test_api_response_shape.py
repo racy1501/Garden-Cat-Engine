@@ -991,6 +991,9 @@ def test_compact_command_preserves_default_state_and_status(api, monkeypatch):
     expected_owned = ge.get_cottage_public_summary(saved)["owned_items"]
     expected_ids = [item["id"] for item in expected_owned]
     module.db_save_state(session_id, saved)
+    # Status requests settle cat visits; keep bowl consumption deterministic so
+    # this response-shape test measures the saved portion count unchanged.
+    monkeypatch.setattr(ge.random, "random", lambda: 1.0)
     headers = {"X-API-Key": "test-key"}
     body = {"session_id": session_id, "command": "status"}
 
@@ -1096,6 +1099,9 @@ def test_compact_command_only_removes_audited_display_fields(api, monkeypatch):
     }
     module.db_save_state(session_id, state)
     saved_before = module.db_load_state(session_id)
+    # This test checks response shaping; prevent visit settlement from
+    # randomly consuming the prepared water-bowl portion.
+    monkeypatch.setattr(ge.random, "random", lambda: 1.0)
     headers = {"X-API-Key": "test-key"}
     query = {"session_id": session_id}
     body = {"session_id": session_id, "command": "status"}
@@ -1391,7 +1397,10 @@ def test_ai_inventory_counts_expose_food_types_and_preserve_legacy_alias(api, ba
         assert counts["basic_food_servings"] == basic_food
         assert counts["premium_food_servings"] == premium_food
         assert counts["cat_food_servings"] == basic_food
-        assert counts["water_servings"] == 7
+        if route == "/api/cmd?compact=1":
+            assert "water_servings" not in counts
+        else:
+            assert counts["water_servings"] == 7
 
 
 def test_summary_recognizes_pest_active(api):
