@@ -802,6 +802,70 @@ def test_compact_command_returns_empty_owned_items_array(api):
     assert response.get_json()["state"]["cottage"]["owned_items"] == []
 
 
+def test_compact_command_only_removes_audited_display_fields(api, monkeypatch):
+    module, client = api
+    now = int(ge.time.time())
+    monkeypatch.setattr(module.time, "time", lambda: now)
+    session_id, _ = create_human_garden(client)
+    state = module.db_load_state(session_id)
+    state["inventory"]["items"]["water"] = 7
+    state["cat_care"]["water_bowl"]["remaining_portions"] = 2
+    state["flower_shop"] = {
+        "established_at": now - 1000,
+        "launched_at": now - 50,
+        "shelf_capacity": 2,
+        "business_start_minute": ge.datetime.fromtimestamp(now, ge.DISPLAY_TIMEZONE).hour * 60
+        + ge.datetime.fromtimestamp(now, ge.DISPLAY_TIMEZONE).minute,
+        "pending_business_start_minute": None,
+        "pending_business_effective_at": None,
+        "slots": [
+            {
+                "instance_id": "compact-audit-bouquet",
+                "bouquet_id": "first_meeting",
+                "components": {"tulip": 2, "rose": 1},
+                "listed_at": now - 10,
+                "last_settled_at": now - 10,
+                "base_price": 55,
+                "will_sell": False,
+                "sale_business_seconds_remaining": 0,
+            },
+            None,
+        ],
+    }
+    module.db_save_state(session_id, state)
+    saved_before = module.db_load_state(session_id)
+    headers = {"X-API-Key": "test-key"}
+    query = {"session_id": session_id}
+    body = {"session_id": session_id, "command": "status"}
+
+    status = client.get("/api/status", headers=headers, query_string=query).get_json()["state"]
+    default = client.post("/api/cmd", headers=headers, json=body).get_json()["state"]
+    compact = client.post("/api/cmd?compact=1", headers=headers, json=body).get_json()["state"]
+
+    for full in (status, default):
+        assert full["inventory_counts"]["water_servings"] == 7
+        assert "weather_emoji" in full
+        assert "weather" in full
+        assert full["flower_shop"]["is_open"] is True
+        assert full["flower_shop"]["slots"][0]["is_open"] is True
+        assert full["flower_shop"]["slots"][1] == {"slot": 2, "empty": True}
+        assert full["cottage"]["cat_area"]["water_bowl"]["remaining_portions"] == 2
+
+    assert "water_servings" not in compact["inventory_counts"]
+    assert "weather_emoji" not in compact
+    assert compact["weather"] == status["weather"]
+    assert compact["flower_shop"]["is_open"] is True
+    assert compact["flower_shop"]["slots"][0]["empty"] is False
+    assert compact["flower_shop"]["slots"][1] == {"slot": 2, "empty": True}
+    assert all("is_open" not in slot for slot in compact["flower_shop"]["slots"])
+    assert compact["cottage"]["cat_area"]["water_bowl"]["remaining_portions"] == 2
+
+    saved_after = module.db_load_state(session_id)
+    assert saved_after["inventory"]["items"]["water"] == saved_before["inventory"]["items"]["water"] == 7
+    assert saved_after["flower_shop"]["slots"] == saved_before["flower_shop"]["slots"]
+    assert saved_after["cat_care"]["water_bowl"] == saved_before["cat_care"]["water_bowl"]
+
+
 def test_compact_command_success_and_failure_keep_dynamic_state(api):
     module, client = api
     session_id, _ = create_human_garden(client)

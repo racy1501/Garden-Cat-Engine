@@ -1691,11 +1691,16 @@ def cmd_route():
         db_save_state(session_id, state)
     public_state = _ai_summary(state, events_before=events_before)
     if request.args.get("compact") == "1":
+        public_state["inventory_counts"].pop("water_servings", None)
+        public_state.pop("weather_emoji", None)
         public_state["cottage"].pop("purchasable_items", None)
         public_state["cottage"]["owned_items"] = [
             {"id": item["id"]} for item in public_state["cottage"].get("owned_items", [])
         ]
         public_state["flower_shop"].pop("pricing_profiles", None)
+        for slot in public_state["flower_shop"].get("slots", []):
+            if isinstance(slot, dict):
+                slot.pop("is_open", None)
         public_state["bouquet_options"] = [
             {
                 "bouquet_id": option["bouquet_id"],
