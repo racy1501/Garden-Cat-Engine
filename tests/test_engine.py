@@ -1733,6 +1733,126 @@ def test_water_condition_matches_command(pot_kind, can_water):
     assert ge.execute_command(state, "water 1").ok is can_water
 
 
+def _watering_test_pot(*, pest=False, watered=False, progress=10):
+    return {
+        "flower_id": "daisy",
+        "growth_progress": progress,
+        "last_growth_update": int(time.time()),
+        "watered": watered,
+        "pest_active": pest,
+        "pest_triggered": pest,
+        "pest_resolved": False,
+    }
+
+
+def test_manual_watering_message_distinguishes_pest_blocked_flower(monkeypatch):
+    now = int(time.time())
+    monkeypatch.setattr(ge.time, "time", lambda: now)
+    monkeypatch.setattr(ge.random, "random", lambda: 1.0)
+    normal = fresh_state()
+    normal["weather"] = "sunny"
+    normal["weather_change_time"] = now + 3600
+    normal["last_pest_check_time"] = now
+    normal["pots"][0] = _watering_test_pot()
+    normal_result = ge.execute_command(normal, "water 1")
+    assert normal_result.ok is True
+    assert normal["pots"][0]["watered"] is True
+    assert "开始生长" in normal_result.message
+
+    pested = fresh_state()
+    pested["weather"] = "sunny"
+    pested["weather_change_time"] = now + 3600
+    pested["last_pest_check_time"] = now
+    pested["pots"][0] = _watering_test_pot(pest=True)
+    pest_result = ge.execute_command(pested, "water 1")
+    assert pest_result.ok is True
+    assert pested["pots"][0]["watered"] is True
+    assert "已浇水" in pest_result.message
+    assert "仍会暂停生长" in pest_result.message
+    assert "需先处理虫害" in pest_result.message
+    assert "开始生长" not in pest_result.message
+    assert "恢复生长" not in pest_result.message
+
+
+def test_water_all_message_accounts_for_pest_blocked_pot(monkeypatch):
+    now = int(time.time())
+    monkeypatch.setattr(ge.time, "time", lambda: now)
+    monkeypatch.setattr(ge.random, "random", lambda: 1.0)
+    state = fresh_state()
+    state["weather"] = "sunny"
+    state["weather_change_time"] = now + 3600
+    state["last_pest_check_time"] = now
+    state["pots"][0] = _watering_test_pot()
+    state["pots"][1] = _watering_test_pot(pest=True)
+
+    result = ge.execute_command(state, "water all")
+
+    assert result.ok is True
+    assert state["pots"][0]["watered"] is True
+    assert state["pots"][1]["watered"] is True
+    assert "2盆花已浇水" in result.message
+    assert "仍会暂停生长" in result.message
+    assert "需先处理虫害" in result.message
+    assert "开始生长" not in result.message
+
+
+def test_rain_watering_pest_blocked_flower_does_not_claim_growth_resumed(monkeypatch):
+    now = int(time.time())
+    monkeypatch.setattr(ge.time, "time", lambda: now)
+    monkeypatch.setattr(ge.random, "random", lambda: 1.0)
+    state = fresh_state()
+    state["weather"] = "rainy"
+    state["weather_change_time"] = now + 3600
+    state["last_pest_check_time"] = now
+    state["pots"][0] = _watering_test_pot(pest=True)
+
+    result = ge.execute_command(state, "water 1")
+
+    assert result.ok is True
+    assert state["pots"][0]["watered"] is True
+    assert "雨水滋润" in result.message or "雨水滋润了" in result.message
+    assert "仍会暂停生长" in result.message
+    assert "需先处理虫害" in result.message
+    assert "开始生长" not in result.message
+    assert "恢复生长" not in result.message
+
+
+def test_rain_weather_event_only_claims_that_pots_were_watered(monkeypatch):
+    now = int(time.time())
+    monkeypatch.setattr(ge.random, "choice", lambda options: "rainy")
+    monkeypatch.setattr(ge.random, "randint", lambda low, high: low)
+    state = fresh_state()
+    state["weather"] = "sunny"
+    state["pots"][0] = _watering_test_pot(pest=True)
+    messages = []
+
+    ge._settle_weather_event(state, now, messages, record_event=False)
+
+    assert state["pots"][0]["watered"] is True
+    rain_message = next(message for message in messages if "雨水滋润" in message)
+    assert "开始生长" not in rain_message
+    assert "恢复生长" not in rain_message
+
+
+def test_watering_message_returns_to_normal_after_treat(monkeypatch):
+    now = int(time.time())
+    monkeypatch.setattr(ge.time, "time", lambda: now)
+    monkeypatch.setattr(ge.random, "random", lambda: 1.0)
+    state = fresh_state()
+    state["weather"] = "sunny"
+    state["weather_change_time"] = now + 3600
+    state["last_pest_check_time"] = now
+    state["pots"][0] = _watering_test_pot(pest=True)
+
+    assert ge.execute_command(state, "treat 1").ok is True
+    result = ge.execute_command(state, "water 1")
+
+    assert result.ok is True
+    assert state["pots"][0]["watered"] is True
+    assert "开始生长" in result.message
+    assert "仍会暂停生长" not in result.message
+
+
 def test_harvest_readiness_matches_mixed_pot_states():
     state = fresh_state()
     now = int(time.time())

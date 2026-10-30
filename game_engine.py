@@ -1803,7 +1803,7 @@ def _settle_weather_event(state, now, messages, *, record_event):
     if new_weather == "rainy":
         auto_watered = _auto_water_pots(state, now)
         if auto_watered > 0:
-            messages.append(f"🌧️ 雨水滋润了{auto_watered}盆花，它们开始生长了！")
+            messages.append(f"🌧️ 雨水滋润了{auto_watered}盆花。")
     if old_weather == "rainy" and new_weather == "sunny":
         _settle_rainbow_event(state, now, messages)
     return new_weather_data
@@ -4405,7 +4405,7 @@ def get_weather_info(state, now):
     if weather_data.get("auto_water"):
         auto_watered = _auto_water_pots(state, now)
         if auto_watered > 0:
-            messages.append(f"🌧️ 雨水滋润了{auto_watered}盆花，它们开始生长了！")
+            messages.append(f"🌧️ 雨水滋润了{auto_watered}盆花。")
     refresh_garden_events(state, now)
     return weather_data, messages
 
@@ -4815,6 +4815,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
                 watered_count = 0
                 has_growing_flower = False
                 has_withered_flower = False
+                has_pest_blocked_flower = False
                 for i in target_indices:
                     pot = state["pots"][i]
                     if pot is None:
@@ -4823,15 +4824,25 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
                         has_withered_flower = True
                         continue
                     has_growing_flower = True
+                    if get_pot_ai_status(state, i, pot) == "pest_blocked":
+                        has_pest_blocked_flower = True
                     if pot_needs_water(pot):
                         pot["watered"] = True
                         pot["last_growth_update"] = now
                         watered_count += 1
 
                 if weather_data.get("auto_water") and has_growing_flower:
-                    ok, result = True, "🌧️ 正在下雨，所有生长中的花已经被雨水滋润了"
+                    ok = True
+                    if has_pest_blocked_flower:
+                        result = "🌧️ 花盆已被雨水滋润；虫害未处理的花仍会暂停生长，需先处理虫害"
+                    else:
+                        result = "🌧️ 正在下雨，所有生长中的花已经被雨水滋润了"
                 elif watered_count > 0:
-                    ok, result = True, f"💧 浇水完成！{watered_count}盆花开始生长"
+                    ok = True
+                    if has_pest_blocked_flower:
+                        result = f"💧 浇水完成！{watered_count}盆花已浇水；虫害未处理的花仍会暂停生长，需先处理虫害"
+                    else:
+                        result = f"💧 浇水完成！{watered_count}盆花开始生长"
                 elif has_withered_flower and not has_growing_flower:
                     ok, result = False, "❌ 枯萎的花无法浇水，请先清理花盆"
                 elif not has_growing_flower:
