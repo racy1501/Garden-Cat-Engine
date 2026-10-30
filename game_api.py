@@ -57,6 +57,7 @@ from game_engine import (
     get_game_time_info,
     get_flower_shop_public_summary,
     get_cottage_public_summary,
+    get_pot_harvest_blocker,
     get_cottage_reward_requirement_text,
     get_next_pot_cost,
     refresh_garden_events,
@@ -878,7 +879,7 @@ def _build_pot_summary_for_ai(state: dict[str, Any]) -> dict[str, int]:
     pest_pots = 0
     withered_pots = 0
 
-    for pot in state.get("pots", []):
+    for pot_idx, pot in enumerate(state.get("pots", [])):
         if pot is None:
             empty_slots += 1
             continue
@@ -895,7 +896,8 @@ def _build_pot_summary_for_ai(state: dict[str, Any]) -> dict[str, int]:
             continue
         progress = min(float(pot.get("growth_progress", 0.0)), float(flower["grow_time"]))
         if progress >= float(flower["grow_time"]):
-            ready_pots += 1
+            if get_pot_harvest_blocker(state, pot_idx, pot) is None:
+                ready_pots += 1
         else:
             growing_pots += 1
 

@@ -1611,3 +1611,31 @@ def test_harvest_all_skips_unready_and_pested_flowers():
     assert "没有可以收获的成熟花朵" in result
     assert state["pots"][0] is not None
     assert state["pots"][1] is not None
+
+
+def test_harvest_readiness_matches_mixed_pot_states():
+    state = fresh_state()
+    now = int(time.time())
+    mature = {
+        "flower_id": "daisy",
+        "growth_progress": FLOWERS["daisy"]["grow_time"],
+        "last_growth_update": now,
+        "watered": True,
+    }
+    state["max_pots"] = 5
+    state["pots"] = [
+        dict(mature),
+        {**mature, "pest_active": True},
+        {**mature, "growth_progress": 10},
+        {**mature, "withered": True},
+        None,
+    ]
+
+    blockers = [ge.get_pot_harvest_blocker(state, i, pot) for i, pot in enumerate(state["pots"])]
+    assert blockers == [None, "pest", "growing", "withered", "empty"]
+
+    harvested = ge.execute_command(state, "harvest 1")
+    assert harvested.ok is True
+    pest_blocked = ge.execute_command(state, "harvest 2")
+    assert pest_blocked.ok is False
+    assert "虫害" in pest_blocked.message

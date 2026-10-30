@@ -4837,12 +4837,7 @@ def execute_command(state, command, *, event_source="system", letter_context=Non
         elif parts[1].lower() == "all":
             ready_indices = []
             for pot_idx, pot in enumerate(state["pots"][: state["max_pots"]]):
-                if pot is None or is_pot_withered(pot):
-                    continue
-                if _has_pest_blocker(state, pot_idx, pot):
-                    continue
-                flower_id = pot["flower_id"]
-                if float(pot.get("growth_progress", 0.0)) >= FLOWERS[flower_id]["grow_time"]:
+                if get_pot_harvest_blocker(state, pot_idx, pot) is None:
                     ready_indices.append(pot_idx)
 
             if not ready_indices:
@@ -5781,6 +5776,25 @@ def _has_pest_blocker(state, pot_idx, pot):
     return pot.get("pest_time") is not None
 
 
+def get_pot_harvest_blocker(state, pot_idx, pot):
+    """Return why a pot cannot be harvested, or None when it is ready."""
+    if pot_idx < 0 or pot_idx >= int(state.get("max_pots", 0) or 0):
+        return "invalid_index"
+    if pot is None:
+        return "empty"
+    if is_pot_withered(pot):
+        return "withered"
+    if _has_pest_blocker(state, pot_idx, pot):
+        return "pest"
+    flower = FLOWERS.get(pot.get("flower_id")) if isinstance(pot, dict) else None
+    if flower is None:
+        return "unknown_flower"
+    progress = float(pot.get("growth_progress", 0.0))
+    if progress < float(flower["grow_time"]):
+        return "growing"
+    return None
+
+
 def _activate_pest(state, pot_idx, now):
     pot = state["pots"][pot_idx]
     if not isinstance(pot, dict):
@@ -5946,22 +5960,25 @@ def _harvest_one_pot(state, pot_idx, now, weather_data):
 
 
 def _harvest_one_pot_result(state, pot_idx, now, weather_data, *, event_source="system") -> CommandResult:
-    if pot_idx < 0 or pot_idx >= state["max_pots"]:
+    pot = state["pots"][pot_idx] if 0 <= pot_idx < len(state["pots"]) else None
+    blocker = get_pot_harvest_blocker(state, pot_idx, pot)
+    if blocker == "invalid_index":
         return CommandResult(False, f"❌ 盆号必须是1-{state['max_pots']}")
-    pot = state["pots"][pot_idx]
-    if pot is None:
+    if blocker == "empty":
         return CommandResult(False, "❌ 这个盆是空的")
-    if is_pot_withered(pot):
+    if blocker == "withered":
         return CommandResult(False, f"❌ 这盆花已经枯萎，请使用 clear {pot_idx + 1} 清理")
-    if _has_pest_blocker(state, pot_idx, pot):
+    if blocker == "pest":
         return CommandResult(False, "❌ 花有虫害，先治疗后才能收获")
+    if blocker == "unknown_flower":
+        return CommandResult(False, "❌ 这盆没有可收获的花")
     flower_id = pot["flower_id"]
     flower_data = FLOWERS[flower_id]
     grow_time = flower_data["grow_time"]
     progress = float(pot.get("growth_progress", 0.0))
     encyclopedia_before = list(state["encyclopedia"])
     harvest_total_before = get_total_flower_harvests(state)
-    if progress < grow_time:
+    if blocker == "growing":
         if not pot.get("watered", True):
             return CommandResult(False, "❌ 这盆花还没浇水，生长暂停")
         speed = weather_data["grow_speed"]

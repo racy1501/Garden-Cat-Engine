@@ -687,6 +687,42 @@ def test_api_cmd_uses_slim_ai_summary(api):
     assert "garden_events" in state
 
 
+def test_pots_summary_ready_pots_matches_harvestability_on_all_ai_routes(api, cat_clock):
+    module, client = api
+    session_id, _human_headers = create_human_garden(client)
+    now = cat_clock[0]
+    mature = {
+        "flower_id": "daisy",
+        "growth_progress": ge.FLOWERS["daisy"]["grow_time"],
+        "last_growth_update": now,
+        "watered": True,
+    }
+    state = module.db_load_state(session_id)
+    state["max_pots"] = 5
+    state["pots"] = [
+        dict(mature),
+        {**mature, "pest_active": True},
+        {**mature, "growth_progress": 10},
+        {**mature, "withered": True},
+        None,
+    ]
+    headers = {"X-API-Key": "test-key"}
+
+    for route in ("/api/status", "/api/cmd", "/api/cmd?compact=1"):
+        module.db_save_state(session_id, state)
+        if route == "/api/status":
+            response = client.get(route, headers=headers, query_string={"session_id": session_id})
+        else:
+            response = client.post(route, headers=headers,
+                                   json={"session_id": session_id, "command": "status"})
+        assert response.status_code == 200
+        summary = response.get_json()["state"]["pots_summary"]
+        assert summary["ready_pots"] == 1
+        assert summary["pest_pots"] == 1
+        assert summary["growing_pots"] == 1
+        assert summary["withered_pots"] == 1
+
+
 def test_api_status_uses_slim_ai_summary(api):
     module, client = api
     session_id, _human_headers = create_human_garden(client)
