@@ -1005,6 +1005,22 @@ def test_summary_recognizes_pest_active(api):
     assert summary["garden_events"]["has_pests"] is True
     assert summary["garden_events"]["pest_pots"] == [1]
 
+    response = client.get(
+        f"/api/status?session_id={session_id}",
+        headers={"X-API-Key": "test-key"},
+    )
+    payload = response.get_json()
+    pot_line = next(
+        line for line in payload["message"].splitlines()
+        if line.startswith("  盆1:")
+    )
+    assert "有虫害" in pot_line
+    assert "生长暂停" in pot_line
+    assert "需先处理虫害" in pot_line
+    assert "还需约" not in pot_line
+    assert payload["state"]["garden_events"]["has_pests"] is True
+    assert payload["state"]["garden_events"]["pest_pots"] == [1]
+
 
 def test_ai_bouquet_command_and_web_collection_state(api):
     module, client = api

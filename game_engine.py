@@ -4193,8 +4193,11 @@ def get_status(state, weather_data):
         progress_pct = min(100, int((progress_value / grow_time) * 100))
         speed = get_actual_grow_speed(pot, weather_data)
 
+        pest_paused = _has_pest_blocker(state, i, pot)
         if progress_value >= grow_time:
             status = "🌸 可收获！"
+        elif pest_paused:
+            status = f"🐛 有虫害，生长暂停（{progress_pct}%）；需先处理虫害"
         elif speed <= 0:
             status = f"🏜️ 未浇水，生长暂停（{progress_pct}%）"
         else:
@@ -4202,7 +4205,7 @@ def get_status(state, weather_data):
             status = f"🌱 {progress_pct}% (还需约{format_time(remaining_real_seconds)})"
 
         pest_warning = ""
-        if "pest_time" in pot and now < pot["pest_time"]:
+        if not pest_paused and "pest_time" in pot and now < pot["pest_time"]:
             if i not in state["pest_treatment"] or now >= state["pest_treatment"].get(i, 0):
                 pest_warning = f" 🐛 {format_time(pot['pest_time'] - now)}后枯萎"
 

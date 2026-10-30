@@ -181,6 +181,49 @@ def test_planned_pest_pauses_growth_until_treated():
     assert pot["growth_progress"] > trigger
 
 
+def test_status_text_hides_growth_eta_while_pest_pauses_and_restores_after_treatment():
+    state = fresh_state()
+    flower = FLOWERS["daisy"]
+    state["pots"][0] = {
+        "flower_id": "daisy",
+        "growth_progress": flower["grow_time"] / 2,
+        "last_growth_update": int(time.time()),
+        "watered": True,
+        "pest_active": False,
+        "pest_triggered": False,
+        "pest_resolved": False,
+    }
+    normal_line = next(
+        line for line in ge.get_status(state, WEATHER["sunny"]).splitlines()
+        if line.startswith("  盆1:")
+    )
+    assert "50%" in normal_line
+    assert "还需约" in normal_line
+
+    pot = state["pots"][0]
+    pot["pest_active"] = True
+    pot["pest_triggered"] = True
+    paused_line = next(
+        line for line in ge.get_status(state, WEATHER["sunny"]).splitlines()
+        if line.startswith("  盆1:")
+    )
+    assert "有虫害" in paused_line
+    assert "生长暂停" in paused_line
+    assert "需先处理虫害" in paused_line
+    assert "还需约" not in paused_line
+
+    result = ge.execute_command(state, "treat 1")
+    assert result.ok is True
+    assert pot["pest_active"] is False
+    assert pot["pest_resolved"] is True
+    resumed_line = next(
+        line for line in ge.get_status(state, WEATHER["sunny"]).splitlines()
+        if line.startswith("  盆1:")
+    )
+    assert "有虫害" not in resumed_line
+    assert "还需约" in resumed_line
+
+
 def test_vase_uses_twelve_real_hours_and_remove_returns_nothing():
     state = fresh_state()
     state["inventory"]["flowers"]["rose"] = 1
