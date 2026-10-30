@@ -1696,6 +1696,14 @@ def cmd_route():
             {"id": item["id"]} for item in public_state["cottage"].get("owned_items", [])
         ]
         public_state["flower_shop"].pop("pricing_profiles", None)
+        public_state["bouquet_options"] = [
+            {
+                "bouquet_id": option["bouquet_id"],
+                "can_make": option["can_make"],
+                "missing": option["missing"],
+            }
+            for option in public_state.get("bouquet_options", [])
+        ]
     return jsonify(
         {
             "ok": result.ok,

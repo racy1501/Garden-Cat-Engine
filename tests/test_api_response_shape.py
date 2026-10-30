@@ -1146,6 +1146,66 @@ def test_ai_bouquet_command_and_web_collection_state(api):
     assert len(catalog["bouquets"]) == 12
 
 
+def test_bouquet_options_compact_projection_preserves_dynamic_facts(api):
+    module, client = api
+    session_id, _human_headers = create_human_garden(client)
+    state = module.db_load_state(session_id)
+    state["encyclopedia"] = list(ge.FLOWERS)
+    state["inventory"]["flowers"] = {"tulip": 2, "baby_breath": 1}
+    original_state = json.loads(json.dumps(state))
+    original_recipes = json.loads(json.dumps(ge.BOUQUETS))
+    expected_options = ge.get_bouquet_options(state)
+    expected_ids = [option["bouquet_id"] for option in expected_options]
+    assert len(expected_options) == len(ge.BOUQUETS)
+    assert state == original_state
+    module.db_save_state(session_id, state)
+    headers = {"X-API-Key": "test-key"}
+
+    status_response = client.get("/api/status", headers=headers,
+                                 query_string={"session_id": session_id})
+    default_response = client.post("/api/cmd", headers=headers,
+                                   json={"session_id": session_id, "command": "status"})
+    compact_response = client.post("/api/cmd?compact=1", headers=headers,
+                                   json={"session_id": session_id, "command": "status"})
+    assert (
+        status_response.status_code == default_response.status_code == compact_response.status_code == 200
+    )
+
+    full_fields = {"bouquet_id", "name", "components", "can_make", "missing"}
+    for response in (status_response, default_response):
+        options = response.get_json()["state"]["bouquet_options"]
+        assert options == expected_options
+        assert [option["bouquet_id"] for option in options] == expected_ids
+        assert all(set(option) == full_fields for option in options)
+
+    compact_options = compact_response.get_json()["state"]["bouquet_options"]
+    assert compact_options == [
+        {
+            "bouquet_id": option["bouquet_id"],
+            "can_make": option["can_make"],
+            "missing": option["missing"],
+        }
+        for option in expected_options
+    ]
+    assert all(set(option) == {"bouquet_id", "can_make", "missing"} for option in compact_options)
+    assert [option["bouquet_id"] for option in compact_options] == expected_ids
+    by_id = {option["bouquet_id"]: option for option in compact_options}
+    assert by_id["first_meeting"]["can_make"] is True
+    assert by_id["first_meeting"]["missing"] == {}
+    assert by_id["morning_light"]["can_make"] is False
+    assert by_id["morning_light"]["missing"] == {"sunflower": 1, "carnation": 1, "daisy": 1}
+
+    catalog = client.get("/api/catalog").get_json()["bouquets"]
+    assert set(catalog) == set(ge.BOUQUETS)
+    for bouquet_id, recipe in ge.BOUQUETS.items():
+        assert catalog[bouquet_id]["name"] == recipe["name"]
+        assert catalog[bouquet_id]["components"] == recipe["components"]
+    saved = module.db_load_state(session_id)
+    assert saved["inventory"]["flowers"] == original_state["inventory"]["flowers"]
+    assert saved["encyclopedia"] == original_state["encyclopedia"]
+    assert ge.BOUQUETS == original_recipes
+
+
 @pytest.mark.parametrize("cmd_url", ["/api/cmd", "/api/cmd?compact=1"])
 def test_flower_shop_and_bouquet_inventory_have_public_summary_only(api, cmd_url):
     module, client = api
