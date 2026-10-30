@@ -58,6 +58,7 @@ from game_engine import (
     get_flower_shop_public_summary,
     get_cottage_public_summary,
     get_pot_harvest_blocker,
+    get_pot_ai_status,
     get_cottage_reward_requirement_text,
     get_next_pot_cost,
     refresh_garden_events,
@@ -67,7 +68,6 @@ from game_engine import (
     get_vase_flower_status,
     is_flower_unlocked,
     is_pot_withered,
-    pot_needs_water,
     normalize_state,
     process_command,
     execute_command,
@@ -915,17 +915,7 @@ def _build_pot_summary_for_ai(state: dict[str, Any]) -> dict[str, int]:
 def _build_pots_for_ai(state: dict[str, Any]) -> list[dict[str, Any]]:
     pots = []
     for index, pot in enumerate(state.get("pots", [])):
-        blocker = get_pot_harvest_blocker(state, index, pot)
-        if blocker is None:
-            status = "ready"
-        elif blocker == "pest":
-            status = "pest_blocked"
-        elif blocker in ("empty", "withered"):
-            status = blocker
-        elif pot_needs_water(pot):
-            status = "needs_water"
-        else:
-            status = "growing"
+        status = get_pot_ai_status(state, index, pot)
         pots.append({"slot": index + 1, "flower_id": pot.get("flower_id") if pot else None, "status": status})
     return pots
 

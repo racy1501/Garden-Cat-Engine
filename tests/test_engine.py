@@ -223,6 +223,32 @@ def test_status_text_hides_growth_eta_while_pest_pauses_and_restores_after_treat
     assert "有虫害" not in resumed_line
     assert "还需约" in resumed_line
 
+    # Mature pest-blocked pots must use the same readiness decision as harvest.
+    pot["growth_progress"] = flower["grow_time"]
+    pot["pest_active"] = True
+    pot["pest_resolved"] = False
+    mature_pest_line = next(
+        line for line in ge.get_status(state, WEATHER["sunny"]).splitlines()
+        if line.startswith("  盆1:")
+    )
+    assert "有虫害" in mature_pest_line
+    assert "暂不可收获（100%）" in mature_pest_line
+    assert "可收获！" not in mature_pest_line
+    assert ge.get_pot_ai_status(state, 0, pot) == "pest_blocked"
+    assert ge.execute_command(state, "harvest 1").ok is False
+    assert ge.get_pot_harvest_blocker(state, 0, pot) == "pest"
+
+    treated = ge.execute_command(state, "treat 1")
+    assert treated.ok is True
+    mature_ready_line = next(
+        line for line in ge.get_status(state, WEATHER["sunny"]).splitlines()
+        if line.startswith("  盆1:")
+    )
+    assert "可收获" in mature_ready_line
+    assert ge.get_pot_ai_status(state, 0, pot) == "ready"
+    assert ge.get_pot_harvest_blocker(state, 0, pot) is None
+    assert ge.execute_command(state, "harvest 1").ok is True
+
 
 def test_vase_uses_twelve_real_hours_and_remove_returns_nothing():
     state = fresh_state()

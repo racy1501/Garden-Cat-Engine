@@ -4197,12 +4197,16 @@ def get_status(state, weather_data):
         progress_pct = min(100, int((progress_value / grow_time) * 100))
         speed = get_actual_grow_speed(pot, weather_data)
 
-        pest_paused = _has_pest_blocker(state, i, pot)
-        if progress_value >= grow_time:
+        pot_status = get_pot_ai_status(state, i, pot)
+        pest_paused = pot_status == "pest_blocked"
+        if pot_status == "ready":
             status = "🌸 可收获！"
         elif pest_paused:
-            status = f"🐛 有虫害，生长暂停（{progress_pct}%）；需先处理虫害"
-        elif speed <= 0:
+            if progress_value >= grow_time:
+                status = f"🐛 有虫害，暂不可收获（{progress_pct}%）；需先处理虫害"
+            else:
+                status = f"🐛 有虫害，生长暂停（{progress_pct}%）；需先处理虫害"
+        elif pot_status == "needs_water":
             status = f"🏜️ 未浇水，生长暂停（{progress_pct}%）"
         else:
             remaining_real_seconds = (grow_time - progress_value) / speed
@@ -5797,6 +5801,20 @@ def get_pot_harvest_blocker(state, pot_idx, pot):
     if progress < float(flower["grow_time"]):
         return "growing"
     return None
+
+
+def get_pot_ai_status(state, pot_idx, pot):
+    """Return the shared decision status used by structured and text summaries."""
+    blocker = get_pot_harvest_blocker(state, pot_idx, pot)
+    if blocker is None:
+        return "ready"
+    if blocker == "pest":
+        return "pest_blocked"
+    if blocker in ("empty", "withered"):
+        return blocker
+    if pot_needs_water(pot):
+        return "needs_water"
+    return "growing"
 
 
 def _activate_pest(state, pot_idx, now):
