@@ -606,7 +606,7 @@ def test_first_cat_collectible_notified_by_settling_request(api, cat_clock, monk
             notices = [event["text"] for event in payload["state"]["new_events"]]
             assert sum(item["name"] in text for text in notices) == 1
             assert "发现新藏品" in notices[0]
-    elif "state" in payload:
+    elif "state" in payload and endpoint != "api_status":
         assert item["name"] in payload["state"]["offline_summary"]["message"]
     saved = module.db_load_state(session_id)
     assert saved["collectibles"][item["id"]] == 1
@@ -725,6 +725,13 @@ def test_pots_summary_ready_pots_matches_harvestability_on_all_ai_routes(api, ca
             response = client.post(route, headers=headers,
                                    json={"session_id": session_id, "command": "status"})
         assert response.status_code == 200
+        if route == "/api/status":
+            garden = response.get_json()["state"]["garden"]
+            assert garden["ready_pots"] == [1]
+            assert garden["pest_pots"] == [2]
+            assert garden["withered_pots"] == [4]
+            assert garden["growing_count"] == 1
+            continue
         summary = response.get_json()["state"]["pots_summary"]
         assert summary["ready_pots"] == 1
         assert summary["pest_pots"] == 1
@@ -741,16 +748,13 @@ def test_api_status_uses_slim_ai_summary(api):
 
     assert response.status_code == 200
     state = response.get_json()["state"]
-    assert "inventory" not in state
-    assert "encyclopedia" not in state
-    assert "letters" not in state
-    assert "collectibles" not in state
+    assert "pots" not in state and "inventory_counts" not in state
+    assert set(state["encyclopedia"]) == {"recorded", "capacity"}
+    assert set(state["collectibles"]) == {"owned", "capacity"}
+    assert "bouquet_options" not in state and "bouquet_inventory" not in state
     assert isinstance(state["recent_events"], list)
-    assert all(set(pot) == {"slot", "flower_id", "status", "progress", "remaining_seconds", "watered", "has_pests", "paused"} for pot in state["pots"])
-    assert all(pot["status"] in {"empty", "needs_water", "growing", "pest_blocked", "ready", "withered"}
-               for pot in state["pots"])
-    assert "inventory_counts" in state
-    assert "cat_summary" in state
+    assert "inventory" in state and "cat" in state
+    assert state["garden"]["empty_pots"] == [1, 2, 3]
 
 
 def test_ai_help_and_inventory_items_on_all_routes(api, cat_clock):
@@ -769,7 +773,8 @@ def test_ai_help_and_inventory_items_on_all_routes(api, cat_clock):
             message = response.get_json()["message"]
             assert "give_treat" in message and "switch_food <basic|premium>" in message
             assert "refill_food" not in message and "refill_water" not in message
-        assert response.get_json()["state"]["inventory_counts"]["items"] == items
+        result = response.get_json()["state"]
+        assert result["inventory" if route == "/api/status" else "inventory_counts"]["items"] == items
 
 
 def test_ai_pot_decision_fields_follow_formal_status_and_weather(api):
@@ -870,6 +875,12 @@ def test_ai_gardening_details_match_across_routes_without_changing_save(api, cat
             response = client.post(route, headers=headers, json={"session_id": session_id, "command": "status"})
         assert response.status_code == 200
         result = response.get_json()["state"]
+        if route == "/api/status":
+            assert result["garden"]["empty_pots"] == [1]
+            assert result["garden"]["needs_water_pots"] == [2]
+            assert result["garden"]["ready_pots"] == [5]
+            assert result["inventory"]["flower_total"] == 7
+            continue
         assert result["pots"] == expected_pots
         assert result["inventory_counts"]["seeds"] == {"daisy": 3, "rose": 1}
         assert result["inventory_counts"]["flowers"] == {"daisy": 5, "rose": 2}
@@ -963,8 +974,7 @@ def test_ai_pest_summaries_clear_after_treat_with_isolated_sqlite(monkeypatch):
         client = module.app.test_client()
         headers = {"X-API-Key": "isolated-test-key"}
         before = client.get("/api/status?session_id=isolated-pest", headers=headers).get_json()["state"]
-        assert before["garden_events"]["pest_pots"] == [1]
-        assert before["pots_summary"]["pest_pots"] == 1
+        assert before["garden"]["pest_pots"] == [1]
         response = client.post("/api/cmd?compact=1", headers=headers,
                                json={"session_id": "isolated-pest", "command": "treat 1"})
         assert response.status_code == 200
@@ -1073,10 +1083,10 @@ def test_compact_command_preserves_default_state_and_status(api, monkeypatch):
     assert default["session_id"] == compact["session_id"] == session_id
     assert "purchasable_items" in default["state"]["cottage"]
     assert "pricing_profiles" in default["state"]["flower_shop"]
-    assert "purchasable_items" in status["state"]["cottage"]
-    assert "pricing_profiles" in status["state"]["flower_shop"]
+    assert "purchasable_items" not in status["state"]["cottage"]
+    assert "pricing_profiles" not in status["state"]["flower_shop"]
     complete_owned_fields = {"id", "name", "category", "slot_key", "asset_key", "acquired_at", "source"}
-    for payload in (status, default):
+    for payload in (default,):
         owned_items = payload["state"]["cottage"]["owned_items"]
         assert [item["id"] for item in owned_items] == expected_ids
         assert all(complete_owned_fields <= item.keys() for item in owned_items)
@@ -1177,7 +1187,7 @@ def test_compact_command_only_removes_audited_display_fields(api, monkeypatch):
     default = client.post("/api/cmd", headers=headers, json=body).get_json()["state"]
     compact = client.post("/api/cmd?compact=1", headers=headers, json=body).get_json()["state"]
 
-    for full in (status, default):
+    for full in (default,):
         assert full["inventory_counts"]["water_servings"] == 7
         assert "weather_emoji" in full
         assert "weather" in full
@@ -1456,6 +1466,13 @@ def test_ai_inventory_counts_expose_food_types_and_preserve_legacy_alias(api, ba
             response = client.post(route, headers={"X-API-Key": "test-key"},
                                    json={"session_id": "food-counts", "command": "help"})
         assert response.status_code == 200
+        if route == "/api/status":
+            counts = response.get_json()["state"]["inventory"]
+            assert counts["seed_total"] == 5 and counts["flower_total"] == 4
+            assert counts["items"].get("basic_food", 0) == basic_food
+            assert counts["items"].get("premium_food", 0) == premium_food
+            assert "cat_food_servings" not in counts
+            continue
         counts = response.get_json()["state"]["inventory_counts"]
         assert counts["seed_types"] == 2
         assert counts["seed_total"] == 5
@@ -1495,16 +1512,9 @@ def test_summary_recognizes_pest_active(api):
         headers={"X-API-Key": "test-key"},
     )
     payload = response.get_json()
-    pot_line = next(
-        line for line in payload["message"].splitlines()
-        if line.startswith("  盆1:")
-    )
-    assert "有虫害" in pot_line
-    assert "生长暂停" in pot_line
-    assert "需先处理虫害" in pot_line
-    assert "还需约" not in pot_line
-    assert payload["state"]["garden_events"]["has_pests"] is True
-    assert payload["state"]["garden_events"]["pest_pots"] == [1]
+    assert payload["state"]["garden"]["pest_pots"] == [1]
+    assert payload["state"]["garden"]["ready_pots"] == []
+    assert "盆1:" not in payload["message"]
 
 
 def test_ai_bouquet_command_and_web_collection_state(api):
@@ -1574,7 +1584,8 @@ def test_bouquet_options_compact_projection_preserves_dynamic_facts(api):
     )
 
     full_fields = {"bouquet_id", "name", "components", "can_make", "missing"}
-    for response in (status_response, default_response):
+    assert "bouquet_options" not in status_response.get_json()["state"]
+    for response in (default_response,):
         options = response.get_json()["state"]["bouquet_options"]
         assert options == expected_options
         assert [option["bouquet_id"] for option in options] == expected_ids
@@ -1649,7 +1660,10 @@ def test_flower_shop_and_bouquet_inventory_have_public_summary_only(api, cmd_url
     assert "established_at" not in shop
     assert "flower_shop" not in established["inventory"]
 
-    ai_state = client.get(f"/api/status?session_id={session_id}", headers=ai_headers).get_json()["state"]
+    overview = client.get(f"/api/status?session_id={session_id}", headers=ai_headers).get_json()["state"]
+    assert overview["flower_shop"]["established"] is True
+    assert "eligibility_progress" not in overview["flower_shop"]
+    ai_state = client.post(cmd_url, headers=ai_headers, json={"session_id": session_id, "command": "status"}).get_json()["state"]
     assert ai_state["flower_shop"]["eligibility_progress"]["direct_flower_sale_earned"] == 3000
     assert ai_state["bouquet_inventory"][0]["id"] == item["id"]
 
@@ -1657,9 +1671,8 @@ def test_flower_shop_and_bouquet_inventory_have_public_summary_only(api, cmd_url
     buff_until = int(ge.time.time()) + 3600
     saved["flower_shop"]["shop_buff_until"] = buff_until
     module.db_save_state(session_id, saved)
-    active_shop = client.get(
-        f"/api/status?session_id={session_id}", headers=ai_headers
-    ).get_json()["state"]["flower_shop"]
+    active_shop = client.post(cmd_url, headers=ai_headers,
+                              json={"session_id": session_id, "command": "status"}).get_json()["state"]["flower_shop"]
     assert active_shop["shop_buff_active"] is True
     assert active_shop["shop_buff_until"] == buff_until
     assert 0 < active_shop["shop_buff_remaining_seconds"] <= 3600
@@ -1673,7 +1686,6 @@ def test_flower_shop_and_bouquet_inventory_have_public_summary_only(api, cmd_url
     module.db_save_state(session_id, saved)
     assert module.db_load_state(session_id)["flower_shop"]["shop_buff_collectible_id"] == ge.CAT_COLLECTIBLES[0]["id"]
     responses = [
-        client.get(f"/api/status?session_id={session_id}", headers=ai_headers),
         client.get(f"/web/status?session_id={session_id}", headers=human_headers),
         client.post(cmd_url, headers=ai_headers, json={"session_id": session_id, "command": "status"}),
     ]

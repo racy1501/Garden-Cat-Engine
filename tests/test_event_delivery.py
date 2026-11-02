@@ -24,7 +24,12 @@ def test_first_restore_keeps_history_without_live_messages(api, cat_clock, mode,
     response = client.get(f"/{mode}/status?session_id={sid}", headers=headers)
     assert response.status_code == 200
     payload = response.get_json()
-    assert "栗子出门" not in payload["message"] and "栗子回家" not in payload["message"]
+    if mode == "web":
+        assert "栗子出门" not in payload["message"] and "栗子回家" not in payload["message"]
+    else:
+        assert "栗子回家" in payload["message"]
+        if hours > 72:
+            assert "72小时" in payload["message"]
     saved = module.db_load_state(sid)
     assert saved["cat_state"]["location"] == "home"
     assert all(event["time"] <= start + min(hours, 72) * 3600 for event in saved["events"])

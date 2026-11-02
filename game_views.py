@@ -60,6 +60,43 @@ def _goods(state):
     return {"seeds": seeds, "items": items, "furniture": furniture}
 
 
+def build_overview(state, now, *, cat_summary):
+    """Level-one decision data from the same settled state as module views."""
+    garden = {"total_pots": len(state["pots"]), "ready_pots": [], "needs_water_pots": [],
+              "pest_pots": [], "empty_pots": [], "withered_pots": [], "growing_count": 0}
+    groups = {"ready": "ready_pots", "needs_water": "needs_water_pots", "pest_blocked": "pest_pots",
+              "empty": "empty_pots", "withered": "withered_pots"}
+    for index, pot in enumerate(state["pots"]):
+        status = ge.get_pot_ai_status(state, index, pot)
+        if status in groups:
+            garden[groups[status]].append(index + 1)
+        elif status == "growing":
+            garden["growing_count"] += 1
+    inventory = state["inventory"]
+    seeds = {fid: count for fid, count in inventory["seeds"].items() if count > 0}
+    shop = ge.get_flower_shop_public_summary(state, now)
+    cottage = ge.get_cottage_public_summary(state)
+    result = {
+        "garden_name": state.get("garden_name", ""), "money": state["money"], "server_now": now,
+        "weather": state["weather"], "weather_name": ge.WEATHER[state["weather"]]["name"],
+        "garden": garden,
+        "inventory": {"seeds": seeds, "seed_total": sum(seeds.values()),
+                      "flower_total": sum(count for count in inventory["flowers"].values() if count > 0),
+                      "items": {iid: count for iid, count in inventory["items"].items() if count > 0}},
+        "encyclopedia": {"recorded": len(state["encyclopedia"]), "capacity": len(ge.FLOWERS)},
+        "collectibles": {"owned": ge.get_collectible_unique_count(state), "capacity": len(ge.CAT_COLLECTIBLES)},
+        "letters_received": len(state["letters_received"]),
+        "flower_shop": _pick(shop, "established", "launched", "is_open", "shelf_capacity", "occupied_slots", "empty_slots"),
+        "cottage": {"owned_count": cottage["total_owned"],
+                    "food_remaining": state["cat_care"]["food_bowl"]["remaining_portions"],
+                    "water_remaining": state["cat_care"]["water_bowl"]["remaining_portions"]},
+        "available_views": [{"section": section} for section in VIEW_DETAILS],
+    }
+    if cat_summary:
+        result["cat"] = _pick(cat_summary, "name", "stage", "location", "is_present", "hunger", "thirst", "mood", "affection", "max_affection")
+    return result
+
+
 def build_view(state, section, now, *, detail=None, item_id=None, page=None):
     """No normalization, settlement, random decisions, writes, or clock reads here."""
     validate_view(section, detail, item_id, page)

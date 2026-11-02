@@ -65,6 +65,7 @@ class ForwardingTests(unittest.TestCase):
 
     def test_status_uses_configured_session(self):
         self.assertEqual(shell.garden_status(), self.payload)
+        self.urlopen.assert_called_once()
         self.assert_request("GET", "/api/status", query={"session_id": ["mock-session"]})
 
     def test_status_forwards_shared_activity(self):

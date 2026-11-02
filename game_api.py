@@ -23,7 +23,7 @@ from typing import Any, Iterator
 from urllib.parse import unquote
 
 from flask import Flask, g, has_request_context, jsonify, render_template, request
-from game_views import build_view, validate_view
+from game_views import build_overview, build_view, validate_view
 
 from game_engine import (
     CommandResult,
@@ -77,6 +77,8 @@ from game_engine import (
     process_command,
     execute_command,
     sync_cottage_rewards,
+    _resolve_letter_progress,
+    update_cat_max_affection,
 )
 
 try:
@@ -1955,23 +1957,45 @@ def view_route():
 @app.route("/api/status", methods=["GET"])
 @require_api_key
 def status():
-    events_before = []
-    checked_session_id, state, error_response = _load_existing_api_state(request.args.get("session_id", ""), events_before=events_before)
-    if error_response is not None:
-        return error_response
-    session_id = _safe_session_id(request.args.get("session_id", DEFAULT_SESSION))
+    raw_session = str(request.args.get("session_id", "") or "").strip()
+    if not raw_session:
+        return jsonify({"ok": False, "error": "请提供有效的 session_id。"}), 400
+    session_id = _safe_session_id(raw_session)
+    now = int(time.time())
+    settlement_before = []
+    state = db_load_state(session_id, events_before=settlement_before, live_events=True,
+                          settled_at=now, save_progress=False)
+    if state is None:
+        return jsonify({"ok": False, "error": "指定的 session_id 不存在。"}), 404
+    g.collectible_notice_authorized = True
+    events_before = list(state.get("events", []))
     notice = _consume_ai_v5_update_notice(state)
-    result = process_command(state, "status", letter_context=_request_letter_context())
-    result = _prepend_ai_notice(result, notice)
+    letters = _request_letter_context()
+    _, messages = prepare_command_state(state, now, letter_context=letters)
+    _resolve_letter_progress(state, now=now, letter_context=letters)
+    update_cat_max_affection(state)
     if notice:
         state["ai_v5_update_notice_seen"] = True
-    db_save_state(session_id, state)
+    db_save_state(session_id, state, settled_at=now)
+    summary = build_overview(state, now, cat_summary=_build_cat_summary_for_ai(state))
+    new_events = [_event_record_for_client(event) for event in _new_request_events(state, events_before)]
+    summary.update(shared_activity=[_event_record_for_client(event) for event in state.get("events", [])[-5:]],
+                   recent_events=new_events, latest_event=new_events[-1]["text"] if new_events else "")
+    # Catch-up history stays out of recent_events, but important settlement results remain readable.
+    hints = [event.get("text", "") for event in _new_request_events(state, settlement_before)]
+    hints.extend(messages)
+    if letters.get("remaining_deliveries") == 0 and state["letters_received"]:
+        hints.append(f"✉️ 收到新信：《{CAT_LETTERS[state['letters_received'][-1]]['title']}》")
+    offline = state.get("offline_summary", {})
+    if offline.get("processed_at") == now and offline.get("skipped_seconds", 0) > 0:
+        hints.append(str(offline.get("message", "")))
+    result = _prepend_ai_notice("\n".join(dict.fromkeys(hint for hint in hints if hint)) or "花园总览已更新。", notice)
     return jsonify(
         {
             "ok": True,
             "session_id": session_id,
             "message": result,
-            "state": _ai_summary(state, events_before=events_before),
+            "state": summary,
         }
     )
 
