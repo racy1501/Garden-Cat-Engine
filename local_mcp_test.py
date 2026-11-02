@@ -102,6 +102,17 @@ def garden_command(command: str) -> dict[str, Any]:
 
 
 @mcp.tool()
+def garden_batch(commands: list[str]) -> dict[str, Any]:
+    """顺序执行 1–50 条游戏动作；业务失败继续，系统异常停止，只返回一次最终状态。"""
+    if not isinstance(commands, list) or not commands or len(commands) > 50 or any(
+        not isinstance(command, str) or not command.strip() for command in commands
+    ):
+        raise ToolError("commands 必须是含 1–50 条非空字符串的列表。")
+    return _request("POST", "/api/cmd/batch", params={"compact": "1"},
+                    body={"session_id": _session_id(), "commands": commands})
+
+
+@mcp.tool()
 def garden_notes(
     action: Literal["read", "write"], page: int | None = None, content: str | None = None,
 ) -> dict[str, Any]:

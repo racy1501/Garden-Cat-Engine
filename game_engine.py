@@ -4625,21 +4625,8 @@ def process_command(state, command, *, event_source="system", source_name=None, 
     ).message
 
 
-def execute_command(state, command, *, event_source="system", source_name=None, letter_context=None) -> CommandResult:
-    """在传入的存档字典上执行命令，并原地更新状态。
-
-    该入口供 Flask API / 数据库存档调用，不读取或写入本地 JSON 文件。
-    """
-    if not isinstance(state, dict):
-        raise TypeError("state 必须是字典")
-
-    if not isinstance(command, str) or not command.strip():
-        return CommandResult(False, "❌ 请输入命令，输入 help 查看帮助")
-
-    parts = command.strip().split()
-    action = parts[0].lower()
-    event_source = normalize_event_source(event_source)
-    now = int(time.time())
+def prepare_command_state(state, now, *, letter_context):
+    """结算动作开始前的时间变化；同一批动作只调用一次。"""
     normalize_state(state, now)
     sync_cottage_rewards(state, now)
     _refresh_flower_shop_schedule(state, now)
@@ -4647,9 +4634,6 @@ def execute_command(state, command, *, event_source="system", source_name=None, 
         state["is_frozen"] = False
         state["garden_frozen_until"] = 0
         state["frozen_reason"] = ""
-
-    if letter_context is None:
-        letter_context = {"messages": [], "remaining_deliveries": 1}
 
     # 先按旧天气结算到当前时刻，再允许天气在此刻变化，避免追溯修改过去。
     previous_weather_data = WEATHER[state["weather"]]
@@ -4665,10 +4649,38 @@ def execute_command(state, command, *, event_source="system", source_name=None, 
     _consume_offline_cat_portions(state)
     softlock_recovered = apply_economic_softlock_safety_net(state)
 
-    ok, result = False, ""
-    all_event_messages = weather_messages + pest_messages + lifecycle_messages
+    messages = weather_messages + pest_messages + lifecycle_messages
     if softlock_recovered:
-        all_event_messages.append("🌱 花园送来1颗雏菊种子。")
+        messages.append("🌱 花园送来1颗雏菊种子。")
+    return weather_data, messages
+
+
+def execute_command(state, command, *, event_source="system", source_name=None, letter_context=None, settled_at=None) -> CommandResult:
+    """在传入的存档字典上执行命令，并原地更新状态。
+
+    该入口供 Flask API / 数据库存档调用，不读取或写入本地 JSON 文件。
+    """
+    if not isinstance(state, dict):
+        raise TypeError("state 必须是字典")
+
+    if not isinstance(command, str) or not command.strip():
+        return CommandResult(False, "❌ 请输入命令，输入 help 查看帮助")
+
+    parts = command.strip().split()
+    action = parts[0].lower()
+    event_source = normalize_event_source(event_source)
+    now = int(time.time()) if settled_at is None else settled_at
+    if letter_context is None:
+        letter_context = {"messages": [], "remaining_deliveries": 1}
+    letter_start = len(letter_context["messages"]) if settled_at is not None else 0
+    if settled_at is None:
+        weather_data, all_event_messages = prepare_command_state(state, now, letter_context=letter_context)
+    else:
+        sync_cottage_rewards(state, now)
+        weather_data, all_event_messages = WEATHER[state["weather"]], []
+        if apply_economic_softlock_safety_net(state):
+            all_event_messages.append("🌱 花园送来1颗雏菊种子。")
+    ok, result = False, ""
 
     if action == "shop":
         ok, result = True, "🏪 商店\n\n【种子】\n"
@@ -5773,10 +5785,10 @@ help - 显示帮助
     action_message = result
     if all_event_messages:
         result = "\n".join(all_event_messages) + "\n\n" + result
-    if letter_context["messages"]:
-        result = result + "\n" + "\n".join(letter_context["messages"])
+    if letter_context["messages"][letter_start:]:
+        result = result + "\n" + "\n".join(letter_context["messages"][letter_start:])
 
-    if action != "status" or (not ok and not all_event_messages):
+    if settled_at is None and (action != "status" or (not ok and not all_event_messages)):
         result += "\n\n" + _summary(state)
 
     state["last_active_at"] = now

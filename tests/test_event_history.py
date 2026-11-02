@@ -71,7 +71,7 @@ def test_cottage_reward_recorded_on_harvest_but_not_old_save_sync(cat_clock):
     assert old["events"] == []
 
 
-def test_api_does_not_return_history_but_web_returns_50(api, cat_clock):
+def test_api_returns_only_five_shared_events_but_web_returns_50(api, cat_clock):
     module, client = api
     sid, web_headers = create_human_garden(client)
     state = module.db_load_state(sid)
@@ -79,25 +79,26 @@ def test_api_does_not_return_history_but_web_returns_50(api, cat_clock):
     ai_headers = {"X-API-Key": "test-key"}
     body = {"session_id": sid, "command": "status"}
 
-    def lengths():
+    def snapshots():
         responses = [client.get(f"/api/status?session_id={sid}", headers=ai_headers),
                      client.post("/api/cmd", headers=ai_headers, json=body),
                      client.post("/api/cmd?compact=1", headers=ai_headers, json=body)]
         for response in responses:
             assert response.status_code == 200
             result = response.get_json()["state"]
-            assert not {"events", "recent_events", "recent_event_records", "new_events"} & result.keys()
-        return [len(response.get_data(as_text=True)) for response in responses]
+            assert not {"events", "recent_event_records", "new_events"} & result.keys()
+            assert result["recent_events"] == []
+        return [response.get_json()["state"]["shared_activity"] for response in responses]
 
     state["events"] = []
     module.db_save_state(sid, state)
-    empty = lengths()
+    assert snapshots() == [[], [], []]
     state["events"] = [{"time": cat_clock[0] - i, "text": f"历史{i}", "area": "garden"} for i in range(50)]
     module.db_save_state(sid, state)
-    filled = lengths()
-    assert filled == empty
+    filled = snapshots()
+    assert all(len(events) == 5 for events in filled)
+    assert all([event["text"] for event in events] == [f"历史{i}" for i in range(4, -1, -1)] for events in filled)
     web = client.get(f"/web/status?session_id={sid}", headers=web_headers).get_json()["state"]
     assert len(web["recent_events"]) == len(web["recent_event_records"]) == 50
     assert all(record["area"] == "garden" for record in web["recent_event_records"])
     assert web["recent_event_records"] == sorted(web["recent_event_records"], key=lambda e: e["time"])
-    print(f"API response characters without/with 50 history: {empty} / {filled}")

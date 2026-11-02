@@ -59,6 +59,12 @@ class ForwardingTests(unittest.TestCase):
         self.assertEqual(shell.garden_status(), self.payload)
         self.assert_request("GET", "/api/status", query={"session_id": ["mock-session"]})
 
+    def test_status_forwards_shared_activity(self):
+        activity = [{"source": "human", "source_label": "人类", "area": "garden", "text": "种花", "time": 1}]
+        self.payload = {"ok": True, "state": {"shared_activity": activity, "recent_events": []}}
+        self.assertEqual(shell.garden_status()["state"]["shared_activity"], activity)
+        self.assert_request("GET", "/api/status", query={"session_id": ["mock-session"]})
+
     def test_command_preserves_business_failure_and_original_command(self):
         self.payload = {"ok": False, "message": "材料不足", "state": {"money": 5}}
         command = "  craft_bouquet bouquet_id=first_meeting  "
@@ -72,6 +78,13 @@ class ForwardingTests(unittest.TestCase):
         shell.garden_notes("write", content="  今晚的花  ")
         self.assert_request("POST", "/api/notes", body={"session_id": "mock-session", "content": "  今晚的花  "})
 
+    def test_batch_sends_one_http_request(self):
+        commands = ["buy rose 1", "plant rose 2", "water all"]
+        self.assertEqual(shell.garden_batch(commands), self.payload)
+        self.urlopen.assert_called_once()
+        self.assert_request("POST", "/api/cmd/batch", query={"compact": ["1"]},
+                            body={"session_id": "mock-session", "commands": commands})
+
     def test_default_base_and_no_cache(self):
         os.environ.pop("GARDEN_API_BASE_URL")
         shell.garden_reference("info")
@@ -84,6 +97,10 @@ class ForwardingTests(unittest.TestCase):
         for call in (
             lambda: shell.garden_reference("register"),
             lambda: shell.garden_command(" "),
+            lambda: shell.garden_batch([]),
+            lambda: shell.garden_batch([" "]),
+            lambda: shell.garden_batch([1]),
+            lambda: shell.garden_batch(["water all"] * 51),
             lambda: shell.garden_notes("delete"),
             lambda: shell.garden_notes("read", page=0),
             lambda: shell.garden_notes("read", content="wrong"),
@@ -123,7 +140,7 @@ class ForwardingTests(unittest.TestCase):
 
 
 class ProtocolTests(unittest.IsolatedAsyncioTestCase):
-    async def test_stdio_lists_four_tools_and_returns_mcp_error(self):
+    async def test_stdio_lists_tools_and_returns_mcp_error(self):
         script = Path(__file__).resolve().parents[1] / "local_mcp_test.py"
         params = StdioServerParameters(command=sys.executable, args=["-B", str(script)], env={
             "GARDEN_SESSION_ID": "", "GARDEN_API_KEY": "", "PYTHONIOENCODING": "utf-8",
@@ -134,11 +151,13 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
                     await session.initialize()
                     tools = (await session.list_tools()).tools
                     self.assertEqual({tool.name for tool in tools}, {
-                        "garden_reference", "garden_status", "garden_command", "garden_notes",
+                        "garden_reference", "garden_status", "garden_command", "garden_notes", "garden_batch",
                     })
                     schema = {tool.name: tool.inputSchema for tool in tools}
                     self.assertEqual(schema["garden_reference"]["properties"]["kind"]["enum"], ["info", "catalog", "help"])
                     self.assertEqual(schema["garden_command"]["required"], ["command"])
+                    self.assertEqual(schema["garden_batch"]["required"], ["commands"])
+                    self.assertEqual(schema["garden_batch"]["properties"]["commands"]["items"]["type"], "string")
                     self.assertEqual(schema["garden_notes"]["required"], ["action"])
                     result = await session.call_tool("garden_status", {})
                     self.assertTrue(result.isError)

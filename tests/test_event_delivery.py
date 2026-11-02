@@ -131,7 +131,7 @@ const nodes={};const get=(id)=>nodes[id]||(nodes[id]={textContent:'',innerHTML:'
  Date,document:{visibilityState:'visible',createElement(){return {textContent:'',className:''}}},
  renderBouquetMainButton(){},renderNotesButton(){},renderAll(){},updateLiveCountdowns(){},maybeAutoShowUpdateAnnouncement(){}};
 ctx['$']=get;vm.createContext(ctx);
-const functions=[['function updateFromResponse(', 'function renderNotesButton('],
+const functions=[['function formatEventSource(', 'function renderNotesButton('],
   ['function extractGardenNotice(', 'function ensureOfflineSummaryBar('],
  ['function renderEvents(', 'function showLetterModal(']];
 for(const [start,end] of functions)vm.runInContext(source.slice(source.indexOf(start),source.indexOf(end)),ctx);
@@ -168,12 +168,95 @@ const ctx={currentState:{recent_event_records:[
  {time:5,text:'系统事件',source:'system',source_label:'系统'},
  {time:6,text:'空名字',source:'ai',source_label:'AI',source_name:'  '}
 ]},Date,document:{createElement(){return {textContent:'',className:''}}},$:()=>root};
-vm.createContext(ctx);vm.runInContext(src.slice(src.indexOf('function renderEvents('),src.indexOf('function showLetterModal(')),ctx);ctx.renderEvents();
+vm.createContext(ctx);vm.runInContext(src.slice(src.indexOf('function formatEventSource('),src.indexOf('function updateFromResponse(')),ctx);vm.runInContext(src.slice(src.indexOf('function renderEvents('),src.indexOf('function showLetterModal(')),ctx);ctx.renderEvents();
 for(const [label,content] of [['阿屿','种花'],['砚川','摸猫'],['人类','旧人类'],['AI','旧AI'],['系统','系统事件'],['AI','空名字']])
  if(!root.children.some(row=>row.textContent.includes(label+' ·')&&row.textContent.includes(content)))throw Error(label+' '+content);
 """
     result = subprocess.run(["node", "-e", script], cwd=root, encoding="utf-8", capture_output=True)
     assert result.returncode == 0, result.stderr
+
+
+def test_notice_sources_and_temporary_garden_appearances():
+    root = Path(__file__).resolve().parents[1]
+    script = r"""
+const fs=require('fs'),vm=require('vm'),src=fs.readFileSync('static/app.js','utf8');
+const nodes={},get=id=>nodes[id]||(nodes[id]={textContent:''}),toasts=[];
+const ctx={currentState:null,seenEventBoundary:null,latestLocationNotices:{garden:'',flower_shop:'',cottage:''},
+ gardenNeedsResume:false,stateSnapshotAtMs:0,liveRefreshQueued:false,Date,$:get,
+ document:{visibilityState:'visible'},showToast(text){toasts.push(text)},renderAll(){},updateLiveCountdowns(){},maybeAutoShowUpdateAnnouncement(){}};
+vm.createContext(ctx);vm.runInContext(src.slice(src.indexOf('function formatEventSource('),src.indexOf('function renderNotesButton(')),ctx);
+function update(records, events, garden_events={}){ctx.updateFromResponse({state:{recent_event_records:records,new_events:events,garden_events}},true,true)}
+update([],[]);if(toasts.length)throw Error('untriggered event');
+const ai={time:1,area:'garden',text:'浇水',source:'ai',source_label:'AI'};
+update([ai],[]);if(ctx.latestLocationNotices.garden!=='AI · 浇水')throw Error('AI source');
+const human={time:2,area:'cottage',text:'买家具',source:'human',source_label:'人类'};
+update([ai,human],[human]);if(ctx.latestLocationNotices.cottage!=='人类 · 买家具')throw Error('human source');
+const named={time:3,area:'garden',text:'种花',source:'ai',source_name:'砚川',source_label:'AI'};
+update([ai,human,named],[]);if(ctx.latestLocationNotices.garden!=='砚川 · 种花')throw Error('named source');
+update([ai,human,named],[],{butterfly_active:true,butterfly_until:400,butterfly_reward:''});
+if(toasts.length!==1||!toasts[0].includes('蝴蝶'))throw Error('ordinary butterfly absent');
+update([ai,human,named],[],{butterfly_active:true,butterfly_until:400,butterfly_reward:''});
+if(toasts.length!==1)throw Error('appearance repeated');
+update([ai,human,named],[],{butterfly_active:true,butterfly_until:500,butterfly_reward:'获得4金币'});
+if(!toasts[1].includes('蝴蝶')||!toasts[1].includes('4金币'))throw Error('butterfly reward absent');
+update([ai,human,named],[],{butterfly_active:false,butterfly_until:500,rainbow_active:true,rainbow_until:600,rainbow_reward:'获得9金币'});
+if(!toasts[2].includes('彩虹')||!toasts[2].includes('9金币'))throw Error('rainbow absent');
+update([ai,human,named],[],{butterfly_active:false,butterfly_until:500,rainbow_active:false,rainbow_until:600});
+if(toasts.length!==3)throw Error('false appearance');
+"""
+    result = subprocess.run(["node", "-e", script], cwd=root, encoding="utf-8", capture_output=True)
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize('reward', [False, True])
+def test_web_status_exposes_real_butterfly_without_plain_diary_event(api, cat_clock, monkeypatch, reward):
+    module, client = api
+    sid, headers = create_human_garden(client)
+    state = module.db_load_state(sid)
+    state['weather_change_time'] = cat_clock[0] + 10000
+    state['last_butterfly_at'] = cat_clock[0]
+    state['last_butterfly_check'] = cat_clock[0]
+    state['next_butterfly_at'] = cat_clock[0] + 10
+    module.db_save_state(sid, state)
+    before = client.get(f'/web/status?session_id={sid}', headers=headers).get_json()['state']
+    assert not before['garden_events']['butterfly_active']
+    monkeypatch.setattr(ge.random, 'random', lambda: 0.0 if reward else 1.0)
+    cat_clock[0] += 10
+    after = client.get(f'/web/status?session_id={sid}', headers=headers).get_json()['state']
+    assert after['garden_events']['butterfly_active']
+    assert after['garden_events']['butterfly_until'] > before['garden_events']['butterfly_until']
+    butterfly_records = [e['text'] for e in after['recent_event_records'] if '蝴蝶' in e['text']]
+    assert bool(butterfly_records) is reward
+    if reward:
+        assert '金币' in butterfly_records[-1]
+        assert after['garden_events']['butterfly_reward']
+
+
+def test_web_status_exposes_real_rainbow_and_its_reward(api, cat_clock, monkeypatch):
+    module, client = api
+    sid, headers = create_human_garden(client)
+    state = module.db_load_state(sid)
+    state['weather'] = 'rainy'
+    state['weather_change_time'] = cat_clock[0] + 10
+    state['last_butterfly_at'] = cat_clock[0]
+    state['last_butterfly_check'] = cat_clock[0]
+    state['next_butterfly_at'] = cat_clock[0] + 10000
+    module.db_save_state(sid, state)
+    before = client.get(f'/web/status?session_id={sid}', headers=headers).get_json()['state']
+    assert not before['garden_events']['rainbow_active']
+
+    def choose(options):
+        if options == list(ge.WEATHER.keys()):
+            return 'sunny'
+        return options[0]
+
+    monkeypatch.setattr(ge.random, 'choice', choose)
+    monkeypatch.setattr(ge.random, 'random', lambda: 0.0)
+    cat_clock[0] += 10
+    after = client.get(f'/web/status?session_id={sid}', headers=headers).get_json()['state']
+    assert after['garden_events']['rainbow_active']
+    assert after['garden_events']['rainbow_reward']
+    assert any('彩虹出现' in e['text'] for e in after['recent_event_records'])
 
 
 @pytest.mark.parametrize("command,area", [
@@ -209,7 +292,7 @@ const ctx={currentState:null,seenEventBoundary:null,latestLocationNotices:{garde
  Date,document:{visibilityState:'visible',createElement(){return {textContent:'',className:''}}},
  renderBouquetMainButton(){},renderNotesButton(){},renderAll(){},updateLiveCountdowns(){},maybeAutoShowUpdateAnnouncement(){}};
 ctx.$=get;vm.createContext(ctx);
-for(const [start,end] of [['function updateFromResponse(','function renderNotesButton('],['function extractGardenNotice(','function ensureOfflineSummaryBar('],['function renderEvents(','function showLetterModal(']])
+for(const [start,end] of [['function formatEventSource(','function renderNotesButton('],['function extractGardenNotice(','function ensureOfflineSummaryBar('],['function renderEvents(','function showLetterModal(']])
  vm.runInContext(source.slice(source.indexOf(start),source.indexOf(end)),ctx);
 function update(area,msg,events=[]){ctx.updateFromResponse({notice_area:area,notice_message:msg,message:msg,state:{new_events:events,garden_events:{}}});ctx.renderGardenNotice();ctx.renderLocationNotices()}
 ctx.renderLocationNotices();
@@ -242,7 +325,7 @@ const ctx={currentState:null,seenEventBoundary:null,latestLocationNotices:{garde
  document:{visibilityState:'visible',createElement(){return {textContent:'',className:''}}},
  renderAll(){ctx.renderGardenNotice();ctx.renderLocationNotices()},updateLiveCountdowns(){},maybeAutoShowUpdateAnnouncement(){}};
 vm.createContext(ctx);
-for(const [a,b] of [['function updateFromResponse(','function renderNotesButton('],
+for(const [a,b] of [['function formatEventSource(','function renderNotesButton('],
  ['function extractGardenNotice(','function ensureOfflineSummaryBar('],['function renderEvents(','function showLetterModal(']])
  vm.runInContext(src.slice(src.indexOf(a),src.indexOf(b)),ctx);
 const old={time:1,area:'garden',text:'历史事件'},records=[old];
@@ -276,7 +359,7 @@ const ctx={credentials:{session_id:'test'},isBusy:false,currentState:null,seenEv
  renderAll(){},updateLiveCountdowns(){},maybeAutoShowUpdateAnnouncement(){},
  async requestJson(){return {state:{recent_event_records:ctx.records,new_events:[]}}}};
 vm.createContext(ctx);
-for(const [a,b] of [['async function refreshGarden(','async function runCommand('],['function updateFromResponse(','function renderNotesButton('],
+for(const [a,b] of [['async function refreshGarden(','async function runCommand('],['function formatEventSource(','function renderNotesButton('],
  ['window.addEventListener("focus"','setInterval(updateLiveCountdowns']])
  vm.runInContext(src.slice(src.indexOf(a),src.indexOf(b)),ctx);
 const old={time:100,area:'garden',text:'旧花'},garden={time:100,area:'garden',text:'新花'},cottage={time:101,area:'cottage',text:'新家具'};

@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
+
 import hashlib
 import hmac
 import json
@@ -24,6 +26,7 @@ from flask import Flask, g, has_request_context, jsonify, render_template, reque
 
 from game_engine import (
     CommandResult,
+    prepare_command_state,
     EVENT_AREAS,
     EVENT_HISTORY_LIMIT,
     CAT_COLLECTIBLES,
@@ -215,7 +218,7 @@ def _request_letter_context():
     return g.letter_context
 
 
-def db_load_state(session_id: str, *, events_before: list | None = None, live_events: bool = False) -> dict[str, Any] | None:
+def db_load_state(session_id: str, *, events_before: list | None = None, live_events: bool = False, settled_at: int | None = None, save_progress: bool = True) -> dict[str, Any] | None:
     ensure_schema()
     with _get_conn() as conn:
         if USE_POSTGRES:
@@ -240,14 +243,15 @@ def db_load_state(session_id: str, *, events_before: list | None = None, live_ev
     if events_before is not None and live_events:
         events_before.extend(state.get("events", []))
     shop_before_normalize = state.get("flower_shop")
-    normalized = normalize_state(state)
+    normalized = normalize_state(state, settled_at)
     shop_normalized = shop_before_normalize != normalized.get("flower_shop")
     if has_request_context():
         if not hasattr(g, "collectibles_before_settlement"):
             g.collectibles_before_settlement = dict(normalized.get("collectibles", {}))
         g.collectible_settlement_state = normalized
-    cottage_rewards = sync_cottage_rewards(normalized)
-    if apply_offline_progress(normalized, letter_context=_request_letter_context()) or cottage_rewards or shop_normalized:
+    cottage_rewards = sync_cottage_rewards(normalized, settled_at)
+    progressed = apply_offline_progress(normalized, settled_at, letter_context=_request_letter_context())
+    if save_progress and (progressed or cottage_rewards or shop_normalized):
         db_save_state(session_id, normalized)
     if events_before is not None and not live_events:
         # 首次恢复和AI调用：补算完成后才开始收集操作产生的新事件。
@@ -255,10 +259,10 @@ def db_load_state(session_id: str, *, events_before: list | None = None, live_ev
     return normalized
 
 
-def db_save_state(session_id: str, state: dict[str, Any]) -> None:
+def db_save_state(session_id: str, state: dict[str, Any], *, settled_at: int | None = None) -> None:
     ensure_schema()
-    normalize_state(state)
-    now = int(time.time())
+    normalize_state(state, settled_at)
+    now = int(time.time()) if settled_at is None else settled_at
     state["last_update"] = now
     state["last_active_at"] = now
     payload = json.dumps(state, ensure_ascii=False)
@@ -1022,11 +1026,12 @@ def _request_event_source_name(source: str) -> str | None:
     return name or None
 
 
-def _ai_summary(state: dict[str, Any], *, events_before: list | None = None) -> dict[str, Any]:
-    now = int(time.time())
+def _ai_summary(state: dict[str, Any], *, events_before: list | None = None, settled_at: int | None = None) -> dict[str, Any]:
+    now = int(time.time()) if settled_at is None else settled_at
     summary_events_before = list(state.get("events", []))
     normalize_state(state, now)
-    apply_offline_progress(state, now, letter_context=_request_letter_context())
+    if settled_at is None:
+        apply_offline_progress(state, now, letter_context=_request_letter_context())
     if events_before is None:
         events_before = list(state.get("events", []))
     else:
@@ -1064,6 +1069,7 @@ def _ai_summary(state: dict[str, Any], *, events_before: list | None = None) -> 
         "bouquet_inventory": get_bouquet_inventory_public(state),
         "flower_shop": get_flower_shop_public_summary(state, now),
         "cottage": get_cottage_public_summary(state),
+        "shared_activity": [_event_record_for_client(event) for event in summary_events_before[-5:]],
         "latest_event": latest_event,
         "recent_events": [_event_record_for_client(event) for event in new_events],
     }
@@ -1702,6 +1708,27 @@ def new_game():
     )
 
 
+def _compact_ai_state(public_state):
+    public_state["inventory_counts"].pop("water_servings", None)
+    public_state.pop("weather_emoji", None)
+    public_state["cottage"].pop("purchasable_items", None)
+    public_state["cottage"]["owned_items"] = [
+        {"id": item["id"]} for item in public_state["cottage"].get("owned_items", [])
+    ]
+    public_state["flower_shop"].pop("pricing_profiles", None)
+    for slot in public_state["flower_shop"].get("slots", []):
+        if isinstance(slot, dict):
+            slot.pop("is_open", None)
+    public_state["bouquet_options"] = [
+        {
+            "bouquet_id": option["bouquet_id"],
+            "can_make": option["can_make"],
+            "missing": option["missing"],
+        }
+        for option in public_state.get("bouquet_options", [])
+    ]
+
+
 @app.route("/api/cmd", methods=["POST"])
 @require_api_key
 def cmd_route():
@@ -1731,24 +1758,7 @@ def cmd_route():
         db_save_state(session_id, state)
     public_state = _ai_summary(state, events_before=events_before)
     if request.args.get("compact") == "1":
-        public_state["inventory_counts"].pop("water_servings", None)
-        public_state.pop("weather_emoji", None)
-        public_state["cottage"].pop("purchasable_items", None)
-        public_state["cottage"]["owned_items"] = [
-            {"id": item["id"]} for item in public_state["cottage"].get("owned_items", [])
-        ]
-        public_state["flower_shop"].pop("pricing_profiles", None)
-        for slot in public_state["flower_shop"].get("slots", []):
-            if isinstance(slot, dict):
-                slot.pop("is_open", None)
-        public_state["bouquet_options"] = [
-            {
-                "bouquet_id": option["bouquet_id"],
-                "can_make": option["can_make"],
-                "missing": option["missing"],
-            }
-            for option in public_state.get("bouquet_options", [])
-        ]
+        _compact_ai_state(public_state)
     return jsonify(
         {
             "ok": result.ok,
@@ -1757,6 +1767,75 @@ def cmd_route():
             "state": public_state,
         }
     )
+
+
+# Query and note commands have dedicated tools; unknown commands still use engine failures.
+BATCH_QUERY_COMMANDS = {"help", "status", "shop", "vase", "collectibles", "letters", "encyclopedia",
+                        "notes", "note", "查看便签", "写便签"}
+
+
+@app.route("/api/cmd/batch", methods=["POST"])
+@require_api_key
+def batch_cmd_route():
+    data = request.get_json(silent=True)
+    commands = data.get("commands") if isinstance(data, dict) else None
+    if not isinstance(commands, list) or not commands or len(commands) > 50 or any(
+        not isinstance(command, str) or not command.strip() for command in commands
+    ):
+        return jsonify({"ok": False, "message": "commands 必须是含 1–50 条非空字符串的列表。"}), 400
+    raw_session = str(data.get("session_id", "") or "").strip()
+    if not raw_session:
+        return jsonify({"ok": False, "message": "请提供有效的 session_id。"}), 400
+    session_id = _safe_session_id(raw_session)
+    now = int(time.time())
+    state = db_load_state(session_id, settled_at=now, save_progress=False)
+    if state is None:
+        return jsonify({"ok": False, "message": "指定的 session_id 不存在。"}), 404
+    g.collectible_notice_authorized = True
+    letters = _request_letter_context()
+    events_before = list(state.get("events", []))
+    _, messages = prepare_command_state(state, now, letter_context=letters)
+    notice = _consume_ai_v5_update_notice(state)
+    if notice:
+        messages.insert(0, notice)
+        state["ai_v5_update_notice_seen"] = True
+    messages.extend(letters["messages"])
+    results = []
+    completed = True
+    source_name = _request_event_source_name("ai")
+    for command in commands:
+        action = command.split()[0].lower()
+        if action in BATCH_QUERY_COMMANDS or command.strip().lower() == "make_bouquet":
+            results.append({"command": command, "ok": False, "message": "此命令不纳入 batch，请使用原工具。"})
+            continue
+        checkpoint, checkpoint_before = deepcopy((state, events_before))
+        letter_checkpoint = deepcopy(letters)
+        try:
+            result = execute_command(state, command, event_source="ai", source_name=source_name,
+                                     letter_context=letters, settled_at=now)
+        except Exception:
+            app.logger.exception("Batch action failed")
+            state = checkpoint
+            events_before = checkpoint_before
+            letters.clear()
+            letters.update(letter_checkpoint)
+            g.collectible_settlement_state = state
+            completed = False
+            results.append({"command": command, "ok": False, "message": "系统异常，已停止后续命令；本动作未保存。"})
+            break
+        results.append({"command": command, "ok": result.ok, "message": result.message})
+    public_state = _ai_summary(state, events_before=events_before, settled_at=now)
+    if request.args.get("compact") == "1":
+        _compact_ai_state(public_state)
+    try:
+        db_save_state(session_id, state, settled_at=now)
+    except Exception:
+        app.logger.exception("Batch save failed")
+        g.collectible_notice_authorized = False
+        return jsonify({"ok": False, "session_id": session_id, "results": results,
+                        "message": "最终保存失败，动作结果尚未确认落盘。"}), 500
+    return jsonify({"ok": completed, "session_id": session_id, "results": results,
+                    "message": "\n".join(dict.fromkeys(messages)), "state": public_state})
 
 
 @app.route("/api/notes", methods=["GET", "POST"])

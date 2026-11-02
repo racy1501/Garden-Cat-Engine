@@ -602,10 +602,16 @@ async function runCommand(command, sourceButton = null) {
   }
 }
 
+function formatEventSource(event) {
+  const labels = { human: "人类", ai: "AI", system: "系统" };
+  return (typeof event.source_name === "string" && event.source_name.trim()) || event.source_label || labels[event.source] || "";
+}
+
 function updateFromResponse(data, quiet = false, isStatusRefresh = false) {
   if (gardenNeedsResume && quiet) {
     $("#messageBox").textContent = "已显示花园当前状态，历史记录见下方日志。";
   }
+  const previousGardenEvents = currentState?.garden_events;
   currentState = data.state;
   if (typeof currentState?.has_unread_bouquet_gifts === "boolean") {
     hasUnreadBouquetGifts = currentState.has_unread_bouquet_gifts;
@@ -630,7 +636,8 @@ function updateFromResponse(data, quiet = false, isStatusRefresh = false) {
       if (isStatusRefresh && previous && (time > previous.time ||
           (time === previous.time && sameTimeCount > previous.count)) &&
           Object.hasOwn(latestLocationNotices, event.area) && event.text) {
-        latestLocationNotices[event.area] = event.text;
+        const source = formatEventSource(event);
+        latestLocationNotices[event.area] = source ? `${source} · ${event.text}` : event.text;
       }
     }
     if (records.length) {
@@ -644,13 +651,26 @@ function updateFromResponse(data, quiet = false, isStatusRefresh = false) {
   }
   for (const event of notifications) {
     if (Object.hasOwn(latestLocationNotices, event.area) && event.text) {
-      latestLocationNotices[event.area] = event.text;
+      const source = formatEventSource(event);
+      latestLocationNotices[event.area] = source ? `${source} · ${event.text}` : event.text;
       areasWithEvents.add(event.area);
     }
   }
   if (!quiet && Object.hasOwn(latestLocationNotices, data.notice_area)
       && !areasWithEvents.has(data.notice_area) && data.notice_message) {
     latestLocationNotices[data.notice_area] = data.notice_message;
+  }
+  const gardenEvents = currentState?.garden_events;
+  if (gardenEvents) {
+    const appearances = [];
+    for (const [kind, text] of [["butterfly", "🦋 蝴蝶飞过花园。"], ["rainbow", "🌈 彩虹出现在花园上空。"]]) {
+      if ((previousGardenEvents || gardenEvents[`${kind}_active`]) &&
+          Number(gardenEvents[`${kind}_until`] || 0) > Number(previousGardenEvents?.[`${kind}_until`] || 0)) {
+        const reward = gardenEvents[`${kind}_reward`];
+        appearances.push(reward ? `${text} ${reward}` : text);
+      }
+    }
+    if (appearances.length) showToast(appearances.join("\n"));
   }
   gardenNeedsResume = document.visibilityState !== "visible";
   renderAll();
@@ -2919,8 +2939,7 @@ function renderEvents() {
     const line = document.createElement("div");
     line.className = "event-line";
     const time = event.time ? new Date(event.time * 1000).toLocaleString("zh-CN", { hour12: false }) : "";
-    const sourceLabels = { human: "人类", ai: "AI", system: "系统" };
-    const source = (typeof event.source_name === "string" && event.source_name.trim()) || event.source_label || sourceLabels[event.source] || "";
+    const source = formatEventSource(event);
     const area = areaLabels[event.area] ? `[${areaLabels[event.area]}]` : "";
     const prefix = [time, source, area].filter(Boolean).join(" · ");
     line.textContent = prefix ? `${prefix} · ${event.text}` : event.text;

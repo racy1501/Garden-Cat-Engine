@@ -421,7 +421,7 @@ const context={
 vm.createContext(context);
 for(const [start,end] of [
   ['async function requestJson(', '\nfunction authHeaders('],
-  ['function updateFromResponse(', '\nfunction renderNotesButton('],
+  ['function formatEventSource(', '\nfunction renderNotesButton('],
   ['function extractGardenNotice(', '\nfunction ensureOfflineSummaryBar(']
 ]) vm.runInContext(source.slice(source.indexOf(start),source.indexOf(end,source.indexOf(start))),context);
 context.renderAll=()=>context.renderGardenNotice();
