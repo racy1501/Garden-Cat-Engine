@@ -135,6 +135,45 @@ def test_inventory_positive_only_and_shop_respects_unlocks(api, cat_clock):
     assert 'furniture' not in view(client, sid, 'shop', detail='seeds').get_json()
 
 
+def test_flower_shop_eligibility_shows_formal_targets_and_remaining(api, cat_clock):
+    module, client = api
+    sid, _ = create_human_garden(client)
+    state = module.db_load_state(sid)
+    state['encyclopedia'] = list(ge.FLOWERS)[:5]
+    state['flower_harvest_counts'] = {'daisy': 14}
+    state['direct_flower_sale_earned'] = 4
+    module.db_save_state(sid, state)
+
+    eligibility = view(client, sid, 'flower_shop', detail='eligibility').get_json()
+    summary = eligibility['summary']
+    formal = ge.get_flower_shop_eligibility_summary(module.db_load_state(sid))
+    assert summary == formal
+    assert summary['eligible'] is False
+    assert summary['requirements'] == {
+        'encyclopedia': {'current': 5, 'required': ge.FLOWER_SHOP_ELIGIBILITY_REQUIREMENTS['encyclopedia'], 'remaining': 5},
+        'harvests': {'current': 14, 'required': ge.FLOWER_SHOP_ELIGIBILITY_REQUIREMENTS['harvests'], 'remaining': 28},
+        'direct_flower_sale_earned': {
+            'current': 4, 'required': ge.FLOWER_SHOP_ELIGIBILITY_REQUIREMENTS['direct_flower_sale_earned'],
+            'remaining': 2996,
+        },
+    }
+    assert summary['eligible'] is ge.is_flower_shop_eligible(module.db_load_state(sid))
+
+    state = module.db_load_state(sid)
+    state['encyclopedia'] = list(ge.FLOWERS)[:ge.FLOWER_SHOP_ELIGIBILITY_REQUIREMENTS['encyclopedia']]
+    state['flower_harvest_counts'] = {'daisy': ge.FLOWER_SHOP_ELIGIBILITY_REQUIREMENTS['harvests']}
+    state['direct_flower_sale_earned'] = ge.FLOWER_SHOP_ELIGIBILITY_REQUIREMENTS['direct_flower_sale_earned']
+    module.db_save_state(sid, state)
+    completed = view(client, sid, 'flower_shop', detail='eligibility').get_json()['summary']
+    assert completed['eligible'] is True
+    assert all(row['remaining'] == 0 and row['current'] >= row['required']
+               for row in completed['requirements'].values())
+
+    rules = view(client, sid, 'flower_shop', detail='rules').get_json()
+    assert set(rules['summary']) == {'pricing_profiles', 'bouquet_lifetime_seconds'}
+    assert 'requirements' not in rules['summary'] and 'eligibility' not in rules['summary']
+
+
 def test_journal_retention_pages_and_source_metadata(api, cat_clock):
     module, client = api
     sid, _ = create_human_garden(client)

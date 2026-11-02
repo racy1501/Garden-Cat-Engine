@@ -384,6 +384,11 @@ DISPLAY_TIMEZONE_NAME = "Asia/Shanghai"
 
 # 花店 3A：只保存开店与营业安排，不在本批次处理上架或销售。
 FLOWER_SHOP_ESTABLISH_COST = 3500
+FLOWER_SHOP_ELIGIBILITY_REQUIREMENTS = {
+    "encyclopedia": 10,
+    "harvests": 42,
+    "direct_flower_sale_earned": 3000,
+}
 FLOWER_SHOP_SHELF_CAPACITY = 3
 FLOWER_SHOP_SHELF_CAPACITIES = (3, 6, 9)
 FLOWER_SHOP_SHELF_UPGRADE_COSTS = {3: 1500, 6: 2500}
@@ -3444,13 +3449,24 @@ def get_flower_shop_eligibility_progress(state):
     }
 
 
-def is_flower_shop_eligible(state):
+def get_flower_shop_eligibility_summary(state):
     progress = get_flower_shop_eligibility_progress(state)
-    return (
-        progress["encyclopedia"] >= 10
-        and progress["harvests"] >= 42
-        and progress["direct_flower_sale_earned"] >= 3000
-    )
+    requirements = {
+        key: {
+            "current": progress[key],
+            "required": required,
+            "remaining": max(0, required - progress[key]),
+        }
+        for key, required in FLOWER_SHOP_ELIGIBILITY_REQUIREMENTS.items()
+    }
+    return {
+        "eligible": all(row["remaining"] == 0 for row in requirements.values()),
+        "requirements": requirements,
+    }
+
+
+def is_flower_shop_eligible(state):
+    return get_flower_shop_eligibility_summary(state)["eligible"]
 
 
 def _flower_shop_local_cycle_start(start_minute, now):

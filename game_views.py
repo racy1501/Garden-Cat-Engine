@@ -196,14 +196,21 @@ def build_view(state, section, now, *, detail=None, item_id=None, page=None):
         shop = ge.get_flower_shop_public_summary(state, now)
         fields = {
             None: ("established", "launched", "is_open", "shelf_capacity", "occupied_slots", "empty_slots"),
-            "eligibility": ("eligible", "eligibility_progress"),
+            "eligibility": (),
             "hours": ("business_start_minute", "business_duration_minutes", "pending_business_start_minute",
                       "pending_business_effective_at", "is_open", "next_business_cycle_at"),
             "shelves": ("shelf_capacity", "slots", "can_upgrade_shelf", "next_shelf_capacity", "next_shelf_upgrade_cost"),
             "equipment": ("has_freshener", "freshener_cost", "shop_buff_active", "shop_buff_remaining_seconds", "shop_buff_effect"),
             "rules": ("pricing_profiles", "bouquet_lifetime_seconds"),
         }
-        result["summary"] = _pick(shop, *fields[detail])
+        if detail == "eligibility":
+            eligibility = ge.get_flower_shop_eligibility_summary(state)
+            result["summary"] = {
+                "eligible": eligibility["eligible"],
+                "requirements": eligibility["requirements"],
+            }
+        else:
+            result["summary"] = _pick(shop, *fields[detail])
         if detail is None:
             views = [_entry(detail=key) for key in fields if key is not None]
 
