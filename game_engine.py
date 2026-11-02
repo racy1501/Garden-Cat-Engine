@@ -5717,7 +5717,9 @@ remove_vase <位置> - 移除花瓶中任意状态的花（不返还花朵或金
 adopt [名字] - 正式收养猫咪并可选取名
 rename_cat <名字> - 给已收养的猫咪改名
 feed <basic|premium> - 给粮碗补充猫粮
+switch_food <basic|premium> - 切换粮碗猫粮
 give_water - 给水碗补水
+give_treat - 给猫咪喂零食
 pet - 抚摸猫(冷却{PET_COOLDOWN_REAL_MINUTES}分钟)
 play <ball|feather> - 和猫玩（消耗玩具）
 encyclopedia - 查看图鉴

@@ -92,13 +92,18 @@ def test_api_latest_event_excludes_offline_request_history(api, cat_clock, endpo
         assert response.status_code == 200
         return response.get_json()
 
-    assert query()["state"]["latest_event"] == ""
+    initial = query()["state"]
+    assert initial["latest_event"] == ""
+    assert initial["recent_events"] == []
     cat_clock[0] = start + 21600
-    assert query()["state"]["latest_event"] == ""
+    restored = query()["state"]
+    assert restored["latest_event"] == ""
+    assert restored["recent_events"] == []
     for delta in (0, 60, 180):
         cat_clock[0] = start + 21600 + delta
         result = query()
         assert result["state"]["latest_event"] == ""
+        assert result["state"]["recent_events"] == []
         assert "出门" not in result["message"] and "回家" not in result["message"]
     loaded = module.db_load_state("cat-events")
     assert loaded["cat_state"]["next_outing_at"] == start + 25200
@@ -120,6 +125,7 @@ def test_new_event_with_same_time_and_text_is_not_suppressed(api, cat_clock):
                            json={"session_id": "same-event", "command": "arrange rose"})
     assert response.status_code == 200
     assert response.get_json()["state"]["latest_event"] == "把玫瑰插进花瓶"
+    assert [event["text"] for event in response.get_json()["state"]["recent_events"]] == ["把玫瑰插进花瓶"]
     assert module._ai_summary(module.db_load_state("same-event"))["latest_event"] == ""
 
 
@@ -680,9 +686,9 @@ def test_api_cmd_uses_slim_ai_summary(api):
     assert "garden_collectibles_capacity" not in state
     assert "garden_collectible_catalog" not in state
     assert "garden_collection_log" not in state
-    assert "recent_events" not in state
+    assert isinstance(state["recent_events"], list)
     assert "cat_state" not in state
-    assert all(set(pot) == {"slot", "flower_id", "status"} for pot in state["pots"])
+    assert all(set(pot) == {"slot", "flower_id", "status", "progress", "remaining_seconds", "watered", "has_pests", "paused"} for pot in state["pots"])
     assert all(pot["status"] in {"empty", "needs_water", "growing", "pest_blocked", "ready", "withered"}
                for pot in state["pots"])
     assert "inventory_counts" in state
@@ -739,12 +745,75 @@ def test_api_status_uses_slim_ai_summary(api):
     assert "encyclopedia" not in state
     assert "letters" not in state
     assert "collectibles" not in state
-    assert "recent_events" not in state
-    assert all(set(pot) == {"slot", "flower_id", "status"} for pot in state["pots"])
+    assert isinstance(state["recent_events"], list)
+    assert all(set(pot) == {"slot", "flower_id", "status", "progress", "remaining_seconds", "watered", "has_pests", "paused"} for pot in state["pots"])
     assert all(pot["status"] in {"empty", "needs_water", "growing", "pest_blocked", "ready", "withered"}
                for pot in state["pots"])
     assert "inventory_counts" in state
     assert "cat_summary" in state
+
+
+def test_ai_help_and_inventory_items_on_all_routes(api, cat_clock):
+    module, client = api
+    sid, _ = create_human_garden(client)
+    state = module.db_load_state(sid)
+    items = {"cat_treat": 2, "feather_wand": 3, "ball": 4, "basic_food": 5, "premium_food": 6}
+    state["inventory"]["items"] = items.copy()
+    headers = {"X-API-Key": "test-key"}
+    for route in ("/api/status", "/api/cmd", "/api/cmd?compact=1"):
+        module.db_save_state(sid, state)
+        if route == "/api/status":
+            response = client.get(route, headers=headers, query_string={"session_id": sid})
+        else:
+            response = client.post(route, headers=headers, json={"session_id": sid, "command": "help"})
+            message = response.get_json()["message"]
+            assert "give_treat" in message and "switch_food <basic|premium>" in message
+            assert "refill_food" not in message and "refill_water" not in message
+        assert response.get_json()["state"]["inventory_counts"]["items"] == items
+
+
+def test_ai_pot_decision_fields_follow_formal_status_and_weather(api):
+    module, _ = api
+    state = ge.get_default_state()
+    state["weather"] = "sunny"
+    state["max_pots"] = 6
+    grow_time = ge.FLOWERS["daisy"]["grow_time"]
+    pot = {"flower_id": "daisy", "growth_progress": grow_time / 2, "watered": True}
+    state["pots"] = [dict(pot), {**pot, "growth_progress": grow_time},
+                     {**pot, "watered": False}, {**pot, "pest_active": True}, None,
+                     {**pot, "withered": True}]
+    growing, ready, dry, pest, empty, withered = module._build_pots_for_ai(state)
+    assert growing["status"] == "growing" and growing["progress"] == 0.5
+    assert growing["remaining_seconds"] == int((grow_time / 2) / ge.get_actual_grow_speed(pot, ge.WEATHER["sunny"]))
+    assert growing["watered"] and not growing["paused"] and not growing["has_pests"]
+    assert ready["progress"] == 1 and ready["remaining_seconds"] == 0 and not ready["paused"]
+    assert dry["status"] == "needs_water" and not dry["watered"] and dry["paused"] and dry["remaining_seconds"] is None
+    assert pest["status"] == "pest_blocked" and pest["has_pests"] and pest["paused"] and pest["remaining_seconds"] is None
+    assert empty["remaining_seconds"] is None and withered["remaining_seconds"] is None
+    state["weather"] = next(key for key, weather in ge.WEATHER.items() if weather["grow_speed"] != ge.WEATHER["sunny"]["grow_speed"])
+    assert module._build_pots_for_ai(state)[0]["remaining_seconds"] == int((grow_time / 2) / ge.WEATHER[state["weather"]]["grow_speed"])
+
+
+def test_failed_command_includes_event_from_same_request(api, cat_clock, monkeypatch):
+    module, client = api
+    state = ge.get_default_state()
+    state["weather"] = "sunny"
+    state["weather_change_time"] = cat_clock[0] + 3600
+    progress = ge.FLOWERS["daisy"]["grow_time"] / 2
+    state["pots"][0] = {"flower_id": "daisy", "growth_progress": progress, "watered": True,
+                        "last_growth_update": cat_clock[0], "pest_trigger_progress": progress + 0.5}
+    module.db_save_state("failed-event", state)
+    execute = module.execute_command
+    def cross_second(*args, **kwargs):
+        cat_clock[0] += 1
+        return execute(*args, **kwargs)
+    monkeypatch.setattr(module, "execute_command", cross_second)
+    payload = client.post("/api/cmd?compact=1", headers={"X-API-Key": "test-key"},
+                          json={"session_id": "failed-event", "command": "unknown_command"}).get_json()
+    assert payload["ok"] is False
+    events = payload["state"]["recent_events"]
+    assert any("虫害" in event["text"] for event in events)
+    assert payload["state"]["latest_event"] == events[-1]["text"]
 
 
 @pytest.mark.parametrize(("seeds", "flowers", "expected_seeds", "expected_flowers"), [
@@ -783,12 +852,9 @@ def test_ai_gardening_details_match_across_routes_without_changing_save(api, cat
     state["inventory"]["seeds"] = {"daisy": 3, "rose": 1}
     state["inventory"]["flowers"] = {"daisy": 5, "rose": 2}
     ge.normalize_state(state, now)
-    expected_pots = [
-        {"slot": index, "flower_id": None if index == 1 else "daisy", "status": status}
-        for index, status in enumerate(("empty", "needs_water", "growing", "pest_blocked", "ready", "withered"), 1)
-    ]
+    expected_pots = module._build_pots_for_ai(state)
+    assert [pot["status"] for pot in expected_pots] == ["empty", "needs_water", "growing", "pest_blocked", "ready", "withered"]
     original = json.loads(json.dumps(state))
-    assert module._build_pots_for_ai(state) == expected_pots
     assert module._build_inventory_counts_for_ai(state)["seeds"] == {"daisy": 3, "rose": 1}
     assert state == original
     module._ai_summary(state)
@@ -1018,7 +1084,7 @@ def test_compact_command_preserves_default_state_and_status(api, monkeypatch):
         assert "weather_emoji" in payload["state"]
         assert payload["state"]["inventory_counts"]["seeds"] == {"daisy": 3, "rose": 1}
         assert payload["state"]["inventory_counts"]["flowers"] == {"daisy": 5, "rose": 2}
-        assert all(set(pot) == {"slot", "flower_id", "status"} for pot in payload["state"]["pots"])
+        assert all({"slot", "flower_id", "status", "progress", "remaining_seconds", "watered", "has_pests", "paused"} == set(pot) for pot in payload["state"]["pots"])
         assert payload["state"]["cottage"]["cat_area"]["water_bowl"]["remaining_portions"] == 2
     assert "purchasable_items" not in compact["state"]["cottage"]
     assert "pricing_profiles" not in compact["state"]["flower_shop"]
@@ -1029,7 +1095,7 @@ def test_compact_command_preserves_default_state_and_status(api, monkeypatch):
     assert "slots" in compact["state"]["flower_shop"]
     assert all("is_open" not in slot for slot in compact["state"]["flower_shop"]["slots"])
     assert compact["state"]["cottage"]["cat_area"]["water_bowl"]["remaining_portions"] == 2
-    assert all(set(pot) == {"slot", "flower_id", "status"} for pot in compact["state"]["pots"])
+    assert all({"slot", "flower_id", "status", "progress", "remaining_seconds", "watered", "has_pests", "paused"} == set(pot) for pot in compact["state"]["pots"])
     assert compact["state"]["inventory_counts"]["seeds"] == {"daisy": 3, "rose": 1}
     assert compact["state"]["inventory_counts"]["flowers"] == {"daisy": 5, "rose": 2}
     compact_owned_items = compact["state"]["cottage"]["owned_items"]

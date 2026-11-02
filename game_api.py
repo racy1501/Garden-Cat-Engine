@@ -915,9 +915,25 @@ def _build_pot_summary_for_ai(state: dict[str, Any]) -> dict[str, int]:
 
 def _build_pots_for_ai(state: dict[str, Any]) -> list[dict[str, Any]]:
     pots = []
+    weather = WEATHER.get(state.get("weather", "sunny"), WEATHER["sunny"])
     for index, pot in enumerate(state.get("pots", [])):
         status = get_pot_ai_status(state, index, pot)
-        pots.append({"slot": index + 1, "flower_id": pot.get("flower_id") if pot else None, "status": status})
+        flower_id = pot.get("flower_id") if pot else None
+        flower = FLOWERS.get(flower_id)
+        grow_time = float(flower["grow_time"]) if flower else 0.0
+        growth = min(grow_time, max(0.0, float(pot.get("growth_progress", 0.0)))) if grow_time else 0.0
+        speed = get_actual_grow_speed(pot, weather) if pot else 0.0
+        paused = status in ("needs_water", "pest_blocked") or (status == "growing" and speed <= 0)
+        remaining = 0 if status == "ready" else None
+        if status == "growing" and speed > 0 and grow_time:
+            remaining = max(0, int((grow_time - growth) / speed))
+        pots.append({
+            "slot": index + 1, "flower_id": flower_id, "status": status,
+            "progress": growth / grow_time if grow_time else 0.0,
+            "remaining_seconds": remaining,
+            "watered": bool(pot.get("watered", True)) if pot else False,
+            "has_pests": status == "pest_blocked", "paused": paused,
+        })
     return pots
 
 
@@ -929,6 +945,7 @@ def _build_inventory_counts_for_ai(state: dict[str, Any]) -> dict[str, Any]:
     return {
         "seeds": {flower_id: int(qty) for flower_id, qty in seeds.items() if int(qty or 0) > 0},
         "flowers": {flower_id: int(qty) for flower_id, qty in flowers.items() if int(qty or 0) > 0},
+        "items": dict(items),
         "seed_types": sum(1 for qty in seeds.values() if int(qty or 0) > 0),
         "seed_total": sum(int(qty or 0) for qty in seeds.values()),
         "flower_types": sum(1 for qty in flowers.values() if int(qty or 0) > 0),
@@ -1048,6 +1065,7 @@ def _ai_summary(state: dict[str, Any], *, events_before: list | None = None) -> 
         "flower_shop": get_flower_shop_public_summary(state, now),
         "cottage": get_cottage_public_summary(state),
         "latest_event": latest_event,
+        "recent_events": [_event_record_for_client(event) for event in new_events],
     }
 
 
