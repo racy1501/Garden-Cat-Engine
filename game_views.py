@@ -66,6 +66,31 @@ def _goods(state):
     return {"seeds": seeds, "items": items, "furniture": furniture}
 
 
+def build_garden_pots(state):
+    """Project settled pot facts shared by status and garden module views."""
+    pots = []
+    weather = ge.WEATHER.get(state.get("weather", "sunny"), ge.WEATHER["sunny"])
+    for index, pot in enumerate(state.get("pots", [])):
+        status = ge.get_pot_ai_status(state, index, pot)
+        flower_id = pot.get("flower_id") if pot else None
+        flower = ge.FLOWERS.get(flower_id)
+        grow_time = float(flower["grow_time"]) if flower else 0.0
+        growth = min(grow_time, max(0.0, float(pot.get("growth_progress", 0.0)))) if grow_time else 0.0
+        speed = ge.get_actual_grow_speed(pot, weather) if pot else 0.0
+        paused = status in ("needs_water", "pest_blocked") or (status == "growing" and speed <= 0)
+        remaining = 0 if status == "ready" else None
+        if status == "growing" and speed > 0 and grow_time:
+            remaining = max(0, int((grow_time - growth) / speed))
+        pots.append({
+            "slot": index + 1, "flower_id": flower_id, "status": status,
+            "progress": growth / grow_time if grow_time else 0.0,
+            "remaining_seconds": remaining,
+            "watered": bool(pot.get("watered", True)) if pot else False,
+            "has_pests": status == "pest_blocked", "paused": paused,
+        })
+    return pots
+
+
 def build_overview(state, now, *, cat_summary):
     """Level-one decision data from the same settled state as module views."""
     garden = {"total_pots": len(state["pots"]), "ready_pots": [], "needs_water_pots": [],
@@ -110,10 +135,10 @@ def build_view(state, section, now, *, detail=None, item_id=None, page=None):
     views = []
 
     if section == "garden":
-        pots = [{"id": str(index + 1), "slot": index + 1,
-                 "status": ge.get_pot_ai_status(state, index, pot)}
-                for index, pot in enumerate(state["pots"])]
         if item_id is not None:
+            pots = [{"id": str(index + 1), "slot": index + 1,
+                     "status": ge.get_pot_ai_status(state, index, pot)}
+                    for index, pot in enumerate(state["pots"])]
             row = _item(pots, item_id)
             pot = state["pots"][row["slot"] - 1]
             result["item"] = {**row, **(_pick(pot, "flower_id", "growth_progress", "watered") if pot else {})}
@@ -124,9 +149,20 @@ def build_view(state, section, now, *, detail=None, item_id=None, page=None):
                 result["items"].append({"slot": i + 1, "flower_id": entry["flower_id"],
                                         "status": status, "remaining_seconds": remaining})
         else:
-            result.update(items=pots, summary={"vase_count": len(state.get("vase", [])),
+            projected_pots = build_garden_pots(state)
+            items = []
+            for row in projected_pots:
+                item = {"slot": row["slot"], "status": row["status"]}
+                if row["flower_id"] is not None:
+                    item["flower_id"] = row["flower_id"]
+                if row["status"] == "growing" and row["remaining_seconds"] is not None:
+                    item["remaining_seconds"] = row["remaining_seconds"]
+                if row["status"] == "pest_blocked":
+                    item["watered"] = row["watered"]
+                items.append(item)
+            result.update(items=items, summary={"vase_count": len(state.get("vase", [])),
                                               "vase_capacity": ge.VASE_CAPACITY})
-            views = [_entry(item_id=row["id"]) for row in pots] + [_entry(detail="vase")]
+            views = [_entry(detail="vase")]
 
     elif section == "cat":
         cat = state.get("cat_state", {})

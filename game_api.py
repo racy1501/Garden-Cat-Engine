@@ -23,7 +23,7 @@ from typing import Any, Iterator
 from urllib.parse import unquote
 
 from flask import Flask, g, has_request_context, jsonify, render_template, request
-from game_views import build_overview, build_view, validate_view
+from game_views import build_garden_pots, build_overview, build_view, validate_view
 
 from game_engine import (
     CommandResult,
@@ -927,27 +927,7 @@ def _build_pot_summary_for_ai(state: dict[str, Any]) -> dict[str, int]:
 
 
 def _build_pots_for_ai(state: dict[str, Any]) -> list[dict[str, Any]]:
-    pots = []
-    weather = WEATHER.get(state.get("weather", "sunny"), WEATHER["sunny"])
-    for index, pot in enumerate(state.get("pots", [])):
-        status = get_pot_ai_status(state, index, pot)
-        flower_id = pot.get("flower_id") if pot else None
-        flower = FLOWERS.get(flower_id)
-        grow_time = float(flower["grow_time"]) if flower else 0.0
-        growth = min(grow_time, max(0.0, float(pot.get("growth_progress", 0.0)))) if grow_time else 0.0
-        speed = get_actual_grow_speed(pot, weather) if pot else 0.0
-        paused = status in ("needs_water", "pest_blocked") or (status == "growing" and speed <= 0)
-        remaining = 0 if status == "ready" else None
-        if status == "growing" and speed > 0 and grow_time:
-            remaining = max(0, int((grow_time - growth) / speed))
-        pots.append({
-            "slot": index + 1, "flower_id": flower_id, "status": status,
-            "progress": growth / grow_time if grow_time else 0.0,
-            "remaining_seconds": remaining,
-            "watered": bool(pot.get("watered", True)) if pot else False,
-            "has_pests": status == "pest_blocked", "paused": paused,
-        })
-    return pots
+    return build_garden_pots(state)
 
 
 def _build_inventory_counts_for_ai(state: dict[str, Any]) -> dict[str, Any]:

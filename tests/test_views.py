@@ -5,7 +5,7 @@ from unittest.mock import Mock
 import pytest
 
 import game_engine as ge
-from game_views import build_view, VIEW_DETAILS
+from game_views import build_garden_pots, build_overview, build_view, VIEW_DETAILS
 from test_api_response_shape import api, cat_clock, create_human_garden, adopted_cat_state
 
 
@@ -72,6 +72,52 @@ def test_navigation_links_are_complete_and_followable_at_every_level(api, cat_cl
             terminal_sections.add(link['section'])
     assert sections == set(VIEW_DETAILS)
     assert terminal_sections == set(VIEW_DETAILS) - {'journal'}
+
+
+def test_garden_view_lists_flower_and_reliable_care_status_without_changing_status(cat_clock):
+    now = cat_clock[0]
+    grow_time = ge.FLOWERS['daisy']['grow_time']
+    pot = {'flower_id': 'daisy', 'growth_progress': 0, 'watered': True, 'last_growth_update': now}
+    state = ge.get_default_state()
+    state['max_pots'] = 7
+    state['pots'] = [None, dict(pot), {**pot, 'growth_progress': grow_time},
+                     {**pot, 'pest_active': True, 'watered': False}, {**pot, 'watered': False},
+                     {**pot, 'withered': True}, {**pot, 'pest_active': True}]
+    state['vase'] = [{'flower_id': 'daisy', 'arranged_time': now}]
+
+    garden = build_view(state, 'garden', now)
+    pots = garden['items']
+    assert len(pots) == 7
+    assert [(row['slot'], row.get('flower_id'), row['status']) for row in pots] == [
+        (1, None, 'empty'), (2, 'daisy', 'growing'),
+        (3, 'daisy', 'ready'), (4, 'daisy', 'pest_blocked'),
+        (5, 'daisy', 'needs_water'), (6, 'daisy', 'withered'),
+        (7, 'daisy', 'pest_blocked'),
+    ]
+    growing_seconds = int(grow_time / ge.WEATHER[state['weather']]['grow_speed'])
+    assert pots[1]['remaining_seconds'] == growing_seconds
+    assert pots[2]['status'] == 'ready'
+    assert 'remaining_seconds' not in pots[2]
+    assert pots[3]['watered'] is False and pots[6]['watered'] is True
+    assert 'remaining_seconds' not in pots[0] and set(pots[0]) == {'slot', 'status'}
+    assert 'remaining_seconds' not in pots[4] and 'remaining_seconds' not in pots[5]
+    assert all(not {'id', 'flower_name', 'progress', 'paused', 'has_pests'} & row.keys() for row in pots)
+    assert garden['available_views'] == [{'section': 'garden', 'detail': 'vase'}]
+    assert garden['next_tool'] == 'garden_view'
+    assert build_view(state, 'garden', now, detail='vase')['items'][0]['flower_id'] == 'daisy'
+    assert set(build_view(state, 'garden', now, item_id='2')['item']) == {
+        'id', 'slot', 'status', 'flower_id', 'growth_progress', 'watered',
+    }
+
+    assert set(build_garden_pots(state)[0]) == {
+        'slot', 'flower_id', 'status', 'progress', 'remaining_seconds',
+        'watered', 'has_pests', 'paused',
+    }
+
+    status_garden = build_overview(state, now, cat_summary=None)['garden']
+    assert status_garden == {'total_pots': 7, 'empty_pots': [1], 'needs_water_pots': [5],
+                             'growing_count': 1, 'pest_pots': [4, 7], 'ready_pots': [3],
+                             'withered_pots': [6]}
 
 
 def test_owned_and_discovered_details_and_guessed_ids(api, cat_clock):
