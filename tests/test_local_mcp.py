@@ -65,6 +65,21 @@ class ForwardingTests(unittest.TestCase):
         self.assertEqual(shell.garden_status()["state"]["shared_activity"], activity)
         self.assert_request("GET", "/api/status", query={"session_id": ["mock-session"]})
 
+    def test_view_sends_one_http_request_with_only_selected_parameters(self):
+        self.assertEqual(shell.garden_view("collectibles", item_id="owned-id"), self.payload)
+        self.urlopen.assert_called_once()
+        self.assert_request("GET", "/api/view", query={"session_id": ["mock-session"],
+                            "section": ["collectibles"], "item_id": ["owned-id"]})
+        self.urlopen.reset_mock()
+        shell.garden_view("journal", page=2)
+        self.urlopen.assert_called_once()
+        self.assert_request("GET", "/api/view", query={"session_id": ["mock-session"],
+                            "section": ["journal"], "page": ["2"]})
+        self.urlopen.reset_mock()
+        shell.garden_view("inventory", detail="seeds")
+        self.assert_request("GET", "/api/view", query={"session_id": ["mock-session"],
+                            "section": ["inventory"], "detail": ["seeds"]})
+
     def test_command_preserves_business_failure_and_original_command(self):
         self.payload = {"ok": False, "message": "材料不足", "state": {"money": 5}}
         command = "  craft_bouquet bouquet_id=first_meeting  "
@@ -151,7 +166,7 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
                     await session.initialize()
                     tools = (await session.list_tools()).tools
                     self.assertEqual({tool.name for tool in tools}, {
-                        "garden_reference", "garden_status", "garden_command", "garden_notes", "garden_batch",
+                        "garden_reference", "garden_status", "garden_command", "garden_notes", "garden_batch", "garden_view",
                     })
                     schema = {tool.name: tool.inputSchema for tool in tools}
                     self.assertEqual(schema["garden_reference"]["properties"]["kind"]["enum"], ["info", "catalog", "help"])
@@ -159,6 +174,8 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(schema["garden_batch"]["required"], ["commands"])
                     self.assertEqual(schema["garden_batch"]["properties"]["commands"]["items"]["type"], "string")
                     self.assertEqual(schema["garden_notes"]["required"], ["action"])
+                    self.assertEqual(schema["garden_view"]["required"], ["section"])
+                    self.assertEqual(len(schema["garden_view"]["properties"]["section"]["enum"]), 11)
                     result = await session.call_tool("garden_status", {})
                     self.assertTrue(result.isError)
                     self.assertIn("GARDEN_SESSION_ID", result.content[0].text)

@@ -93,6 +93,21 @@ def garden_status() -> dict[str, Any]:
 
 
 @mcp.tool()
+def garden_view(
+    section: Literal["garden", "cat", "inventory", "collectibles", "encyclopedia", "flower_shop",
+                     "cottage", "bouquets", "letters", "journal", "shop"],
+    detail: str | None = None, item_id: str | None = None, page: int | None = None,
+) -> dict[str, Any]:
+    """浏览单个模块；默认摘要，按 available_views 的参数查看细节。journal 支持正整数 page。"""
+    if page is not None and (type(page) is not int or page < 1):
+        raise ToolError("page 必须是正整数。")
+    params = {"session_id": _session_id(), "section": section}
+    params.update({key: value for key, value in {"detail": detail, "item_id": item_id, "page": page}.items()
+                   if value is not None})
+    return _request("GET", "/api/view", params=params)
+
+
+@mcp.tool()
 def garden_command(command: str) -> dict[str, Any]:
     """原样执行游戏命令，保留 API 的 ok、message 和公开结果。"""
     if not command.strip():

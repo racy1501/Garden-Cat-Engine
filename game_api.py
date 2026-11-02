@@ -23,6 +23,7 @@ from typing import Any, Iterator
 from urllib.parse import unquote
 
 from flask import Flask, g, has_request_context, jsonify, render_template, request
+from game_views import build_view, validate_view
 
 from game_engine import (
     CommandResult,
@@ -1873,6 +1874,37 @@ def api_notes():
     if page is None:
         return jsonify({"ok": False, "message": "❌ 页码必须是正整数。"}), 400
     return jsonify({"ok": True, **db_list_notes(session_id, "ai", page=page)})
+
+
+@app.route("/api/view", methods=["GET"])
+@require_api_key
+def view_route():
+    section = request.args.get("section", "")
+    detail = request.args.get("detail")
+    item_id = request.args.get("item_id")
+    page = None
+    try:
+        if "page" in request.args:
+            page = _parse_positive_page(request.args["page"])
+            if page is None:
+                raise ValueError("page 必须是正整数。")
+        validate_view(section, detail, item_id, page)
+    except ValueError as exc:
+        return jsonify({"ok": False, "message": str(exc)}), 400
+    raw_session = str(request.args.get("session_id", "") or "").strip()
+    if not raw_session:
+        return jsonify({"ok": False, "message": "请提供有效的 session_id。"}), 400
+    session_id = _safe_session_id(raw_session)
+    now = int(time.time())
+    state = db_load_state(session_id, settled_at=now, save_progress=False)
+    if state is None:
+        return jsonify({"ok": False, "message": "指定的 session_id 不存在。"}), 404
+    prepare_command_state(state, now, letter_context=_request_letter_context())
+    db_save_state(session_id, state, settled_at=now)
+    try:
+        return jsonify(build_view(state, section, now, detail=detail, item_id=item_id, page=page))
+    except LookupError as exc:
+        return jsonify({"ok": False, "section": section, "message": str(exc)}), 404
 
 
 @app.route("/api/status", methods=["GET"])
