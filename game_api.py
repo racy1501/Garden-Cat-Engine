@@ -1730,11 +1730,69 @@ def _compact_ai_state(public_state):
     ]
 
 
+AI_VIEW_COMMANDS = {
+    "shop": ("shop", None), "vase": ("garden", "vase"),
+    "collectibles": ("collectibles", None), "encyclopedia": ("encyclopedia", None),
+    "letters": ("letters", None), "make_bouquet": ("bouquets", None),
+}
+AI_VIEW_GUIDE = (
+    "先用 garden_status() 查看总览，再用 garden_view(section, detail, item_id, page) 查看模块；"
+    "执行动作用 garden_command(command) 或 garden_batch(commands)，便签用 garden_notes。"
+)
+
+
+def _agent_help_text(text):
+    lines = []
+    hiding_unlocks = False
+    for line in text.splitlines():
+        if line.startswith("🌸 花卉解锁："):
+            hiding_unlocks = True
+            continue
+        if hiding_unlocks:
+            if not line.strip():
+                hiding_unlocks = False
+            continue
+        if line.startswith(("shop -", "vase -", "encyclopedia -", "collectibles -", "letters -")):
+            continue
+        if line.startswith("make_bouquet ["):
+            line = "make_bouquet bouquet_id=<花束ID> [message=...] - 制作并赠送花束"
+        lines.append(line)
+    return AI_VIEW_GUIDE + "\n\n" + "\n".join(lines)
+
+
+def _respond_ai_view(raw_session, section, *, detail=None, item_id=None, page=None):
+    raw_session = str(raw_session or "").strip()
+    if not raw_session:
+        return jsonify({"ok": False, "message": "请提供有效的 session_id。"}), 400
+    session_id = _safe_session_id(raw_session)
+    now = int(time.time())
+    state = db_load_state(session_id, settled_at=now, save_progress=False)
+    if state is None:
+        return jsonify({"ok": False, "message": "指定的 session_id 不存在。"}), 404
+    prepare_command_state(state, now, letter_context=_request_letter_context())
+    db_save_state(session_id, state, settled_at=now)
+    try:
+        return jsonify(build_view(state, section, now, detail=detail, item_id=item_id, page=page))
+    except LookupError as exc:
+        return jsonify({"ok": False, "section": section, "message": str(exc)}), 404
+
+
 @app.route("/api/cmd", methods=["POST"])
 @require_api_key
 def cmd_route():
     data = request.get_json(silent=True) or {}
     command = str(data.get("command", "")).strip()
+    parts = command.lower().split()
+    action = parts[0] if parts else ""
+    query = AI_VIEW_COMMANDS.get(action)
+    if query is not None and len(parts) == 1:
+        return _respond_ai_view(data.get("session_id"), query[0], detail=query[1])
+    if query is not None and action != "make_bouquet":
+        return jsonify({"ok": False, "message": "该查询不接受参数；请使用 garden_view 查看详情。"}), 400
+    if action == "make_bouquet" and not any(
+        part and not part.startswith("message=") and part != "bouquet_id=" for part in parts[1:]
+    ):
+        return jsonify({"ok": False, "message": "请指定 bouquet_id；查看配方请使用 garden_view。"}), 400
     events_before = []
     checked_session_id, state, error_response = _load_existing_api_state(data.get("session_id", ""), events_before=events_before)
     if error_response is not None:
@@ -1749,7 +1807,7 @@ def cmd_route():
     if result is None:
         result = execute_command(state, command, event_source="ai", source_name=_request_event_source_name("ai"), letter_context=_request_letter_context())
         if command.strip().lower() == "help":
-            result = CommandResult(result.ok, result.message + NOTE_HELP_TEXT)
+            result = CommandResult(result.ok, _agent_help_text(result.message + NOTE_HELP_TEXT))
         should_save_state = True
     message = _prepend_ai_notice(result.message, notice)
     if notice:
@@ -1891,20 +1949,7 @@ def view_route():
         validate_view(section, detail, item_id, page)
     except ValueError as exc:
         return jsonify({"ok": False, "message": str(exc)}), 400
-    raw_session = str(request.args.get("session_id", "") or "").strip()
-    if not raw_session:
-        return jsonify({"ok": False, "message": "请提供有效的 session_id。"}), 400
-    session_id = _safe_session_id(raw_session)
-    now = int(time.time())
-    state = db_load_state(session_id, settled_at=now, save_progress=False)
-    if state is None:
-        return jsonify({"ok": False, "message": "指定的 session_id 不存在。"}), 404
-    prepare_command_state(state, now, letter_context=_request_letter_context())
-    db_save_state(session_id, state, settled_at=now)
-    try:
-        return jsonify(build_view(state, section, now, detail=detail, item_id=item_id, page=page))
-    except LookupError as exc:
-        return jsonify({"ok": False, "section": section, "message": str(exc)}), 404
+    return _respond_ai_view(request.args.get("session_id"), section, detail=detail, item_id=item_id, page=page)
 
 
 @app.route("/api/status", methods=["GET"])
@@ -1935,7 +1980,7 @@ def status():
 @require_api_key
 def help_route():
     state = _new_state()
-    result = process_command(state, "help") + NOTE_HELP_TEXT
+    result = _agent_help_text(process_command(state, "help") + NOTE_HELP_TEXT)
     return jsonify({"ok": True, "message": result})
 
 

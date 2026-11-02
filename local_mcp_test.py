@@ -80,10 +80,16 @@ def _request(
 
 @mcp.tool()
 def garden_reference(kind: Literal["info", "catalog", "help"]) -> dict[str, Any]:
-    """读取游戏介绍、正式商品目录或命令帮助。"""
+    """读取入门说明、当前可见商品或动作帮助；先 status，再 view，执行动作用 command/batch。"""
     if kind not in ("info", "catalog", "help"):
         raise ToolError("kind 只能是 info、catalog 或 help。")
-    return _request("GET", f"/api/{kind}", authenticated=kind == "help")
+    if kind == "catalog":
+        return _request("GET", "/api/view", params={"session_id": _session_id(), "section": "shop"})
+    payload = _request("GET", f"/api/{kind}", authenticated=kind == "help")
+    if kind == "info":
+        return {"ok": True, "game": payload.get("game", ""), "description": payload.get("description", ""),
+                "guide": "先调用 garden_status()，再用 garden_view(section) 查看模块；动作用 garden_command 或 garden_batch。"}
+    return payload
 
 
 @mcp.tool()

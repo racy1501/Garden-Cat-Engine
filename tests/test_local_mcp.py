@@ -52,8 +52,16 @@ class ForwardingTests(unittest.TestCase):
     def test_reference_routes_and_auth(self):
         for kind in ("info", "catalog", "help"):
             with self.subTest(kind=kind):
-                self.assertEqual(shell.garden_reference(kind), self.payload)
-                self.assert_request("GET", f"/api/{kind}", auth=kind == "help")
+                result = shell.garden_reference(kind)
+                if kind == "info":
+                    self.assertIn("garden_view", result["guide"])
+                    self.assert_request("GET", "/api/info", auth=False)
+                elif kind == "catalog":
+                    self.assertEqual(result, self.payload)
+                    self.assert_request("GET", "/api/view", query={"session_id": ["mock-session"], "section": ["shop"]})
+                else:
+                    self.assertEqual(result, self.payload)
+                    self.assert_request("GET", "/api/help")
 
     def test_status_uses_configured_session(self):
         self.assertEqual(shell.garden_status(), self.payload)
@@ -105,7 +113,7 @@ class ForwardingTests(unittest.TestCase):
         shell.garden_reference("info")
         self.assertEqual(self.urlopen.call_args.args[0].full_url, "http://127.0.0.1:8080/api/info")
         self.payload = {"ok": False, "message": "changed"}
-        self.assertEqual(shell.garden_reference("info"), self.payload)
+        self.assertIn("garden_view", shell.garden_reference("info")["guide"])
         self.assertEqual(self.urlopen.call_count, 2)
 
     def test_invalid_arguments_do_not_send_http(self):

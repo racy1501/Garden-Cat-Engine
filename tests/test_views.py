@@ -197,3 +197,84 @@ def test_cat_interactions_and_garden_action_status(cat_clock):
     assert build_view(state, 'garden', cat_clock[0])['items'][0]['status'] == 'ready'
     state['pots'][0]['pest_active'] = True
     assert build_view(state, 'garden', cat_clock[0])['items'][0]['status'] == 'pest_blocked'
+
+
+@pytest.mark.parametrize('command,section,detail', [
+    ('shop', 'shop', None), ('vase', 'garden', 'vase'), ('collectibles', 'collectibles', None),
+    ('encyclopedia', 'encyclopedia', None), ('letters', 'letters', None), ('make_bouquet', 'bouquets', None),
+])
+@pytest.mark.parametrize('compact', [False, True])
+def test_legacy_query_is_the_same_view_without_cross_module_state(api, cat_clock, monkeypatch, command, section, detail, compact):
+    module, client = api
+    sid, _ = create_human_garden(client)
+    state = module.db_load_state(sid)
+    state['cat_state']['next_visit_at'] = cat_clock[0] + 10000
+    state['events'] = []
+    module.db_save_state(sid, state)
+    expected = view(client, sid, section, **({'detail': detail} if detail else {})).get_json()
+    settle = Mock(wraps=module.apply_offline_progress)
+    save = Mock(wraps=module.db_save_state)
+    monkeypatch.setattr(module, 'apply_offline_progress', settle)
+    monkeypatch.setattr(module, 'db_save_state', save)
+    response = client.post('/api/cmd' + ('?compact=1' if compact else ''), headers={'X-API-Key': 'test-key'},
+                           json={'session_id': sid, 'command': command})
+    assert response.status_code == 200
+    result = response.get_json()
+    assert result == expected
+    assert 'state' not in result and 'recent_events' not in result and 'shared_activity' not in result
+    assert settle.call_count == save.call_count == 1
+
+
+def test_legacy_queries_never_expose_undiscovered_items(api, cat_clock):
+    module, client = api
+    sid, _ = create_human_garden(client)
+    state = module.db_load_state(sid)
+    state['collectibles'] = {}
+    state['encyclopedia'] = []
+    state['letters_received'] = []
+    module.db_save_state(sid, state)
+    for command in ('collectibles', 'encyclopedia', 'letters', 'make_bouquet'):
+        payload = client.post('/api/cmd', headers={'X-API-Key': 'test-key'},
+                              json={'session_id': sid, 'command': command}).get_json()
+        assert payload['items'] == []
+        assert not any('item_id' in link for link in payload['available_views'])
+    hidden_id = ge.CAT_COLLECTIBLES[0]['id']
+    assert view(client, sid, 'collectibles', item_id=hidden_id).status_code == 404
+
+
+def test_make_bouquet_with_recipe_stays_a_real_action(api, cat_clock):
+    module, client = api
+    sid, _ = create_human_garden(client)
+    bouquet_id, bouquet = next(iter(ge.BOUQUETS.items()))
+    state = module.db_load_state(sid)
+    state['encyclopedia'] = list(bouquet['components'])
+    state['inventory']['flowers'] = dict(bouquet['components'])
+    module.db_save_state(sid, state)
+    response = client.post('/api/cmd', headers={'X-API-Key': 'test-key'},
+                           json={'session_id': sid, 'command': f'make_bouquet bouquet_id={bouquet_id}'})
+    assert response.get_json()['ok'] is True
+    assert 'state' in response.get_json()
+    assert module.db_load_state(sid)['bouquet_gifts'][-1]['bouquet_id'] == bouquet_id
+
+
+def test_ai_help_guides_layered_access(api, cat_clock):
+    _, client = api
+    sid, _ = create_human_garden(client)
+    headers = {'X-API-Key': 'test-key'}
+    for response in (client.get('/api/help', headers=headers),
+                     client.post('/api/cmd', headers=headers, json={'session_id': sid, 'command': 'help'})):
+        text = response.get_json()['message']
+        assert all(name in text for name in ('garden_status', 'garden_view', 'garden_command', 'garden_batch'))
+        assert 'collectibles - 查看' not in text and 'vase - 查看' not in text
+        assert 'make_bouquet bouquet_id=' in text
+
+
+@pytest.mark.parametrize('command', ['shop extra', 'vase 1', 'collectibles hidden', 'encyclopedia daisy',
+                                     'letters 1', 'make_bouquet message=hello', 'make_bouquet bouquet_id='])
+def test_invalid_legacy_query_arguments_do_not_return_world_state(api, command):
+    _, client = api
+    sid, _ = create_human_garden(client)
+    response = client.post('/api/cmd', headers={'X-API-Key': 'test-key'},
+                           json={'session_id': sid, 'command': command})
+    assert response.status_code == 400
+    assert 'state' not in response.get_json()
