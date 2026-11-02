@@ -7,9 +7,9 @@ import game_engine as ge
 VIEW_DETAILS = {
     "garden": {"vase"}, "cat": set(),
     "inventory": {"seeds", "flowers", "items", "bouquets"},
-    "collectibles": {"owned", "rules"}, "encyclopedia": set(),
+    "collectibles": {"rules"}, "encyclopedia": set(),
     "flower_shop": {"eligibility", "hours", "shelves", "equipment", "rules"},
-    "cottage": {"furniture", "cat_area"}, "bouquets": {"inventory"},
+    "cottage": {"cat_area"}, "bouquets": {"inventory"},
     "letters": set(), "journal": set(), "shop": {"seeds", "items", "furniture"},
 }
 ITEM_SECTIONS = {"garden", "collectibles", "encyclopedia", "cottage", "bouquets", "letters", "shop"}
@@ -272,7 +272,7 @@ def build_view(state, section, now, *, detail=None, item_id=None, page=None):
                                                       for key, value in _care(state).items() if key != "bed"}
             views = [_entry(item_id=row["id"]) for row in owned]
             if detail is None:
-                views += [_entry(detail="furniture"), _entry(detail="cat_area")]
+                views += [_entry(detail="cat_area")]
 
     elif section == "bouquets":
         options = ge.get_bouquet_options(state)
@@ -325,7 +325,6 @@ def build_view(state, section, now, *, detail=None, item_id=None, page=None):
             result["item"] = _item([row for rows in goods.values() for row in rows], item_id)
         elif detail:
             result["items"] = goods[detail]
-            views = [_entry(item_id=row["id"]) for row in goods[detail]]
         else:
             result["summary"] = {key: len(rows) for key, rows in goods.items()}
             views = [_entry(detail=key) for key in goods]

@@ -5,7 +5,7 @@ from unittest.mock import Mock
 import pytest
 
 import game_engine as ge
-from game_views import build_garden_pots, build_overview, build_view, VIEW_DETAILS
+from game_views import build_garden_pots, build_overview, build_view, validate_view, VIEW_DETAILS
 from test_api_response_shape import api, cat_clock, create_human_garden, adopted_cat_state
 
 
@@ -156,6 +156,43 @@ def test_inventory_and_bouquet_level_two_include_decision_inputs(cat_clock):
         ge.BOUQUETS[blocked_id]['components']
     assert build_view(state, 'bouquets', now, detail='inventory')['items'] == \
         ge.get_bouquet_inventory_public(state)
+
+
+def test_redundant_shop_cottage_and_collectibles_navigation_is_not_exposed(cat_clock):
+    now = cat_clock[0]
+    state = ge.get_default_state()
+
+    state['encyclopedia'] = ['daisy']
+    shop = build_view(state, 'shop', now)
+    seed_detail = build_view(state, 'shop', now, detail='seeds')
+    assert seed_detail['items']
+    assert not any('item_id' in link for link in seed_detail['available_views'])
+    first_seed = seed_detail['items'][0]['id']
+    assert build_view(state, 'shop', now, item_id=first_seed)['item']['id'] == first_seed
+    assert all('item_id' not in link for link in shop['available_views'])
+
+    furniture_id = next(iid for iid, row in ge.COTTAGE_ITEM_CATALOG.items()
+                        if not row.get('legacy_only') and 'price' in row and not row.get('reward_only'))
+    state['cottage']['items'][furniture_id] = {'source': 'human', 'acquired_at': now}
+    cottage = build_view(state, 'cottage', now)
+    assert any(row['id'] == furniture_id for row in cottage['items'])
+    assert {'section': 'cottage', 'detail': 'cat_area'} in cottage['available_views']
+    assert not any(link.get('detail') == 'furniture' for link in cottage['available_views'])
+    with pytest.raises(ValueError):
+        validate_view('cottage', detail='furniture')
+    assert build_view(state, 'cottage', now, item_id=furniture_id)['item']['source'] == 'human'
+    assert build_view(state, 'cottage', now, detail='cat_area')['summary']
+
+    collectible_id = ge.CAT_COLLECTIBLES[0]['id']
+    state['collectibles'][collectible_id] = 1
+    collectibles = build_view(state, 'collectibles', now)
+    assert [row['id'] for row in collectibles['items']] == [collectible_id]
+    assert {'section': 'collectibles', 'detail': 'rules'} in collectibles['available_views']
+    assert not any(link.get('detail') == 'owned' for link in collectibles['available_views'])
+    with pytest.raises(ValueError):
+        validate_view('collectibles', detail='owned')
+    assert build_view(state, 'collectibles', now, item_id=collectible_id)['item']['id'] == collectible_id
+    assert 'rule' in build_view(state, 'collectibles', now, detail='rules')['summary']
 
 
 def test_owned_and_discovered_details_and_guessed_ids(api, cat_clock):
