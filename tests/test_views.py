@@ -22,13 +22,56 @@ def test_sections_are_bounded_and_their_links_work(api, cat_clock, section):
     assert response.status_code == 200
     payload = response.get_json()
     assert payload['section'] == section and payload['ok'] is True
-    assert set(payload) <= {'ok', 'section', 'summary', 'items', 'item', 'available_views',
+    assert set(payload) <= {'ok', 'section', 'summary', 'items', 'item', 'available_views', 'next_tool',
                             'care', 'available_interactions'}
+    assert (payload.get('next_tool') == 'garden_view') is bool(payload['available_views'])
     assert not {'state', 'shared_activity', 'recent_events', 'flower_shop', 'cottage', 'pots'} & payload.keys()
     for link in payload['available_views']:
         assert view(client, sid, **link).status_code == 200
     for detail in VIEW_DETAILS[section]:
         assert view(client, sid, section, detail=detail).status_code == 200
+
+
+def test_navigation_links_are_complete_and_followable_at_every_level(api, cat_clock):
+    module, client = api
+    sid, _ = create_human_garden(client)
+    state = module.db_load_state(sid)
+    state['collectibles'] = {ge.CAT_COLLECTIBLES[0]['id']: 1}
+    state['encyclopedia'] = list(ge.BOUQUETS['first_meeting']['components'])
+    state['letters_received'] = [0]
+    furniture = next(i for i, row in ge.COTTAGE_ITEM_CATALOG.items() if not row.get('legacy_only'))
+    state['cottage']['items'] = {furniture: {'source': 'human', 'acquired_at': cat_clock[0]}}
+    state['events'] = []
+    for index in range(12):
+        ge.add_event(state, f'动态{index}', now=cat_clock[0] - 20 + index, area='garden')
+    module.db_save_state(sid, state)
+
+    overview = client.get('/api/status', headers={'X-API-Key': 'test-key'},
+                          query_string={'session_id': sid}).get_json()['state']
+    assert overview['next_tool'] == 'garden_view'
+    pending = list(overview['available_views'])
+    visited = set()
+    sections, terminal_sections = set(), set()
+    while pending:
+        link = pending.pop()
+        assert 'section' in link and set(link) <= {'section', 'detail', 'item_id', 'page'}
+        key = tuple(sorted(link.items()))
+        if key in visited:
+            continue
+        visited.add(key)
+        response = view(client, sid, **link)
+        assert response.status_code == 200
+        payload = response.get_json()
+        sections.add(link['section'])
+        links = payload['available_views']
+        if links:
+            assert payload['next_tool'] == 'garden_view'
+            pending.extend(links)
+        else:
+            assert 'next_tool' not in payload
+            terminal_sections.add(link['section'])
+    assert sections == set(VIEW_DETAILS)
+    assert terminal_sections == set(VIEW_DETAILS) - {'journal'}
 
 
 def test_owned_and_discovered_details_and_guessed_ids(api, cat_clock):
@@ -51,6 +94,7 @@ def test_owned_and_discovered_details_and_guessed_ids(api, cat_clock):
     ]:
         payload = view(client, sid, section).get_json()
         assert len(payload['items']) == 1
+        assert not any(link.get('item_id') == secret for link in payload['available_views'])
         assert 'text' not in payload['items'][0] and 'description' not in payload['items'][0]
         assert view(client, sid, section, item_id=visible).status_code == 200
         denied = view(client, sid, section, item_id=secret)
@@ -64,6 +108,7 @@ def test_owned_and_discovered_details_and_guessed_ids(api, cat_clock):
     module.db_save_state(sid, state)
     known = view(client, sid, 'bouquets').get_json()
     visible_ids = {row['id'] for row in known['items']}
+    assert {link['item_id'] for link in known['available_views'] if 'item_id' in link} == visible_ids
     assert visible_ids
     for bid in ge.BOUQUETS:
         response = view(client, sid, 'bouquets', item_id=bid)
@@ -265,6 +310,7 @@ def test_ai_help_guides_layered_access(api, cat_clock):
                      client.post('/api/cmd', headers=headers, json={'session_id': sid, 'command': 'help'})):
         text = response.get_json()['message']
         assert all(name in text for name in ('garden_status', 'garden_view', 'garden_command', 'garden_batch'))
+        assert '将其参数用于下一次 garden_view' in text
         assert 'collectibles - 查看' not in text and 'vase - 查看' not in text
         assert 'make_bouquet bouquet_id=' in text
 

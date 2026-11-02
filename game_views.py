@@ -35,6 +35,12 @@ def _entry(**params):
     return params
 
 
+def _navigation(result, views):
+    result["available_views"] = views
+    if views:
+        result["next_tool"] = "garden_view"
+
+
 def _item(items, item_id):
     found = next((item for item in items if str(item["id"]) == item_id), None)
     if found is None:
@@ -90,8 +96,8 @@ def build_overview(state, now, *, cat_summary):
         "cottage": {"owned_count": cottage["total_owned"],
                     "food_remaining": state["cat_care"]["food_bowl"]["remaining_portions"],
                     "water_remaining": state["cat_care"]["water_bowl"]["remaining_portions"]},
-        "available_views": [{"section": section} for section in VIEW_DETAILS],
     }
+    _navigation(result, [{"section": section} for section in VIEW_DETAILS])
     if cat_summary:
         result["cat"] = _pick(cat_summary, "name", "stage", "location", "is_present", "hunger", "thirst", "mood", "affection", "max_affection")
     return result
@@ -270,5 +276,5 @@ def build_view(state, section, now, *, detail=None, item_id=None, page=None):
             result["summary"] = {key: len(rows) for key, rows in goods.items()}
             views = [_entry(detail=key) for key in goods]
 
-    result["available_views"] = [{"section": section, **view} for view in views]
+    _navigation(result, [{"section": section, **view} for view in views])
     return result

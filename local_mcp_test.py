@@ -88,7 +88,8 @@ def garden_reference(kind: Literal["info", "catalog", "help"]) -> dict[str, Any]
     payload = _request("GET", f"/api/{kind}", authenticated=kind == "help")
     if kind == "info":
         return {"ok": True, "game": payload.get("game", ""), "description": payload.get("description", ""),
-                "guide": "先调用 garden_status()，再用 garden_view(section) 查看模块；动作用 garden_command 或 garden_batch。"}
+                "guide": "先调用 garden_status()，再用 garden_view(section) 查看模块；动作用 garden_command 或 garden_batch。"
+                         "返回 available_views 时，可选择其中一项，将其参数用于下一次 garden_view。"}
     return payload
 
 
@@ -104,7 +105,7 @@ def garden_view(
                      "cottage", "bouquets", "letters", "journal", "shop"],
     detail: str | None = None, item_id: str | None = None, page: int | None = None,
 ) -> dict[str, Any]:
-    """浏览单个模块；默认摘要，按 available_views 的参数查看细节。journal 支持正整数 page。"""
+    """浏览单个模块，默认返回摘要。返回 available_views 时，可选择其中一项，将其参数用于下一次 garden_view。journal 支持正整数 page。"""
     if page is not None and (type(page) is not int or page < 1):
         raise ToolError("page 必须是正整数。")
     params = {"session_id": _session_id(), "section": section}

@@ -1755,6 +1755,7 @@ AI_VIEW_COMMANDS = {
 AI_VIEW_GUIDE = (
     "先用 garden_status() 查看总览，再用 garden_view(section, detail, item_id, page) 查看模块；"
     "执行动作用 garden_command(command) 或 garden_batch(commands)，便签用 garden_notes。"
+    "返回 available_views 时，可选择其中一项，将其参数用于下一次 garden_view。"
 )
 
 

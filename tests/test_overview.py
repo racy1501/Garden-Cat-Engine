@@ -29,6 +29,7 @@ def test_overview_slots_can_be_used_directly_for_actions(api, cat_clock):
     assert not {'pots', 'pots_summary', 'inventory_counts', 'bouquet_options', 'bouquet_inventory',
                 'offline_summary', 'game_hour', 'local_date', 'timezone'} & summary.keys()
     assert {v['section'] for v in summary['available_views']} == set(VIEW_DETAILS)
+    assert summary['next_tool'] == 'garden_view'
     assert set(summary['flower_shop']) == {'established', 'launched', 'is_open', 'shelf_capacity', 'occupied_slots', 'empty_slots'}
     assert set(summary['cottage']) == {'owned_count', 'food_remaining', 'water_remaining'}
     assert len(payload['message']) < 100

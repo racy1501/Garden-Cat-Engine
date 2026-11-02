@@ -55,6 +55,7 @@ class ForwardingTests(unittest.TestCase):
                 result = shell.garden_reference(kind)
                 if kind == "info":
                     self.assertIn("garden_view", result["guide"])
+                    self.assertIn("将其参数用于下一次 garden_view", result["guide"])
                     self.assert_request("GET", "/api/info", auth=False)
                 elif kind == "catalog":
                     self.assertEqual(result, self.payload)
@@ -88,6 +89,9 @@ class ForwardingTests(unittest.TestCase):
         shell.garden_view("inventory", detail="seeds")
         self.assert_request("GET", "/api/view", query={"session_id": ["mock-session"],
                             "section": ["inventory"], "detail": ["seeds"]})
+
+    def test_view_tool_explains_using_navigation_parameters(self):
+        self.assertIn("将其参数用于下一次 garden_view", shell.garden_view.__doc__)
 
     def test_command_preserves_business_failure_and_original_command(self):
         self.payload = {"ok": False, "message": "材料不足", "state": {"money": 5}}
