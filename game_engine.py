@@ -231,7 +231,7 @@ ITEMS = {
     "basic_food": {"name": "普通猫粮", "price": 10, "type": "consumable", "effect": {"hunger": 20}},
     "premium_food": {"name": "高级猫粮", "price": 20, "type": "consumable", "effect": {"hunger": 25, "mood": 1}},
     "cat_treat": {"name": "猫零食", "price": 14, "type": "consumable", "effect": {"hunger": 5, "mood": 8}},
-    "water_bowl": {"name": "高级水碗", "price": 10, "type": "permanent", "effect": {"thirst_decay": -0.5}},
+    "water_bowl": {"name": "高级水碗", "price": 10, "type": "permanent", "effect": {}},
     "cat_bed": {"name": "高级猫窝", "price": 30, "type": "permanent", "effect": {"mood_decay": -0.3}},
     "premium_food_bowl": {"name": "高级粮碗", "price": 18, "type": "permanent", "effect": {}},
     "ball": {"name": "毛线球", "price": 8, "type": "toy", "effect": {"mood": 12}},
@@ -4685,6 +4685,11 @@ def execute_command(state, command, *, event_source="system", source_name=None, 
     parts = command.strip().split()
     action = parts[0].lower()
     event_source = normalize_event_source(event_source)
+    if event_source == "human" and (
+        action == "gift_bouquet"
+        or (action == "make_bouquet" and _parse_bouquet_arguments(parts)[0])
+    ):
+        return CommandResult(False, "❌ 当前花束赠礼由 AI 送给人类，网页端可以制作花束或查看收藏。")
     now = int(time.time()) if settled_at is None else settled_at
     if letter_context is None:
         letter_context = {"messages": [], "remaining_deliveries": 1}
@@ -5730,9 +5735,9 @@ buy_cottage_furniture <furniture_id> - 用共同余额为小屋添置一件主�
 plant <花> <盆号> - 种花（雨天自动浇水，否则需手动浇水才能生长）
 water <盆号|all> - 给花浇水（浇一次永久有效，直到收获）
 harvest <盆号|all> - 收获一盆，或一键收获全部成熟花朵
-make_bouquet [bouquet_id=...] [message=...] - 查看或制作花束并送给人类
+{('make_bouquet - 查看花束配方' if event_source == 'human' else 'make_bouquet [bouquet_id=...] [message=...] - 查看或制作花束并送给人类')}
 craft_bouquet bouquet_id=<花束ID> - 制作一束花并放进花束背包
-gift_bouquet instance_id=<花束实例ID> [message=...] - 从花束背包赠送
+{('花束赠礼由 AI 送给人类' if event_source == 'human' else 'gift_bouquet instance_id=<花束实例ID> [message=...] - 从花束背包赠送')}
 list_bouquet instance_id=<花束实例ID> [slot=1] - 营业时将花束上架到空货架
 establish_flower_shop - 满足条件后花费{FLOWER_SHOP_ESTABLISH_COST}块建造花店
 upgrade_flower_shop_shelf - 将花店货架扩建至下一档容量
