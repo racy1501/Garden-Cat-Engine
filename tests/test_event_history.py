@@ -88,16 +88,18 @@ def test_api_returns_only_five_shared_events_but_web_returns_50(api, cat_clock):
             result = response.get_json()["state"]
             assert not {"events", "recent_event_records", "new_events"} & result.keys()
             assert result["recent_events"] == []
-        return [response.get_json()["state"]["shared_activity"] for response in responses]
+        for response in responses[1:]:
+            assert "shared_activity" not in response.get_json()["state"]
+        return responses[0].get_json()["state"]["shared_activity"]
 
     state["events"] = []
     module.db_save_state(sid, state)
-    assert snapshots() == [[], [], []]
+    assert snapshots() == []
     state["events"] = [{"time": cat_clock[0] - i, "text": f"历史{i}", "area": "garden"} for i in range(50)]
     module.db_save_state(sid, state)
     filled = snapshots()
-    assert all(len(events) == 5 for events in filled)
-    assert all([event["text"] for event in events] == [f"历史{i}" for i in range(4, -1, -1)] for events in filled)
+    assert len(filled) == 5
+    assert [event["text"] for event in filled] == [f"历史{i}" for i in range(4, -1, -1)]
     web = client.get(f"/web/status?session_id={sid}", headers=web_headers).get_json()["state"]
     assert len(web["recent_events"]) == len(web["recent_event_records"]) == 50
     assert all(record["area"] == "garden" for record in web["recent_event_records"])

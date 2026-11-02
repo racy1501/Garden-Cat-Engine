@@ -440,7 +440,7 @@ def test_flower_shop_hours_response_announces_next_date_and_new_window(api, cat_
     assert "今天剩余时间花店保持闭店" in payload["message"]
     assert "14:00–24:00" in payload["message"]
     assert payload["state"]["flower_shop"]["is_open"] is False
-    assert payload["state"]["flower_shop"]["pending_business_start_minute"] == 14 * 60
+    assert module.db_load_state(session_id)["flower_shop"]["pending_business_start_minute"] == 14 * 60
 
 
 def test_silent_resume_notifies_new_letter_once(api, cat_clock, monkeypatch):
@@ -557,7 +557,7 @@ def test_api_notes_without_new_letter_keeps_original_response(api, cat_clock):
 
 @pytest.mark.parametrize("endpoint,live", [
     ("web_status", True), ("web_status", False), ("web_cmd", True),
-    ("api_status", False), ("api_cmd", False), ("web_notes", False),
+    ("api_status", False), ("api_cmd", False), ("api_batch", False), ("web_notes", False),
     ("api_notes", False), ("bouquet_read", False),
 ])
 def test_first_cat_collectible_notified_by_settling_request(api, cat_clock, monkeypatch, endpoint, live):
@@ -590,6 +590,9 @@ def test_first_cat_collectible_notified_by_settling_request(api, cat_clock, monk
         response = client.get(f"/api/status?session_id={session_id}", headers={"X-API-Key": "test-key"})
     elif endpoint == "api_cmd":
         response = client.post("/api/cmd", headers={"X-API-Key": "test-key"}, json={"session_id": session_id, "command": "status"})
+    elif endpoint == "api_batch":
+        response = client.post("/api/cmd/batch", headers={"X-API-Key": "test-key"},
+                               json={"session_id": session_id, "commands": ["water all"]})
     elif endpoint == "web_notes":
         response = client.get(f"/web/notes?session_id={session_id}", headers=headers)
     elif endpoint == "api_notes":
@@ -606,8 +609,8 @@ def test_first_cat_collectible_notified_by_settling_request(api, cat_clock, monk
             notices = [event["text"] for event in payload["state"]["new_events"]]
             assert sum(item["name"] in text for text in notices) == 1
             assert "发现新藏品" in notices[0]
-    elif "state" in payload and endpoint != "api_status":
-        assert item["name"] in payload["state"]["offline_summary"]["message"]
+    elif "state" in payload:
+        assert "offline_summary" not in payload["state"]
     saved = module.db_load_state(session_id)
     assert saved["collectibles"][item["id"]] == 1
     assert saved["collectible_first_found"][item["id"]] == start + 60
@@ -674,26 +677,11 @@ def test_api_cmd_uses_slim_ai_summary(api):
 
     assert response.status_code == 200
     state = response.get_json()["state"]
-    assert "inventory" not in state
-    assert "encyclopedia" not in state
-    assert "letters" not in state
-    assert "letter_catalog" not in state
-    assert "collectibles" not in state
-    assert "collectible_catalog" not in state
-    assert "garden_collectibles" not in state
-    assert "garden_collectibles_count" not in state
-    assert "garden_collectibles_total_found" not in state
-    assert "garden_collectibles_capacity" not in state
-    assert "garden_collectible_catalog" not in state
-    assert "garden_collection_log" not in state
+    assert {"inventory", "garden", "cat", "encyclopedia", "collectibles"} <= state.keys()
+    assert not {"pots", "pots_summary", "inventory_counts", "garden_events", "shared_activity",
+                "bouquet_options", "bouquet_inventory", "collectible_catalog", "letter_catalog"} & state.keys()
     assert isinstance(state["recent_events"], list)
-    assert "cat_state" not in state
-    assert all(set(pot) == {"slot", "flower_id", "status", "progress", "remaining_seconds", "watered", "has_pests", "paused"} for pot in state["pots"])
-    assert all(pot["status"] in {"empty", "needs_water", "growing", "pest_blocked", "ready", "withered"}
-               for pot in state["pots"])
-    assert "inventory_counts" in state
-    assert "pots_summary" in state
-    assert "garden_events" in state
+    assert state["garden"]["empty_pots"] == [1, 2, 3]
 
 
 def test_pots_summary_ready_pots_matches_harvestability_on_all_ai_routes(api, cat_clock):
@@ -725,18 +713,11 @@ def test_pots_summary_ready_pots_matches_harvestability_on_all_ai_routes(api, ca
             response = client.post(route, headers=headers,
                                    json={"session_id": session_id, "command": "status"})
         assert response.status_code == 200
-        if route == "/api/status":
-            garden = response.get_json()["state"]["garden"]
-            assert garden["ready_pots"] == [1]
-            assert garden["pest_pots"] == [2]
-            assert garden["withered_pots"] == [4]
-            assert garden["growing_count"] == 1
-            continue
-        summary = response.get_json()["state"]["pots_summary"]
-        assert summary["ready_pots"] == 1
-        assert summary["pest_pots"] == 1
-        assert summary["growing_pots"] == 1
-        assert summary["withered_pots"] == 1
+        garden = response.get_json()["state"]["garden"]
+        assert garden["ready_pots"] == [1]
+        assert garden["pest_pots"] == [2]
+        assert garden["withered_pots"] == [4]
+        assert garden["growing_count"] == 1
 
 
 def test_api_status_uses_slim_ai_summary(api):
@@ -774,7 +755,7 @@ def test_ai_help_and_inventory_items_on_all_routes(api, cat_clock):
             assert "give_treat" in message and "switch_food <basic|premium>" in message
             assert "refill_food" not in message and "refill_water" not in message
         result = response.get_json()["state"]
-        assert result["inventory" if route == "/api/status" else "inventory_counts"]["items"] == items
+        assert result["inventory"]["items"] == items
 
 
 def test_ai_pot_decision_fields_follow_formal_status_and_weather(api):
@@ -875,15 +856,11 @@ def test_ai_gardening_details_match_across_routes_without_changing_save(api, cat
             response = client.post(route, headers=headers, json={"session_id": session_id, "command": "status"})
         assert response.status_code == 200
         result = response.get_json()["state"]
-        if route == "/api/status":
-            assert result["garden"]["empty_pots"] == [1]
-            assert result["garden"]["needs_water_pots"] == [2]
-            assert result["garden"]["ready_pots"] == [5]
-            assert result["inventory"]["flower_total"] == 7
-            continue
-        assert result["pots"] == expected_pots
-        assert result["inventory_counts"]["seeds"] == {"daisy": 3, "rose": 1}
-        assert result["inventory_counts"]["flowers"] == {"daisy": 5, "rose": 2}
+        assert result["garden"]["empty_pots"] == [1]
+        assert result["garden"]["needs_water_pots"] == [2]
+        assert result["garden"]["ready_pots"] == [5]
+        assert result["inventory"]["flower_total"] == 7
+        assert result["inventory"]["seeds"] == {"daisy": 3, "rose": 1}
         after = module.db_load_state(session_id)
         assert after["pots"] == before["pots"]
         assert after["inventory"] == before["inventory"]
@@ -981,10 +958,8 @@ def test_ai_pest_summaries_clear_after_treat_with_isolated_sqlite(monkeypatch):
         payload = response.get_json()
         assert payload["ok"] is True
         after = payload["state"]
-        assert after["garden_events"]["pest_pots"] == []
-        assert after["garden_events"]["has_pests"] is False
-        assert after["pots_summary"]["pest_pots"] == 0
-        assert after["pots"][0]["status"] != "pest_blocked"
+        assert after["garden"]["pest_pots"] == []
+        assert after["garden"]["growing_count"] == 1
     finally:
         connection.close()
 
@@ -1081,52 +1056,17 @@ def test_compact_command_preserves_default_state_and_status(api, monkeypatch):
     assert default["ok"] is compact["ok"] is True
     assert default["message"] == compact["message"]
     assert default["session_id"] == compact["session_id"] == session_id
-    assert "purchasable_items" in default["state"]["cottage"]
-    assert "pricing_profiles" in default["state"]["flower_shop"]
-    assert "purchasable_items" not in status["state"]["cottage"]
-    assert "pricing_profiles" not in status["state"]["flower_shop"]
-    complete_owned_fields = {"id", "name", "category", "slot_key", "asset_key", "acquired_at", "source"}
-    for payload in (default,):
-        owned_items = payload["state"]["cottage"]["owned_items"]
-        assert [item["id"] for item in owned_items] == expected_ids
-        assert all(complete_owned_fields <= item.keys() for item in owned_items)
-        assert "water_servings" in payload["state"]["inventory_counts"]
-        assert "weather_emoji" in payload["state"]
-        assert payload["state"]["inventory_counts"]["seeds"] == {"daisy": 3, "rose": 1}
-        assert payload["state"]["inventory_counts"]["flowers"] == {"daisy": 5, "rose": 2}
-        assert all({"slot", "flower_id", "status", "progress", "remaining_seconds", "watered", "has_pests", "paused"} == set(pot) for pot in payload["state"]["pots"])
-        assert payload["state"]["cottage"]["cat_area"]["water_bowl"]["remaining_portions"] == 2
-    assert "purchasable_items" not in compact["state"]["cottage"]
-    assert "pricing_profiles" not in compact["state"]["flower_shop"]
-    assert "water_servings" not in compact["state"]["inventory_counts"]
-    assert "weather_emoji" not in compact["state"]
-    assert "weather" in compact["state"]
-    assert "is_open" in compact["state"]["flower_shop"]
-    assert "slots" in compact["state"]["flower_shop"]
-    assert all("is_open" not in slot for slot in compact["state"]["flower_shop"]["slots"])
-    assert compact["state"]["cottage"]["cat_area"]["water_bowl"]["remaining_portions"] == 2
-    assert all({"slot", "flower_id", "status", "progress", "remaining_seconds", "watered", "has_pests", "paused"} == set(pot) for pot in compact["state"]["pots"])
-    assert compact["state"]["inventory_counts"]["seeds"] == {"daisy": 3, "rose": 1}
-    assert compact["state"]["inventory_counts"]["flowers"] == {"daisy": 5, "rose": 2}
-    compact_owned_items = compact["state"]["cottage"]["owned_items"]
-    assert compact_owned_items == [{"id": item_id} for item_id in expected_ids]
-    assert all(set(item) == {"id"} for item in compact_owned_items)
-    assert {"ottoman", "potted_plant"} <= set(expected_ids)
-    assert len(expected_ids) == len(set(expected_ids))
+    assert default["state"] == compact["state"]
+    for payload in (default, compact, status):
+        summary = payload["state"]
+        assert summary["inventory"]["seeds"] == {"daisy": 3, "rose": 1}
+        assert summary["inventory"]["flower_total"] == 7
+        assert summary["cottage"]["water_remaining"] == 2
+        assert summary["cottage"]["owned_count"] == len(expected_ids)
+        assert not {"inventory_counts", "pots", "bouquet_options"} & summary.keys()
+        assert "purchasable_items" not in summary["cottage"]
+        assert "pricing_profiles" not in summary["flower_shop"]
     assert module.db_load_state(session_id)["cottage"]["items"] == original_items
-    expected_compact_state = json.loads(json.dumps(default["state"]))
-    expected_compact_state["cottage"].pop("purchasable_items")
-    expected_compact_state["flower_shop"].pop("pricing_profiles")
-    expected_compact_state["inventory_counts"].pop("water_servings")
-    expected_compact_state.pop("weather_emoji")
-    expected_compact_state["cottage"]["owned_items"] = compact_owned_items
-    expected_compact_state["bouquet_options"] = [
-        {"bouquet_id": option["bouquet_id"], "can_make": option["can_make"], "missing": option["missing"]}
-        for option in expected_compact_state["bouquet_options"]
-    ]
-    for slot in expected_compact_state["flower_shop"]["slots"]:
-        slot.pop("is_open", None)
-    assert compact["state"] == expected_compact_state
 
 
 def test_compact_command_returns_empty_owned_items_array(api):
@@ -1141,7 +1081,7 @@ def test_compact_command_returns_empty_owned_items_array(api):
                            json={"session_id": session_id, "command": "status"})
 
     assert response.status_code == 200
-    assert response.get_json()["state"]["cottage"]["owned_items"] == []
+    assert response.get_json()["state"]["cottage"]["owned_count"] == 0
 
 
 def test_compact_command_only_removes_audited_display_fields(api, monkeypatch):
@@ -1187,23 +1127,15 @@ def test_compact_command_only_removes_audited_display_fields(api, monkeypatch):
     default = client.post("/api/cmd", headers=headers, json=body).get_json()["state"]
     compact = client.post("/api/cmd?compact=1", headers=headers, json=body).get_json()["state"]
 
-    for full in (default,):
-        assert full["inventory_counts"]["water_servings"] == 7
-        assert "weather_emoji" in full
-        assert "weather" in full
-        assert full["flower_shop"]["is_open"] is True
-        assert full["flower_shop"]["slots"][0]["is_open"] is True
-        assert full["flower_shop"]["slots"][1] == {"slot": 2, "empty": True}
-        assert full["cottage"]["cat_area"]["water_bowl"]["remaining_portions"] == 2
-
-    assert "water_servings" not in compact["inventory_counts"]
-    assert "weather_emoji" not in compact
+    assert default == compact
     assert compact["weather"] == status["weather"]
     assert compact["flower_shop"]["is_open"] is True
-    assert compact["flower_shop"]["slots"][0]["empty"] is False
-    assert compact["flower_shop"]["slots"][1] == {"slot": 2, "empty": True}
-    assert all("is_open" not in slot for slot in compact["flower_shop"]["slots"])
-    assert compact["cottage"]["cat_area"]["water_bowl"]["remaining_portions"] == 2
+    assert compact["flower_shop"]["occupied_slots"] == 1
+    assert compact["flower_shop"]["empty_slots"] == compact["flower_shop"]["shelf_capacity"] - 1
+    assert compact["cottage"]["water_remaining"] == 2
+    assert compact["inventory"]["items"]["water"] == 7
+    assert "inventory_counts" not in compact
+    assert "slots" not in compact["flower_shop"]
 
     saved_after = module.db_load_state(session_id)
     assert saved_after["inventory"]["items"]["water"] == saved_before["inventory"]["items"]["water"] == 7
@@ -1219,21 +1151,19 @@ def test_compact_command_success_and_failure_keep_dynamic_state(api):
                         json={"session_id": session_id, "command": "plant daisy 1"}).get_json()
     assert plant["ok"] is True
     assert "盆1" in plant["message"] and "water 1" in plant["message"]
-    assert plant["state"]["pots_summary"]["growing_pots"] == 1
-    assert plant["state"]["inventory_counts"]["seed_total"] == 2
+    assert plant["state"]["garden"]["needs_water_pots"] == [1]
+    assert plant["state"]["inventory"]["seed_total"] == 2
     failed = client.post("/api/cmd?compact=1", headers=headers,
                          json={"session_id": session_id, "command": "harvest 1"}).get_json()
     assert failed["ok"] is False
     assert "没浇水" in failed["message"]
     assert failed["session_id"] == session_id
     state = failed["state"]
-    assert {"money", "cat_summary", "pots_summary", "inventory_counts", "garden_events",
-            "latest_event", "bouquet_inventory"} <= state.keys()
-    assert "owned_items" in state["cottage"]
-    assert {"established", "is_open", "slots", "eligibility_progress", "business_start_minute",
-            "pending_business_start_minute", "pending_business_effective_at"} <= state["flower_shop"].keys()
-    assert "purchasable_items" not in state["cottage"]
-    assert "pricing_profiles" not in state["flower_shop"]
+    assert {"money", "cat", "garden", "inventory", "latest_event", "available_views"} <= state.keys()
+    assert state["garden"]["needs_water_pots"] == [1]
+    assert "shared_activity" not in state
+    assert "owned_items" not in state["cottage"]
+    assert "eligibility_progress" not in state["flower_shop"]
 
 
 def test_web_status_keeps_wide_summary(api):
@@ -1466,25 +1396,12 @@ def test_ai_inventory_counts_expose_food_types_and_preserve_legacy_alias(api, ba
             response = client.post(route, headers={"X-API-Key": "test-key"},
                                    json={"session_id": "food-counts", "command": "help"})
         assert response.status_code == 200
-        if route == "/api/status":
-            counts = response.get_json()["state"]["inventory"]
-            assert counts["seed_total"] == 5 and counts["flower_total"] == 4
-            assert counts["items"].get("basic_food", 0) == basic_food
-            assert counts["items"].get("premium_food", 0) == premium_food
-            assert "cat_food_servings" not in counts
-            continue
-        counts = response.get_json()["state"]["inventory_counts"]
-        assert counts["seed_types"] == 2
-        assert counts["seed_total"] == 5
-        assert counts["flower_types"] == 1
-        assert counts["flower_total"] == 4
-        assert counts["basic_food_servings"] == basic_food
-        assert counts["premium_food_servings"] == premium_food
-        assert counts["cat_food_servings"] == basic_food
-        if route == "/api/cmd?compact=1":
-            assert "water_servings" not in counts
-        else:
-            assert counts["water_servings"] == 7
+        counts = response.get_json()["state"]["inventory"]
+        assert counts["seed_total"] == 5 and counts["flower_total"] == 4
+        assert counts["items"].get("basic_food", 0) == basic_food
+        assert counts["items"].get("premium_food", 0) == premium_food
+        assert "cat_food_servings" not in counts
+        assert counts["items"]["water"] == 7
 
 
 def test_summary_recognizes_pest_active(api):
@@ -1536,14 +1453,14 @@ def test_ai_bouquet_command_and_web_collection_state(api):
     )
     assert created.status_code == 200
     assert created.get_json()["ok"] is True
-    assert len(created.get_json()["state"]["bouquet_options"]) == 1
+    assert "bouquet_options" not in created.get_json()["state"]
 
     web_state = client.get(
         f"/web/status?session_id={session_id}", headers=human_headers
     ).get_json()["state"]
     assert len(web_state["bouquet_gifts"]) == 1
     assert web_state["bouquet_gifts"][0]["message"] == "给你的春天"
-    assert web_state["bouquet_options"] == created.get_json()["state"]["bouquet_options"]
+    assert len(web_state["bouquet_options"]) == 1
     assert web_state["bouquet_gifts"][0]["components"] == {"tulip": 2, "baby_breath": 1}
     assert web_state["recent_events"][-1] == "💐 送出了一束「初见」，还附了一张小卡片。"
     gift_events = [
@@ -1583,30 +1500,11 @@ def test_bouquet_options_compact_projection_preserves_dynamic_facts(api):
         status_response.status_code == default_response.status_code == compact_response.status_code == 200
     )
 
-    full_fields = {"bouquet_id", "name", "components", "can_make", "missing"}
-    assert "bouquet_options" not in status_response.get_json()["state"]
-    for response in (default_response,):
-        options = response.get_json()["state"]["bouquet_options"]
-        assert options == expected_options
-        assert [option["bouquet_id"] for option in options] == expected_ids
-        assert all(set(option) == full_fields for option in options)
-
-    compact_options = compact_response.get_json()["state"]["bouquet_options"]
-    assert compact_options == [
-        {
-            "bouquet_id": option["bouquet_id"],
-            "can_make": option["can_make"],
-            "missing": option["missing"],
-        }
-        for option in expected_options
-    ]
-    assert all(set(option) == {"bouquet_id", "can_make", "missing"} for option in compact_options)
-    assert [option["bouquet_id"] for option in compact_options] == expected_ids
-    by_id = {option["bouquet_id"]: option for option in compact_options}
-    assert by_id["first_meeting"]["can_make"] is True
-    assert by_id["first_meeting"]["missing"] == {}
-    assert by_id["morning_light"]["can_make"] is False
-    assert by_id["morning_light"]["missing"] == {"sunflower": 1, "carnation": 1, "daisy": 1}
+    for response in (status_response, default_response, compact_response):
+        assert "bouquet_options" not in response.get_json()["state"]
+    options = client.get("/api/view", headers=headers,
+                         query_string={"session_id": session_id, "section": "bouquets"}).get_json()["items"]
+    assert {option["id"] for option in options} == set(expected_ids)
 
     catalog = client.get("/api/catalog").get_json()["bouquets"]
     assert set(catalog) == set(ge.BOUQUETS)
@@ -1638,8 +1536,8 @@ def test_flower_shop_and_bouquet_inventory_have_public_summary_only(api, cmd_url
         json={"session_id": session_id, "command": "craft_bouquet bouquet_id=first_meeting"},
     ).get_json()
     assert crafted["ok"] is True
-    item = crafted["state"]["bouquet_inventory"][0]
-    assert set(item) == {"id", "bouquet_id", "name", "components"}
+    item = crafted["created_bouquets"][0]
+    assert set(item) == {"instance_id", "bouquet_id"}
 
     established = client.post(
         "/web/cmd", headers=human_headers,
@@ -1664,15 +1562,15 @@ def test_flower_shop_and_bouquet_inventory_have_public_summary_only(api, cmd_url
     assert overview["flower_shop"]["established"] is True
     assert "eligibility_progress" not in overview["flower_shop"]
     ai_state = client.post(cmd_url, headers=ai_headers, json={"session_id": session_id, "command": "status"}).get_json()["state"]
-    assert ai_state["flower_shop"]["eligibility_progress"]["direct_flower_sale_earned"] == 3000
-    assert ai_state["bouquet_inventory"][0]["id"] == item["id"]
+    assert "eligibility_progress" not in ai_state["flower_shop"]
+    assert "bouquet_inventory" not in ai_state
+    assert module.db_load_state(session_id)["bouquet_inventory"][0]["instance_id"] == item["instance_id"]
 
     saved = module.db_load_state(session_id)
     buff_until = int(ge.time.time()) + 3600
     saved["flower_shop"]["shop_buff_until"] = buff_until
     module.db_save_state(session_id, saved)
-    active_shop = client.post(cmd_url, headers=ai_headers,
-                              json={"session_id": session_id, "command": "status"}).get_json()["state"]["flower_shop"]
+    active_shop = client.get(f"/web/status?session_id={session_id}", headers=human_headers).get_json()["state"]["flower_shop"]
     assert active_shop["shop_buff_active"] is True
     assert active_shop["shop_buff_until"] == buff_until
     assert 0 < active_shop["shop_buff_remaining_seconds"] <= 3600
@@ -1690,7 +1588,11 @@ def test_flower_shop_and_bouquet_inventory_have_public_summary_only(api, cmd_url
         client.post(cmd_url, headers=ai_headers, json={"session_id": session_id, "command": "status"}),
     ]
     for response in responses:
-        assert response.get_json()["state"]["flower_shop"]["shop_buff_collectible_id"] == ge.CAT_COLLECTIBLES[0]["id"]
+        shop = response.get_json()["state"]["flower_shop"]
+        if "shop_buff_collectible_id" in shop:
+            assert shop["shop_buff_collectible_id"] == ge.CAT_COLLECTIBLES[0]["id"]
+        else:
+            assert "slots" not in shop
 
 
 @pytest.mark.parametrize("source_id", ["missing", "invalid"])
@@ -1741,7 +1643,9 @@ def test_flower_shop_listing_summary_exposes_price_but_hides_random_facts(api, m
     )
     assert response.status_code == 200
     public_state = response.get_json()["state"]
-    public_slot = public_state["flower_shop"]["slots"][0]
+    assert public_state["flower_shop"]["occupied_slots"] == 1
+    public_slot = client.get("/api/view", headers={"X-API-Key": "test-key"},
+                             query_string={"session_id": session_id, "section": "flower_shop", "detail": "shelves"}).get_json()["summary"]["slots"][0]
     assert public_slot["empty"] is False
     assert public_slot["name"] == "初见"
     assert public_slot["current_price"] == 55
@@ -1750,7 +1654,8 @@ def test_flower_shop_listing_summary_exposes_price_but_hides_random_facts(api, m
     assert "will_sell" not in public_slot
     assert "sale_business_seconds_remaining" not in public_slot
     assert "pricing_profile" not in public_slot
-    assert public_state["bouquet_inventory"] == []
+    assert "bouquet_inventory" not in public_state
+    assert module.db_load_state(session_id)["bouquet_inventory"] == []
 
     saved_slot = module.db_load_state(session_id)["flower_shop"]["slots"][0]
     assert saved_slot["will_sell"] is True
@@ -1791,7 +1696,7 @@ def test_bouquet_unread_cursor_is_durable_and_legacy_gifts_are_read(api):
         headers=ai_headers,
         json={"session_id": session_id, "command": "make_bouquet bouquet_id=first_meeting"},
     )
-    assert created.get_json()["state"]["bouquet_options"]
+    assert "bouquet_options" not in created.get_json()["state"]
     first_gift_events = [
         event["text"]
         for event in module.db_load_state(session_id)["events"]

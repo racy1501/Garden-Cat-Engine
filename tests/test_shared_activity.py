@@ -46,10 +46,8 @@ def test_shared_activity_includes_real_sources_and_is_limited_in_compact_and_bat
                           json={'session_id': sid, 'command': 'plant daisy 1'}).get_json()['state']
     assert command['recent_events'][-1]['source'] == 'ai'
     assert command['latest_event'] == command['recent_events'][-1]['text']
-    assert command['shared_activity'][-1]['source_name'] == '砚川'
-    assert len(command['shared_activity']) == 5
-    assert all(set(event) <= {'source', 'source_name', 'source_label', 'area', 'text', 'time'}
-               for event in command['shared_activity'])
+    assert command['recent_events'][-1]['source_name'] == '砚川'
+    assert 'shared_activity' not in command
     assert not {'events', 'recent_event_records', 'new_events'} & command.keys()
 
     state = module.db_load_state(sid)
@@ -65,8 +63,8 @@ def test_shared_activity_includes_real_sources_and_is_limited_in_compact_and_bat
     assert again['shared_activity'] == status['shared_activity']
     batch = client.post('/api/cmd/batch?compact=1', headers=headers,
                         json={'session_id': sid, 'commands': ['plant daisy 2']}).get_json()
-    assert batch['ok'] is True and len(batch['state']['shared_activity']) <= 5
-    assert any(e['text'] == '在盆2种下了雏菊' for e in batch['state']['shared_activity'])
+    assert batch['ok'] is True and 'shared_activity' not in batch['state']
+    assert any(e['text'] == '在盆2种下了雏菊' for e in batch['state']['recent_events'])
 
 
 def test_shared_activity_uses_saved_snapshot_before_summary_catchup(api, cat_clock, monkeypatch):

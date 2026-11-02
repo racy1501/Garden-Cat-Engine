@@ -4655,7 +4655,7 @@ def prepare_command_state(state, now, *, letter_context):
     return weather_data, messages
 
 
-def execute_command(state, command, *, event_source="system", source_name=None, letter_context=None, settled_at=None) -> CommandResult:
+def execute_command(state, command, *, event_source="system", source_name=None, letter_context=None, settled_at=None, include_summary=True) -> CommandResult:
     """在传入的存档字典上执行命令，并原地更新状态。
 
     该入口供 Flask API / 数据库存档调用，不读取或写入本地 JSON 文件。
@@ -5788,7 +5788,7 @@ help - 显示帮助
     if letter_context["messages"][letter_start:]:
         result = result + "\n" + "\n".join(letter_context["messages"][letter_start:])
 
-    if settled_at is None and (action != "status" or (not ok and not all_event_messages)):
+    if include_summary and settled_at is None and (action != "status" or (not ok and not all_event_messages)):
         result += "\n\n" + _summary(state)
 
     state["last_active_at"] = now

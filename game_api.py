@@ -78,6 +78,7 @@ from game_engine import (
     execute_command,
     sync_cottage_rewards,
     _resolve_letter_progress,
+    _garden_event_reward_text,
     update_cat_max_affection,
 )
 
@@ -773,12 +774,17 @@ def _api_forbidden(message: str):
     return jsonify({"ok": False, "error": message}), 403
 
 
-def _load_existing_api_state(raw_session_id: Any, *, events_before: list | None = None) -> tuple[str | None, dict[str, Any] | None, Any | None]:
+def _load_existing_api_state(raw_session_id: Any, *, events_before: list | None = None, settlement_before: list | None = None) -> tuple[str | None, dict[str, Any] | None, Any | None]:
     raw_value = str(raw_session_id or "").strip()
     if not raw_value:
         return None, None, (jsonify({"ok": False, "error": "请提供有效的 session_id。"}), 400)
     session_id = _safe_session_id(raw_value)
-    state = db_load_state(session_id, events_before=events_before)
+    if settlement_before is None:
+        state = db_load_state(session_id, events_before=events_before)
+    else:
+        state = db_load_state(session_id, events_before=settlement_before, live_events=True)
+        if state is not None and events_before is not None:
+            events_before.extend(state.get("events", []))
     if state is None:
         return session_id, None, (jsonify({"ok": False, "error": "指定的 session_id 不存在。"}), 404)
     g.collectible_notice_authorized = True
@@ -1711,25 +1717,34 @@ def new_game():
     )
 
 
-def _compact_ai_state(public_state):
-    public_state["inventory_counts"].pop("water_servings", None)
-    public_state.pop("weather_emoji", None)
-    public_state["cottage"].pop("purchasable_items", None)
-    public_state["cottage"]["owned_items"] = [
-        {"id": item["id"]} for item in public_state["cottage"].get("owned_items", [])
-    ]
-    public_state["flower_shop"].pop("pricing_profiles", None)
-    for slot in public_state["flower_shop"].get("slots", []):
-        if isinstance(slot, dict):
-            slot.pop("is_open", None)
-    public_state["bouquet_options"] = [
-        {
-            "bouquet_id": option["bouquet_id"],
-            "can_make": option["can_make"],
-            "missing": option["missing"],
-        }
-        for option in public_state.get("bouquet_options", [])
-    ]
+def _action_state(state, events_before, now):
+    """Read the final decision state without settling again or repeating history."""
+    summary = build_overview(state, now, cat_summary=_build_cat_summary_for_ai(state))
+    events = [_event_record_for_client(event) for event in _new_request_events(state, events_before)]
+    summary.update(recent_events=events, latest_event=events[-1]["text"] if events else "")
+    return summary
+
+
+def _created_bouquets(state, previous_ids):
+    """Expose only instances actually added by this action, from the official inventory."""
+    created = [{"instance_id": item["instance_id"], "bouquet_id": item["bouquet_id"]}
+               for item in state.get("bouquet_inventory", []) if item["instance_id"] not in previous_ids]
+    return {"created_bouquets": created} if created else {}
+
+
+def _action_settlement_messages(state, before):
+    """Keep newly settled results readable while recent_events keeps its live boundary."""
+    events = _new_request_events(state, before)
+    last_rainbow = next((event for event in reversed(events) if event.get("text") == "🌈 彩虹出现"), None)
+    messages = []
+    for event in events:
+        text = event.get("text", "")
+        if event is last_rainbow:
+            reward = _garden_event_reward_text(state.get("last_rainbow_reward"))
+            if reward:
+                text += "：" + reward
+        messages.append(text)
+    return messages
 
 
 AI_VIEW_COMMANDS = {
@@ -1795,8 +1810,9 @@ def cmd_route():
         part and not part.startswith("message=") and part != "bouquet_id=" for part in parts[1:]
     ):
         return jsonify({"ok": False, "message": "请指定 bouquet_id；查看配方请使用 garden_view。"}), 400
-    events_before = []
-    checked_session_id, state, error_response = _load_existing_api_state(data.get("session_id", ""), events_before=events_before)
+    events_before, settlement_before = [], []
+    checked_session_id, state, error_response = _load_existing_api_state(
+        data.get("session_id", ""), events_before=events_before, settlement_before=settlement_before)
     if error_response is not None:
         return error_response
     session_id = _safe_session_id(data.get("session_id", DEFAULT_SESSION))
@@ -1804,28 +1820,30 @@ def cmd_route():
         return jsonify({"ok": False, "message": "❌ 请在请求体中提供 command 字段"}), 400
 
     notice = _consume_ai_v5_update_notice(state)
+    settlement_messages = _action_settlement_messages(state, settlement_before)
+    bouquet_ids = {item["instance_id"] for item in state.get("bouquet_inventory", [])}
     result = _handle_note_command(session_id, command, "ai")
     should_save_state = False
     if result is None:
-        result = execute_command(state, command, event_source="ai", source_name=_request_event_source_name("ai"), letter_context=_request_letter_context())
+        result = execute_command(state, command, event_source="ai", source_name=_request_event_source_name("ai"), letter_context=_request_letter_context(), include_summary=False)
         if command.strip().lower() == "help":
             result = CommandResult(result.ok, _agent_help_text(result.message + NOTE_HELP_TEXT))
         should_save_state = True
-    message = _prepend_ai_notice(result.message, notice)
+    message = _prepend_ai_notice("\n".join([*settlement_messages, result.message]), notice)
     if notice:
         state["ai_v5_update_notice_seen"] = True
         should_save_state = True
     if should_save_state:
         db_save_state(session_id, state)
-    public_state = _ai_summary(state, events_before=events_before)
-    if request.args.get("compact") == "1":
-        _compact_ai_state(public_state)
+    public_state = _action_state(state, events_before, state["last_update"])
     return jsonify(
         {
             "ok": result.ok,
+            "command": command,
             "session_id": session_id,
             "message": message,
             "state": public_state,
+            **(_created_bouquets(state, bouquet_ids) if result.ok else {}),
         }
     )
 
@@ -1849,13 +1867,17 @@ def batch_cmd_route():
         return jsonify({"ok": False, "message": "请提供有效的 session_id。"}), 400
     session_id = _safe_session_id(raw_session)
     now = int(time.time())
-    state = db_load_state(session_id, settled_at=now, save_progress=False)
+    settlement_before = []
+    state = db_load_state(session_id, events_before=settlement_before, live_events=True,
+                          settled_at=now, save_progress=False)
     if state is None:
         return jsonify({"ok": False, "message": "指定的 session_id 不存在。"}), 404
     g.collectible_notice_authorized = True
     letters = _request_letter_context()
     events_before = list(state.get("events", []))
+    settlement_messages = _action_settlement_messages(state, settlement_before)
     _, messages = prepare_command_state(state, now, letter_context=letters)
+    messages = settlement_messages + messages
     notice = _consume_ai_v5_update_notice(state)
     if notice:
         messages.insert(0, notice)
@@ -1884,10 +1906,10 @@ def batch_cmd_route():
             completed = False
             results.append({"command": command, "ok": False, "message": "系统异常，已停止后续命令；本动作未保存。"})
             break
-        results.append({"command": command, "ok": result.ok, "message": result.message})
-    public_state = _ai_summary(state, events_before=events_before, settled_at=now)
-    if request.args.get("compact") == "1":
-        _compact_ai_state(public_state)
+        results.append({"command": command, "ok": result.ok, "message": result.message,
+                        **(_created_bouquets(state, {item["instance_id"] for item in checkpoint.get("bouquet_inventory", [])})
+                           if result.ok else {})})
+    public_state = _action_state(state, events_before, now)
     try:
         db_save_state(session_id, state, settled_at=now)
     except Exception:

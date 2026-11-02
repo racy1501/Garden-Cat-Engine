@@ -73,7 +73,7 @@ def test_online_poll_delivers_once_and_resume_suppresses_history(api, cat_clock)
     assert resumed["recent_event_records"]
 
 
-def test_ai_operation_reports_new_event_but_not_catchup(api, cat_clock):
+def test_ai_operation_keeps_catchup_hint_separate_from_request_events(api, cat_clock):
     module, client = api
     state = adopted_cat_state()
     state["inventory"]["flowers"]["rose"] = 1
@@ -82,7 +82,8 @@ def test_ai_operation_reports_new_event_but_not_catchup(api, cat_clock):
     payload = client.post("/api/cmd", headers={"X-API-Key": "test-key"},
                           json={"session_id": "operation", "command": "arrange rose"}).get_json()
     assert payload["state"]["latest_event"] == "把玫瑰插进花瓶"
-    assert "栗子出门" not in payload["message"] and "栗子回家" not in payload["message"]
+    assert "栗子回家" in payload["message"]
+    assert [event["text"] for event in payload["state"]["recent_events"]] == ["把玫瑰插进花瓶"]
     assert module._ai_summary(module.db_load_state("operation"))["latest_event"] == ""
 
 

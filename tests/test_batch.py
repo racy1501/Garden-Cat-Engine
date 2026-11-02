@@ -23,9 +23,9 @@ def test_batch_order_business_failure_and_one_final_state(api, cat_clock):
     assert [r['command'] for r in payload['results']] == commands
     assert [r['ok'] for r in payload['results']] == [True, True, False, True]
     assert all(set(r) == {'command', 'ok', 'message'} for r in payload['results'])
-    assert payload['state']['pots'][1]['watered'] is True
-    assert payload['state']['pots'][1]['flower_id'] == 'rose'
-    assert 'water_servings' not in payload['state']['inventory_counts']
+    assert payload['state']['garden']['growing_count'] == 1
+    assert payload['state']['garden']['needs_water_pots'] == []
+    assert 'inventory_counts' not in payload['state']
     assert '📊' not in ''.join(r['message'] for r in payload['results'])
     assert module.db_load_state(sid)['pots'][1]['watered'] is True
 
@@ -89,7 +89,7 @@ def test_batch_settles_once_saves_once_and_summary_matches_disk(api, cat_clock, 
     assert stored['last_update'] == stored['last_active_at'] == batch_time
     assert stored['pots'][0]['growth_progress'] == 0
     with module.app.test_request_context():
-        projected = module._ai_summary(deepcopy(stored), events_before=[], settled_at=batch_time)
+        projected = module.build_overview(stored, batch_time, cat_summary=module._build_cat_summary_for_ai(stored))
     assert {k: v for k, v in payload['state'].items() if k not in ('recent_events', 'latest_event')} == {
         k: v for k, v in projected.items() if k not in ('recent_events', 'latest_event')}
 
