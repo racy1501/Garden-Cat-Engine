@@ -1457,29 +1457,6 @@ function createBouquetNewBadge() {
   return badge;
 }
 
-function renderBouquetGifting(body) {
-  const section = document.createElement("section");
-  section.className = "flower-shop-section bouquet-gifting-section";
-  const heading = document.createElement("strong");
-  heading.textContent = "准备赠送";
-  section.append(heading);
-  const inventory = Array.isArray(currentState?.bouquet_inventory) ? currentState.bouquet_inventory : [];
-  if (!inventory.length) {
-    const empty = document.createElement("small");
-    empty.textContent = "目前没有可赠送的花束。可以先到「花束 → 制作」制作。";
-    section.append(empty);
-  }
-  for (const bouquet of inventory) {
-    const row = document.createElement("div");
-    row.className = "flower-shop-row";
-    const description = document.createElement("span");
-    description.textContent = `${bouquet.name}｜${flowerComponentText(bouquet.components)}`;
-    row.append(description, makeButton("赠送", `gift_bouquet instance_id=${bouquet.id}`));
-    section.append(row);
-  }
-  body.append(section);
-}
-
 function showBouquetDetails(bouquetId, returnToEncyclopedia = false) {
   const bouquet = getBouquetDisplayMetadata(bouquetId);
   const gifts = (currentState?.bouquet_gifts || [])
@@ -1647,7 +1624,6 @@ function renderBouquetPage(activeTab = "bouquets") {
   body.append(renderBouquetTabs(activeTab));
   const gifts = Array.isArray(currentState?.bouquet_gifts) ? currentState.bouquet_gifts : [];
   if (activeTab === "cards") {
-    renderBouquetGifting(body);
     renderBouquetGiftCollection(body);
     const cards = gifts
       .map((gift, index) => ({ gift, index }))

@@ -564,7 +564,8 @@ ctx.currentState.flower_shop.empty_slots=0;ctx.renderBouquetPage();
 if(!commands.filter(b=>b.command==='list_bouquet instance_id=one').at(-1).disabled)throw Error('full shelf');
 ctx.renderBouquetPage('cards');
 if(find('bouquet-collection-tabs bouquet-workshop-tabs'))throw Error('cards changed');
-if(!commands.some(b=>b.command==='gift_bouquet instance_id=one'))throw Error('card gifting entry missing');
+if(commands.some(b=>String(b.command||'').startsWith('gift_bouquet ')))throw Error('human gifting action must not be exposed');
+if(!walk(body).some(n=>n.textContent==='花束收藏')||!walk(body).some(n=>n.className==='bouquet-gift-collection-grid'))throw Error('gift collection missing');
 if(!walk(body).some(n=>n.className==='bouquet-card-list')&&!walk(body).some(n=>n.className==='bouquet-empty'))throw Error('existing cards content missing');
 ctx.currentState.flower_shop={eligible:false,established:false,shelf_capacity:0,slots:[],eligibility_progress:{encyclopedia:8,harvests:20,direct_flower_sale_earned:1000}};ctx.bouquetWorkshopTab='shelf';ctx.renderBouquetPage();
 shelves=find('flower-shop-shelves');if(shelves.children.length!==9||shelves.children.some(n=>n.className!=='locked'))throw Error('unbuilt shop');
@@ -929,7 +930,7 @@ def test_flower_shop_3a_uses_bouquet_page_without_a_separate_shop_screen():
 
     assert "renderBouquetWorkshop" in js
     assert "craft_bouquet bouquet_id=" in js
-    assert "gift_bouquet instance_id=" in js
+    assert "gift_bouquet instance_id=" not in js
     assert "set_flower_shop_hours" in js
     assert "launch_flower_shop" in js
     assert ".flower-shop-panel" in css
