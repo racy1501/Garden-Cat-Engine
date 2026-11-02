@@ -33,8 +33,8 @@ def test_cat_offline_events_use_transition_times(cat_clock, monkeypatch):
     recorded = []
     original = ge.add_event
 
-    def record(state, text, *, now=None):
-        original(state, text, now=now)
+    def record(state, text, *, now=None, **kwargs):
+        original(state, text, now=now, **kwargs)
         if "出门" in text or "回家" in text:
             recorded.append(dict(state["events"][-1]))
 
@@ -42,6 +42,7 @@ def test_cat_offline_events_use_transition_times(cat_clock, monkeypatch):
     cat_clock[0] += 6 * 3600
     ge.apply_offline_progress(state)
     assert [event["time"] - start for event in recorded] == [5400, 6600, 12000, 13200, 18600, 19800]
+    assert all(event["area"] == "cottage" and event["source"] == "system" for event in recorded)
     assert state["cat_state"]["location"] == "home"
     assert state["cat_state"]["next_outing_at"] == start + 25200
     assert len(state["events"]) == initial_event_count + 6  # 六次出门/归来都保留。
@@ -111,6 +112,7 @@ def test_api_latest_event_excludes_offline_request_history(api, cat_clock, endpo
         "time": start + 19800,
         "text": "栗子回家了。",
         "source": "system",
+        "area": "cottage",
     }
     assert not any("events_before" in key for key in loaded)
 
@@ -178,6 +180,7 @@ def test_visitor_lifecycle_events_use_historical_times(cat_clock, stay):
     assert state["events"][0]["time"] == start
     assert state["events"][-1]["time"] == leave_at
     assert ("决定留下" if stay else "离开了花园") in state["events"][-1]["text"]
+    assert all(event["area"] == "garden" for event in state["events"] if "来了" in event["text"] or "离开了花园" in event["text"] or "决定留下" in event["text"])
 
 
 @pytest.mark.parametrize("home,away", [(3600, 600), (7200, 1800)])
@@ -211,11 +214,13 @@ def test_return_care_collectible_and_letter_events_keep_node_time(cat_clock, mon
     assert all(event["area"] == "cottage" and event["source"] == "system" for event in care)
     ge.award_cat_collectible(state, ge.CAT_COLLECTIBLES[0], now=start + 6600)
     assert state["events"][-1]["time"] == start + 6600
+    assert state["events"][-1]["area"] == "cottage"
     state["cat_stats"]["affection"] = 100
     ge.update_cat_max_affection(state)
     state["letter_affection_progress"] = ge.LETTER_PROGRESS_BATCH
     assert ge._resolve_letter_progress(state, now=start + 6600)
     assert state["events"][-1]["time"] == start + 6600
+    assert state["events"][-1]["area"] == "cottage"
 
 
 @pytest.mark.parametrize("route", ["/api/cmd", "/web/cmd"])

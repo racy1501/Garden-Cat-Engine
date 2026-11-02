@@ -53,6 +53,31 @@ def test_shared_activity_preserves_automatic_cat_care_area(api, cat_clock, monke
     assert all('source_name' not in event for event in care)
 
 
+def test_shared_activity_preserves_cat_lifecycle_collectible_and_letter_areas(api, cat_clock, monkeypatch):
+    module, client = api
+    state = adopted_cat_state()
+    state['events'] = []
+    cat_clock[0] += 6600
+    ge.settle_cat_lifecycle(state, cat_clock[0])
+    item = ge.CAT_COLLECTIBLES[0]
+    ge.award_cat_collectible(state, item, now=cat_clock[0])
+    state['cat_stats']['affection'] = 100
+    ge.update_cat_max_affection(state)
+    state['letter_affection_progress'] = ge.LETTER_PROGRESS_BATCH
+    monkeypatch.setattr(ge.random, 'random', lambda: 0.0)
+    assert ge._resolve_letter_progress(state, now=cat_clock[0])
+    assert state['collectibles'][item['id']] == 1
+    assert state['cat_state']['location'] == ge.CAT_LOCATION_HOME
+    module.db_save_state('cat-event-areas', state)
+
+    activity = client.get('/api/status', headers={'X-API-Key': 'test-key'},
+                          query_string={'session_id': 'cat-event-areas'}).get_json()['state']['shared_activity']
+    for text in ('出门', '回家', '带回了', '封信'):
+        event = next(event for event in activity if text in event['text'])
+        assert event['area'] == 'cottage' and event['source'] == 'system'
+        assert 'source_name' not in event
+
+
 def test_shared_activity_includes_real_sources_and_is_limited_in_compact_and_batch(api, cat_clock):
     module, client = api
     sid, _ = create_human_garden(client)

@@ -770,7 +770,7 @@ def _resolve_letter_progress(state, now=None, letter_context=None):
             state["letter_affection_progress"] = progress
             delivered_messages = _build_letter_messages(state, next_letter)
             cat_name = get_current_cat_name(state)
-            add_event(state, f"✉️ 收到{cat_name}第{next_idx + 1}封信", now=now)
+            add_event(state, f"✉️ 收到{cat_name}第{next_idx + 1}封信", now=now, area="cottage")
             if letter_context is not None:
                 letter_context.setdefault("messages", []).extend(delivered_messages)
                 letter_context["remaining_deliveries"] = max(
@@ -1074,7 +1074,7 @@ def award_cat_collectible(state, collectible, now=None, source=None):
     if previous_count <= 0:
         state.setdefault("collectible_first_found", {})[collectible_id] = int(now)
     cat_name = get_current_cat_name(state)
-    add_event(state, f"🎁 {cat_name}带回了{collectible['emoji']}{collectible['name']}", now=now)
+    add_event(state, f"🎁 {cat_name}带回了{collectible['emoji']}{collectible['name']}", now=now, area="cottage")
     return f"🎁 {cat_name}带回了{collectible['emoji']}{collectible['name']}！"
 
 
@@ -1495,7 +1495,7 @@ def settle_cat_lifecycle(
                 cat_state["outing_return_at"] = next_outing_at + _roll_cat_outing_duration_seconds()
                 cat_state["next_outing_at"] = 0
                 cat_name = get_current_cat_name(state)
-                add_event(state, f"{cat_name}出门溜达了一会儿。", now=next_outing_at)
+                add_event(state, f"{cat_name}出门溜达了一会儿。", now=next_outing_at, area="cottage")
                 events.append(f"{cat_name}出门溜达了一会儿。")
                 cat_state["last_lifecycle_settled_at"] = next_outing_at
                 continue
@@ -1516,7 +1516,7 @@ def settle_cat_lifecycle(
                     letter_context=letter_context,
                 )
                 cat_name = get_current_cat_name(state)
-                add_event(state, f"{cat_name}回家了。", now=outing_return_at)
+                add_event(state, f"{cat_name}回家了。", now=outing_return_at, area="cottage")
                 events.append(f"{cat_name}回家了。")
                 collectible_result = maybe_drop_cat_collectible(
                     state,
