@@ -37,7 +37,7 @@ def test_buy_accepts_internal_item_id_and_rejects_display_name():
     state["money"] = 50
 
     success = ge.process_command(state, "buy basic_food 1")
-    assert "买了1个普通猫粮" in success
+    assert "买了1包普通猫粮，共5份，花费10块" in success
     assert state["money"] == 40
 
     state = ge.get_default_state()
@@ -48,6 +48,32 @@ def test_buy_accepts_internal_item_id_and_rejects_display_name():
 
 def test_basic_cat_food_package_contains_five_servings():
     assert ge.CAT_ITEM_PACKAGE_SIZES["basic_food"] == 5
+
+
+def test_packaged_item_purchase_uses_formal_price_and_portions():
+    for item_id, portions in (("basic_food", 5), ("premium_food", 5), ("cat_treat", 2)):
+        state = ge.get_default_state()
+        state["money"] = 100
+        state["inventory"]["items"][item_id] = 0
+        message = ge.process_command(state, f"buy {item_id} 1")
+        price = ge.ITEMS[item_id]["price"]
+        assert state["money"] == 100 - price
+        assert state["inventory"]["items"][item_id] == portions
+        assert f"1包{ge.ITEMS[item_id]['name']}，共{portions}份，花费{price}块" in message
+
+
+def test_cat_food_refill_reports_added_portions_when_cat_eats(monkeypatch):
+    from test_api_response_shape import adopted_cat_state
+
+    monkeypatch.setattr(ge.random, "random", lambda: 0.0)
+    for command in ("feed basic", "refill_food basic"):
+        state = adopted_cat_state()
+        state["cat_stats"]["hunger"] = 0
+        state["cat_care"]["food_bowl"]["remaining_portions"] = 0
+        state["inventory"]["items"]["basic_food"] = 3
+        message = ge.process_command(state, command)
+        assert "补充3份普通猫粮" in message and "吃了" in message
+        assert state["inventory"]["items"].get("basic_food", 0) == 0
 
 
 def test_help_and_shop_expose_executable_item_id():

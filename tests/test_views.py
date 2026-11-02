@@ -23,7 +23,7 @@ def test_sections_are_bounded_and_their_links_work(api, cat_clock, section):
     payload = response.get_json()
     assert payload['section'] == section and payload['ok'] is True
     assert set(payload) <= {'ok', 'section', 'summary', 'items', 'item', 'available_views', 'next_tool',
-                            'care', 'available_interactions'}
+                            'care', 'available_interactions', 'flowers', 'seeds'}
     assert (payload.get('next_tool') == 'garden_view') is bool(payload['available_views'])
     assert not {'state', 'shared_activity', 'recent_events', 'flower_shop', 'cottage', 'pots'} & payload.keys()
     for link in payload['available_views']:
@@ -156,6 +156,53 @@ def test_inventory_and_bouquet_level_two_include_decision_inputs(cat_clock):
         ge.BOUQUETS[blocked_id]['components']
     assert build_view(state, 'bouquets', now, detail='inventory')['items'] == \
         ge.get_bouquet_inventory_public(state)
+
+
+def test_cat_shop_pack_and_inventory_units_follow_formal_configuration(api, cat_clock, monkeypatch):
+    module, client = api
+    sid, _ = create_human_garden(client)
+    state = module.db_load_state(sid)
+    state['inventory']['items'] = {'basic_food': 5, 'premium_food': 3, 'cat_treat': 2, 'ball': 4}
+    module.db_save_state(sid, state)
+    shop = {row['id']: row for row in view(client, sid, 'shop', detail='items').get_json()['items']}
+    for iid, portions in [('basic_food', 5), ('premium_food', 5), ('cat_treat', 2)]:
+        assert shop[iid]['price_per_pack'] == ge.ITEMS[iid]['price']
+        assert shop[iid]['portions_per_pack'] == portions
+        assert 'price' not in shop[iid]
+    assert shop['ball']['price'] == ge.ITEMS['ball']['price']
+    assert 'portions_per_pack' not in shop['ball']
+    inventory = {row['id']: row for row in view(client, sid, 'inventory', detail='items').get_json()['items']}
+    assert inventory['basic_food']['portions'] == 5
+    assert inventory['premium_food']['portions'] == 3
+    assert inventory['cat_treat']['portions'] == 2
+    assert inventory['ball'] == {'id': 'ball', 'quantity': 4}
+    overview = client.get('/api/status', headers={'X-API-Key': 'test-key'},
+                          query_string={'session_id': sid}).get_json()['state']['inventory']
+    assert overview['items'] == state['inventory']['items']
+    assert overview['item_units'] == {'basic_food': 'portion', 'premium_food': 'portion',
+                                      'cat_treat': 'portion', 'ball': 'item'}
+    monkeypatch.setitem(ge.CAT_ITEM_PACKAGE_SIZES, 'basic_food', 7)
+    assert build_view(state, 'shop', cat_clock[0], detail='items')['items'][0]['portions_per_pack'] == 7
+
+
+def test_buy_packaged_cat_items_through_agent_api(api, cat_clock):
+    module, client = api
+    sid, _ = create_human_garden(client)
+    state = module.db_load_state(sid)
+    state['money'] = 100
+    state['inventory']['items'] = {}
+    module.db_save_state(sid, state)
+    for iid, portions in [('basic_food', 5), ('cat_treat', 2)]:
+        price = ge.ITEMS[iid]['price']
+        response = client.post('/api/cmd', headers={'X-API-Key': 'test-key'},
+                               json={'session_id': sid, 'command': f'buy {iid} 1'}).get_json()
+        assert response['ok']
+        assert f'1包{ge.ITEMS[iid]["name"]}，共{portions}份，花费{price}块' in response['message']
+        assert response['state']['inventory']['items'][iid] == portions
+        assert response['state']['inventory']['item_units'][iid] == 'portion'
+        assert any(f'1包{ge.ITEMS[iid]["name"]}，共{portions}份' in event['text']
+                   for event in response['state']['recent_events'])
+    assert module.db_load_state(sid)['money'] == 100 - ge.ITEMS['basic_food']['price'] - ge.ITEMS['cat_treat']['price']
 
 
 def test_redundant_shop_cottage_and_collectibles_navigation_is_not_exposed(cat_clock):
@@ -299,7 +346,8 @@ def test_inventory_positive_only_and_shop_respects_unlocks(api, cat_clock):
     module.db_save_state(sid, state)
     assert view(client, sid, 'inventory', detail='seeds').get_json()['items'] == [{'id': 'daisy', 'quantity': 3}]
     assert view(client, sid, 'inventory', detail='flowers').get_json()['items'] == []
-    assert all(row['quantity'] > 0 for row in view(client, sid, 'inventory', detail='items').get_json()['items'])
+    assert all(row.get('quantity', row.get('portions', 0)) > 0
+               for row in view(client, sid, 'inventory', detail='items').get_json()['items'])
     shop = view(client, sid, 'shop', detail='seeds').get_json()['items']
     assert {row['id'] for row in shop} == {fid for fid in ge.FLOWERS if ge.is_flower_unlocked(state, fid)}
     assert view(client, sid, 'shop', item_id='red_spider_lily').status_code == 404

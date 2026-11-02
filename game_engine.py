@@ -4760,8 +4760,12 @@ def execute_command(state, command, *, event_source="system", source_name=None, 
                         total_portions = quantity * package_size
                         state["money"] -= price
                         _add_inventory_item(state, item_id, total_portions)
-                        add_event(state, f"买了{quantity}个{item_data['name']}", now=now, source=event_source, source_name=source_name, area="cottage")
-                        ok, result = True, f"✅ 买了{quantity}个{item_data['name']}！(-{price}块)"
+                        if item_id in CAT_ITEM_PACKAGE_SIZES:
+                            add_event(state, f"买了{quantity}包{item_data['name']}，共{total_portions}份", now=now, source=event_source, source_name=source_name, area="cottage")
+                            ok, result = True, f"✅ 买了{quantity}包{item_data['name']}，共{total_portions}份，花费{price}块。"
+                        else:
+                            add_event(state, f"买了{quantity}个{item_data['name']}", now=now, source=event_source, source_name=source_name, area="cottage")
+                            ok, result = True, f"✅ 买了{quantity}个{item_data['name']}！(-{price}块)"
             else:
                 ok, result = False, "❌ 商店没有这个东西"
 
@@ -5402,7 +5406,7 @@ def execute_command(state, command, *, event_source="system", source_name=None, 
             elif refill_result["added"] <= 0:
                 ok, result = False, f"❌ 背包里的{food_name}不够"
             elif refill_result["eaten"] > 0:
-                ok, result = True, f"🍽️ 已给粮碗补充{food_name}，{cat_name}吃了{refill_result['eaten']}份。"
+                ok, result = True, f"🍽️ 已给粮碗补充{refill_result['added']}份{food_name}，{cat_name}吃了{refill_result['eaten']}份。"
             elif not _is_cat_near_bowls(state):
                 ok, result = True, f"🍽️ 已给粮碗补充{refill_result['added']}份{food_name}。{cat_name}现在不在碗边。"
             else:
@@ -5456,7 +5460,7 @@ def execute_command(state, command, *, event_source="system", source_name=None, 
             elif refill_result["eaten"] > 0:
                 cat_name = get_current_cat_name(state)
                 ok, result = True, (
-                    f"✅ 已补充{ITEMS[food_type]['name']}，"
+                    f"✅ 已补充{refill_result['added']}份{ITEMS[food_type]['name']}，"
                     f"{cat_name}吃了{refill_result['eaten']}份，当前剩余 {bowl['remaining_portions']}/{bowl['capacity']}"
                 )
             else:

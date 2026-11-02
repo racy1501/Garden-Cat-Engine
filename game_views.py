@@ -57,8 +57,12 @@ def _care(state):
 def _goods(state):
     seeds = [{"id": fid, **_pick(flower, "name", "seed_price", "grow_time", "sell_price")}
              for fid, flower in ge.FLOWERS.items() if ge.is_flower_unlocked(state, fid)]
-    items = [{"id": iid, **_pick(ge.ITEMS[iid], "name", "price")}
-             for iid in ge.SHOP_CAT_ITEM_IDS]
+    items = [
+        {"id": iid, "name": ge.ITEMS[iid]["name"],
+         **({"price_per_pack": ge.ITEMS[iid]["price"], "portions_per_pack": ge.CAT_ITEM_PACKAGE_SIZES[iid]}
+            if iid in ge.CAT_ITEM_PACKAGE_SIZES else {"price": ge.ITEMS[iid]["price"]})}
+        for iid in ge.SHOP_CAT_ITEM_IDS
+    ]
     furniture = [{"id": iid, **_pick(item, "name", "price", "description")}
                  for iid, item in ge.COTTAGE_ITEM_CATALOG.items()
                  if "price" in item and not item.get("reward_only") and not item.get("legacy_only")
@@ -107,13 +111,16 @@ def build_overview(state, now, *, cat_summary):
     seeds = {fid: count for fid, count in inventory["seeds"].items() if count > 0}
     shop = ge.get_flower_shop_public_summary(state, now)
     cottage = ge.get_cottage_public_summary(state)
+    items = {iid: count for iid, count in inventory["items"].items() if count > 0}
     result = {
         "garden_name": state.get("garden_name", ""), "money": state["money"], "server_now": now,
         "weather": state["weather"], "weather_name": ge.WEATHER[state["weather"]]["name"],
         "garden": garden,
         "inventory": {"seeds": seeds, "seed_total": sum(seeds.values()),
                       "flower_total": sum(count for count in inventory["flowers"].values() if count > 0),
-                      "items": {iid: count for iid, count in inventory["items"].items() if count > 0}},
+                      "items": items,
+                      "item_units": {iid: "portion" if iid in ge.CAT_ITEM_PACKAGE_SIZES else "item"
+                                     for iid in items if iid in ge.ITEMS or iid in ge.CAT_ITEM_PACKAGE_SIZES}},
         "encyclopedia": {"recorded": len(state["encyclopedia"]), "capacity": len(ge.FLOWERS)},
         "collectibles": {"owned": ge.get_collectible_unique_count(state), "capacity": len(ge.CAT_COLLECTIBLES)},
         "letters_received": len(state["letters_received"]),
@@ -194,11 +201,15 @@ def build_view(state, section, now, *, detail=None, item_id=None, page=None):
     elif section == "inventory":
         categories = {key: [{"id": iid, "quantity": qty} for iid, qty in state["inventory"].get(key, {}).items() if qty > 0]
                       for key in ("seeds", "flowers", "items")}
+        categories["items"] = [
+            {"id": iid, "portions" if iid in ge.CAT_ITEM_PACKAGE_SIZES else "quantity": qty}
+            for iid, qty in state["inventory"].get("items", {}).items() if qty > 0
+        ]
         categories["bouquets"] = ge.get_bouquet_inventory_public(state)
         if detail:
             result["items"] = categories[detail]
         else:
-            result["summary"] = {key: {"types": len(rows), "quantity": sum(row.get("quantity", 1) for row in rows)}
+            result["summary"] = {key: {"types": len(rows), "quantity": sum(row.get("quantity", row.get("portions", 1)) for row in rows)}
                                  for key, rows in categories.items() if key != "flowers"}
             result["flowers"] = [
                 {"flower_id": flower_id, "count": count}

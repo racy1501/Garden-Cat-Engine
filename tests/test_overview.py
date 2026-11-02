@@ -83,7 +83,8 @@ def test_cat_overview_and_positive_inventory(api, cat_clock, location, present):
     assert summary['cat']['location'] == location
     assert set(summary['cat']) == {'name', 'stage', 'location', 'is_present', 'hunger', 'thirst', 'mood', 'affection', 'max_affection'}
     assert summary['inventory'] == {'seeds': {'daisy': 3}, 'seed_total': 3, 'flower_total': 2,
-                                    'items': {'basic_food': 3, 'cat_treat': 2}}
+                                    'items': {'basic_food': 3, 'cat_treat': 2},
+                                    'item_units': {'basic_food': 'portion', 'cat_treat': 'portion'}}
 
 
 def test_status_request_events_and_reward_hints_are_preserved(api, cat_clock, monkeypatch):
