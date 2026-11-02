@@ -275,7 +275,7 @@ def test_historical_bouquets_render_only_from_gift_history_and_open_details():
 const fs=require('fs'),vm=require('vm');
 const source=fs.readFileSync('static/app.js','utf8');
 const nodes={};
-function element(tag){const node={tag,className:'',textContent:'',children:[],listeners:{},classList:{add(){},remove(){}},
+function element(tag){const node={tag,className:'',textContent:'',children:[],listeners:{},style:{},classList:{add(){},remove(){}},
  append(...items){this.children.push(...items)},addEventListener(name,fn){this.listeners[name]=fn},setAttribute(){}};
  Object.defineProperty(node,'innerHTML',{get(){return this._html||''},set(value){this._html=value;this.children=[]}});return node}
 function get(selector){return nodes[selector]||(nodes[selector]=element('root'))}
@@ -286,13 +286,15 @@ const gifts=[
  {bouquet_id:'warm_sun',components:{sunflower:1,rose:2,lily:1},sent_at:300,message:'\u6696\u6696\u7684\u9633\u5149\u9001\u7ed9\u4f60'},
  {bouquet_id:'warm_sun',components:{sunflower:2,rose:1},sent_at:200,message:null},
  {bouquet_id:'purple_mist',components:{daisy:2,lavender:1,lily:1},sent_at:100,message:'\u7d2b\u8272\u7684\u82b1'},
- {bouquet_id:'little_garden',components:{daisy:2,rose:2},sent_at:50,message:'\u4e00\u5ea7\u5c0f\u82b1\u56ed'}
+ {bouquet_id:'little_garden',components:{daisy:2,rose:2},sent_at:50,message:'\u4e00\u5ea7\u5c0f\u82b1\u56ed'},
+ {bouquet_id:'first_meeting',components:{daisy:1},sent_at:300,message:'\u6625\u5929\u5feb\u4e50'},
+ {bouquet_id:'first_meeting',components:{rose:2},sent_at:250,message:null}
 ];
 const madeCommands=[];
 const ctx={catalog:{bouquets:bouquetCatalog,flowers:{sunflower:{name:'\u5411\u65e5\u8475'},rose:{name:'\u73ab\u7470'},lily:{name:'\u767e\u5408'},daisy:{name:'\u96cf\u83ca'},lavender:{name:'\u85b0\u8863\u8349'}}},
  currentState:{bouquet_gifts:gifts,bouquet_options:options,bouquet_inventory:[],flower_shop:{},money:0},bouquetVisitNewGiftIndexes:new Set(),bouquetWorkshopTab:'craft',
  document:{createElement:element},$:get,formatBouquetTimestamp:(stamp)=>`time-${stamp}`,formatDuration:()=>'',
- renderBouquetWorkshop(){},resetModalPresentation(){},closeModal(){},makeButton(label,command){madeCommands.push(command);const b=element('button');b.textContent=label;return b;}};
+ renderBouquetWorkshop(){},renderBouquetGifting(){},resetModalPresentation(){},closeModal(){},showEncyclopediaModal(tab){ctx.returnedTo=tab},makeButton(label,command){madeCommands.push(command);const b=element('button');b.textContent=label;return b;}};
 vm.createContext(ctx);
 const ranges=[['function getBouquetImageUrl(', 'function renderBouquetArtwork('],
  ['function renderBouquetArtwork(', 'function renderBouquetTabs('],
@@ -306,9 +308,34 @@ const ranges=[['function getBouquetImageUrl(', 'function renderBouquetArtwork(']
 for(const [start,end] of ranges){const a=source.indexOf(start),b=source.indexOf(end,a);vm.runInContext(source.slice(a,b),ctx)}
 function cards(){return get('#bouquetPageContent').children.find((x)=>x.className==='bouquet-shelf-grid').children}
 ctx.renderBouquetPage();
-if(get('#bouquetPageContent').children.some((x)=>x.className==='bouquet-shelf-grid'))throw Error('encyclopedia remains under inventory');
+if(get('#bouquetPageContent').children.some((x)=>x.className.includes('bouquet-gift-collection')))throw Error('collection appears on craft/shelf page');
+ctx.renderBouquetPage('cards');
+const collection=get('#bouquetPageContent').children.find((x)=>x.className.includes('bouquet-gift-collection'));
+if(!collection)throw Error('gift collection missing from flower shop');
+if(!collection.children.some((child)=>child.textContent==='\u82b1\u675f\u6536\u85cf'))throw Error('gift collection title');
+let grid=collection.children.find((x)=>x.className.includes('bouquet-gift-collection-grid'));
+if(!grid||grid.children.length!==15)throw Error(`fixed and historical collection count incorrect: ${grid?.children.length}`);
+const formalCard=grid.children.find((card)=>card.children.some((child)=>child.textContent==='first_meeting'));
+if(!formalCard||!formalCard.className.includes('received')||!formalCard.children.some((child)=>child.textContent==='\u00d72'))throw Error('formal received bouquet/count missing');
+const locked=grid.children.find((card)=>card.children.some((child)=>child.textContent==='morning_light'));
+const silhouette=locked?.children.find((child)=>child.className==='bouquet-card-artwork')?.children[0];
+if(!locked?.className.includes('locked')||!locked.disabled||locked.listeners.click||!silhouette?.className.includes('bouquet-artwork-silhouette')||!silhouette.style.maskImage.includes('morning_light.png'))throw Error('ungifted discovered bouquet should remain locked silhouette');
+formalCard.listeners.click();
+let detail=get('#modalBody');
+const allText=(node)=>[node.textContent,...node.children.flatMap(allText)].join('|');
+let detailText=allText(detail);
+if(!detailText.includes('\u7d2f\u8ba1\u6536\u5230 \u00d72')||!detailText.includes('time-300')||!detailText.includes('time-250')||!detailText.includes('\u6625\u5929\u5feb\u4e50')||!detailText.includes('\u96cf\u83ca')||!detailText.includes('\u73ab\u7470'))throw Error('formal bouquet history details incomplete');
+if(detail.children[0].textContent!=='\u8fd4\u56de\u8d60\u793c')throw Error('gift detail return label');
+detail.children[0].listeners.click();
+if(!get('#bouquetPageContent').children.some((x)=>x.className.includes('bouquet-gift-collection')))throw Error('detail did not return to gifting');
 ctx.renderBouquetEncyclopedia(get('#bouquetPageContent'));
-let grid=cards();
+grid=cards();
+const discovered=grid.find((card)=>card.children.some((child)=>child.textContent==='morning_light'));
+if(!discovered?.className.includes('discovered')||discovered.disabled!==true)throw Error('encyclopedia discovery changed');
+grid.find((card)=>card.children.some((child)=>child.textContent==='first_meeting')).listeners.click();
+if(get('#modalBody').children[0].textContent!=='\u8fd4\u56de\u82b1\u675f')throw Error('encyclopedia detail return label changed');
+get('#modalBody').children[0].listeners.click();
+if(ctx.returnedTo!=='bouquets')throw Error('detail did not return to encyclopedia');
 for(const [id,name] of [['warm_sun','\u6696\u9633'],['purple_mist','\u7d2b\u96fe'],['little_garden','\u5c0f\u82b1\u56ed']]){
  const card=grid.find((item)=>item.children.some((child)=>child.textContent===name));
  if(!card||!card.className.includes('historical'))throw Error(`missing historical card ${id}`);
@@ -325,6 +352,10 @@ if(madeCommands.some((command)=>/warm_sun|purple_mist|little_garden/.test(comman
 ctx.currentState.bouquet_gifts=[];get('#bouquetPageContent').innerHTML='';ctx.renderBouquetEncyclopedia(get('#bouquetPageContent'));grid=cards();
 if(grid.some((card)=>card.className.includes('historical')))throw Error('history shown without matching gifts');
 if(grid.length!==12)throw Error(`formal catalog changed: ${grid.length}`);
+get('#bouquetPageContent').innerHTML='';ctx.renderBouquetPage('cards');
+const emptyCollection=get('#bouquetPageContent').children.find((x)=>x.className.includes('bouquet-gift-collection'));
+const emptyGrid=emptyCollection?.children.find((child)=>child.className.includes('bouquet-gift-collection-grid'));
+if(emptyGrid?.children.length!==12||emptyGrid.children.some((card)=>!card.disabled||!card.className.includes('locked')))throw Error('ungifted collection must show 12 locked slots');
 console.log('ok');
 """
     result = subprocess.run(["node", "-e", script], cwd=root, encoding="utf-8", capture_output=True)
@@ -386,7 +417,7 @@ def test_unlocked_bouquet_card_opens_existing_detail_modal():
     detail_end = js.index("function renderBouquetPage", detail_start)
     detail_js = js[detail_start:detail_end]
 
-    assert 'card.addEventListener("click", () => showBouquetDetails(bouquetId, true))' in page_js
+    assert 'showBouquetDetails(bouquetId, !giftCollection)' in page_js
     assert "else card.disabled = true;" in page_js
     assert '$("#modal").classList.remove("hidden");' in detail_js
     assert detail_js.index("body.append(history);") < detail_js.index(

@@ -1494,11 +1494,11 @@ function showBouquetDetails(bouquetId, returnToEncyclopedia = false) {
   const back = document.createElement("button");
   back.type = "button";
   back.className = "mini-btn bouquet-back-btn";
-  back.textContent = "返回花束";
+  back.textContent = returnToEncyclopedia ? "返回花束" : "返回赠礼";
   back.addEventListener("click", () => {
     closeModal();
     if (returnToEncyclopedia) showEncyclopediaModal("bouquets");
-    else renderBouquetPage("bouquets");
+    else renderBouquetPage("cards");
   });
   const components = document.createElement("p");
   components.className = "bouquet-detail-components";
@@ -1552,7 +1552,7 @@ function showBouquetDetails(bouquetId, returnToEncyclopedia = false) {
   $("#modal").classList.remove("hidden");
 }
 
-function renderBouquetEncyclopedia(root) {
+function renderBouquetEncyclopedia(root, giftCollection = false) {
   const gifts = Array.isArray(currentState?.bouquet_gifts) ? currentState.bouquet_gifts : [];
   const grid = document.createElement("div");
   grid.className = "bouquet-shelf-grid";
@@ -1569,11 +1569,12 @@ function renderBouquetEncyclopedia(root) {
     );
     const card = document.createElement("button");
     card.type = "button";
-    card.className = `bouquet-shelf-card ${records.length ? "received" : discovered ? "discovered" : "locked"}`;
+    card.className = `bouquet-shelf-card ${records.length ? "received" : !giftCollection && discovered ? "discovered" : "locked"}`;
     const name = document.createElement("strong");
-    name.textContent = discovered || records.length ? bouquet.name : "尚未发现";
+    name.textContent = giftCollection || discovered || records.length ? bouquet.name : "尚未发现";
     const count = document.createElement("small");
     if (records.length) count.textContent = `×${records.length}`;
+    else if (giftCollection) count.textContent = "尚未收到";
     else if (!discovered) count.textContent = "配方未发现";
     else if (option.can_make) count.textContent = "已发现，尚未赠送";
     else {
@@ -1583,7 +1584,7 @@ function renderBouquetEncyclopedia(root) {
       count.textContent = `已发现，缺少：${missing}`;
     }
     card.append(name);
-    if (discovered && !records.length) {
+    if (!giftCollection && discovered && !records.length) {
       const components = document.createElement("small");
       components.textContent = Object.entries(option.components || {})
         .map(([flowerId, quantity]) => `${catalog.flowers?.[flowerId]?.name || flowerId} ×${quantity}`)
@@ -1592,10 +1593,19 @@ function renderBouquetEncyclopedia(root) {
     }
     const artwork = document.createElement("span");
     artwork.className = "bouquet-card-artwork";
-    renderBouquetArtwork(artwork, bouquetId, discovered || Boolean(records.length), bouquet.name);
+    if (giftCollection && !records.length) {
+      const silhouette = document.createElement("span");
+      silhouette.className = "bouquet-artwork bouquet-artwork-silhouette";
+      silhouette.setAttribute("aria-hidden", "true");
+      silhouette.style.maskImage = `url("${getBouquetImageUrl(bouquetId)}")`;
+      silhouette.style.webkitMaskImage = silhouette.style.maskImage;
+      artwork.append(silhouette);
+    } else {
+      renderBouquetArtwork(artwork, bouquetId, discovered || Boolean(records.length), bouquet.name);
+    }
     card.append(artwork, count);
     if (hasNewGift) card.append(createBouquetNewBadge());
-    if (records.length) card.addEventListener("click", () => showBouquetDetails(bouquetId, true));
+    if (records.length) card.addEventListener("click", () => showBouquetDetails(bouquetId, !giftCollection));
     else card.disabled = true;
     grid.append(card);
   }
@@ -1613,10 +1623,22 @@ function renderBouquetEncyclopedia(root) {
     const count = document.createElement("small");
     count.textContent = `×${records.length}`;
     card.append(name, artwork, count);
-    card.addEventListener("click", () => showBouquetDetails(bouquetId, true));
+    card.addEventListener("click", () => showBouquetDetails(bouquetId, !giftCollection));
     grid.append(card);
   }
+  if (giftCollection) grid.className = "bouquet-shelf-grid bouquet-gift-collection-grid";
   root.append(grid);
+  return grid;
+}
+
+function renderBouquetGiftCollection(root) {
+  const section = document.createElement("section");
+  section.className = "flower-shop-section bouquet-gift-collection";
+  const heading = document.createElement("strong");
+  heading.textContent = "花束收藏";
+  section.append(heading);
+  renderBouquetEncyclopedia(section, true);
+  root.append(section);
 }
 
 function renderBouquetPage(activeTab = "bouquets") {
@@ -1626,6 +1648,7 @@ function renderBouquetPage(activeTab = "bouquets") {
   const gifts = Array.isArray(currentState?.bouquet_gifts) ? currentState.bouquet_gifts : [];
   if (activeTab === "cards") {
     renderBouquetGifting(body);
+    renderBouquetGiftCollection(body);
     const cards = gifts
       .map((gift, index) => ({ gift, index }))
       .filter(({ gift }) => String(gift.message || "").trim())
