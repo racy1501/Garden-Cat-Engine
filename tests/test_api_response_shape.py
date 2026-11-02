@@ -1654,7 +1654,9 @@ def test_flower_shop_listing_summary_exposes_price_but_hides_random_facts(api, m
                              query_string={"session_id": session_id, "section": "flower_shop", "detail": "shelves"}).get_json()["summary"]["slots"][0]
     assert public_slot["empty"] is False
     assert public_slot["name"] == "初见"
-    assert public_slot["current_price"] == 55
+    assert public_slot["current_listed_price"] == 55
+    assert "current_price" not in public_slot
+    assert public_slot["base_price"] == 48
     assert public_slot["price_stage"]
     assert public_slot["expires_in_seconds"] <= 24 * 3600
     assert "will_sell" not in public_slot

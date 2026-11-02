@@ -1213,7 +1213,7 @@ function renderFlowerShopShelves(shop) {
       const name = document.createElement("strong");
       name.textContent = `${slot.name} ×1`;
       const price = document.createElement("small");
-      price.textContent = `基础价 ${slot.base_price} → 当前售价 ${slot.current_price} 块${slot.price_stage ? `｜${slot.price_stage}` : ""}`;
+      price.textContent = `基础价 ${slot.base_price} → 当前标价 ${slot.current_price} 块${slot.price_stage ? `｜${slot.price_stage}` : ""}`;
       const expiry = document.createElement("small");
       expiry.textContent = `距报废 ${formatDuration(slot.expires_in_seconds || 0)}`;
       const openState = document.createElement("small");
@@ -2360,9 +2360,9 @@ function showBackpackModal() {
       const effect = kind === "items"
         ? (ITEM_EFFECT_TEXT[id] || []).join(" · ")
         : kind === "flowers"
-          ? `售价 ${catalog.flowers[id]?.sell_price || 0} 块`
+          ? `${catalog.flowers[id]?.sell_price || 0}块/朵`
           : "可种进空花盆";
-      meta.innerHTML = `<strong>${escapeText(name || id)}</strong><small>数量 ×${qty}${effect ? ` · ${escapeText(effect)}` : ""}</small>`;
+      meta.innerHTML = `<strong>${escapeText(name || id)}</strong><small>${kind === "flowers" ? "" : "数量 "}×${qty}${effect ? ` · ${escapeText(effect)}` : ""}</small>`;
 
       const actions = document.createElement("div");
       actions.className = "backpack-actions";
@@ -2469,9 +2469,9 @@ function showBackpackModal() {
       const effect = kind === "items"
         ? (ITEM_EFFECT_TEXT[id] || []).join(" · ")
         : kind === "flowers"
-          ? `售价 ${catalog.flowers[id]?.sell_price || 0} 块`
+          ? `${catalog.flowers[id]?.sell_price || 0}块/朵`
           : "可种进空花盆";
-      meta.innerHTML = `<strong>${escapeText(name || id)}</strong><small>数量 ×${qty}${effect ? ` · ${escapeText(effect)}` : ""}</small>`;
+      meta.innerHTML = `<strong>${escapeText(name || id)}</strong><small>${kind === "flowers" ? "" : "数量 "}×${qty}${effect ? ` · ${escapeText(effect)}` : ""}</small>`;
 
       const actions = document.createElement("div");
       actions.className = "backpack-actions";

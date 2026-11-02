@@ -249,12 +249,12 @@ def test_shop_level_two_surfaces_only_unlocked_seed_economics(cat_clock):
 
     shop = build_view(state, 'shop', now)
     expected = [
-        {'id': flower_id, 'seed_price': flower['seed_price'],
-         'grow_time': flower['grow_time'], 'sell_price': flower['sell_price']}
+        {'id': flower_id, 'seed_price_per_pack': flower['seed_price'],
+         'grow_time': flower['grow_time'], 'sell_price_per_flower': flower['sell_price']}
         for flower_id, flower in ge.FLOWERS.items() if ge.is_flower_unlocked(state, flower_id)
     ]
     assert shop['seeds'] == expected
-    assert all(set(seed) == {'id', 'seed_price', 'grow_time', 'sell_price'} for seed in shop['seeds'])
+    assert all(set(seed) == {'id', 'seed_price_per_pack', 'grow_time', 'sell_price_per_flower'} for seed in shop['seeds'])
     assert 'red_spider_lily' not in {seed['id'] for seed in shop['seeds']}
     assert 'seeds' not in shop['summary']
     assert not any(link.get('detail') == 'seeds' for link in shop['available_views'])
@@ -262,16 +262,27 @@ def test_shop_level_two_surfaces_only_unlocked_seed_economics(cat_clock):
     # Category details keep their existing full records and direct item lookup remains callable.
     seed_detail = build_view(state, 'shop', now, detail='seeds')
     assert seed_detail['items'] == [
-        {'id': flower_id, 'name': flower['name'], 'seed_price': flower['seed_price'],
-         'grow_time': flower['grow_time'], 'sell_price': flower['sell_price']}
+        {'id': flower_id, 'name': flower['name'], 'seed_price_per_pack': flower['seed_price'],
+         'grow_time': flower['grow_time'], 'sell_price_per_flower': flower['sell_price']}
         for flower_id, flower in ge.FLOWERS.items() if ge.is_flower_unlocked(state, flower_id)
     ]
     assert seed_detail['items'][0]['name']
+    for row in seed_detail['items']:
+        assert build_view(state, 'shop', now, item_id=row['id'])['item'] == row
+        assert not {'seed_price', 'sell_price'} & row.keys()
     assert build_view(state, 'shop', now, detail='items')['items']
     furniture_detail = build_view(state, 'shop', now, detail='furniture')
     assert furniture_detail['items']
     first_item = furniture_detail['items'][0]['id']
     assert build_view(state, 'shop', now, item_id=first_item)['item']['id'] == first_item
+
+
+def test_public_catalog_keeps_seed_price_contract(api):
+    _, client = api
+    flower = client.get('/api/catalog').get_json()['flowers']['daisy']
+    assert flower['seed_price'] == ge.FLOWERS['daisy']['seed_price']
+    assert flower['sell_price'] == ge.FLOWERS['daisy']['sell_price']
+    assert not {'seed_price_per_pack', 'sell_price_per_flower'} & flower.keys()
 
 
 def test_encyclopedia_detail_keeps_discovery_data_without_economics(cat_clock):
@@ -287,9 +298,9 @@ def test_encyclopedia_detail_keeps_discovery_data_without_economics(cat_clock):
 
     shop = build_view(state, 'shop', now)
     daisy = next(row for row in shop['seeds'] if row['id'] == 'daisy')
-    assert daisy == {'id': 'daisy', 'seed_price': ge.FLOWERS['daisy']['seed_price'],
+    assert daisy == {'id': 'daisy', 'seed_price_per_pack': ge.FLOWERS['daisy']['seed_price'],
                      'grow_time': ge.FLOWERS['daisy']['grow_time'],
-                     'sell_price': ge.FLOWERS['daisy']['sell_price']}
+                     'sell_price_per_flower': ge.FLOWERS['daisy']['sell_price']}
 
 
 def test_owned_and_discovered_details_and_guessed_ids(api, cat_clock):

@@ -474,6 +474,12 @@ const notice='🎁 发现新藏品：圆润的小石子';
     assert result.stdout.strip() == "ok"
 
 
+def test_backpack_flower_prices_show_per_flower():
+    js = (Path(__file__).resolve().parents[1] / 'static' / 'app.js').read_text(encoding='utf-8')
+    assert js.count('`${catalog.flowers[id]?.sell_price || 0}块/朵`') == 2
+    assert js.count('${kind === "flowers" ? "" : "数量 "}×${qty}') == 2
+
+
 def test_flower_shop_tabs_and_nine_shelves_follow_public_state():
     root = Path(__file__).resolve().parents[1]
     script = r"""
@@ -517,7 +523,7 @@ if(!display||display.children[0]!==shelves||display.children[1].className!=='flo
 if(shelves.children.length!==9||shelves.children.filter(n=>n.className==='locked').length!==6)throw Error('capacity');
 if(!walk(shelves.children[1]).some(n=>n.textContent==='暂无上架')||walk(shelves.children[1]).some(n=>n.tag==='img'))throw Error('empty slot');
 const first=walk(shelves.children[0]);
-if(!first.some(n=>n.src==='/static/assets/v5/bouquets/other_shore_poem.png')||!first.some(n=>n.textContent==='彼岸诗 ×1')||!first.some(n=>n.textContent.includes('基础价 100 → 当前售价 123')))throw Error('listed slot price relationship');
+if(!first.some(n=>n.src==='/static/assets/v5/bouquets/other_shore_poem.png')||!first.some(n=>n.textContent==='彼岸诗 ×1')||!first.some(n=>n.textContent.includes('基础价 100 → 当前标价 123')))throw Error('listed slot price relationship');
 if(!walk(body).some(n=>n.textContent==='保鲜设备：未安装')||!walk(body).some(n=>n.textContent.includes('相对基础售价：0–4小时 ×1.15'))||!walk(body).some(n=>n.textContent.includes('上架满24小时后报废')))throw Error('ordinary shelf pricing explanation');
 ctx.currentState.collectible_catalog=[{id:'pebble',name:'小石子',display_name:'小石子'},{id:'gray_feather',name:'羽毛'},{id:'maple_leaf',name:'枫叶'}];
 Object.assign(ctx.currentState.flower_shop,{shop_buff_active:true,shop_buff_collectible_id:'pebble',shop_buff_effect:'成交金额 +10%',shop_buff_remaining_seconds:7200});
@@ -565,7 +571,7 @@ if(!commands.filter(b=>b.command==='list_bouquet instance_id=one').at(-1).disabl
 ctx.renderBouquetPage('cards');
 if(find('bouquet-collection-tabs bouquet-workshop-tabs'))throw Error('cards changed');
 if(commands.some(b=>String(b.command||'').startsWith('gift_bouquet ')))throw Error('human gifting action must not be exposed');
-if(!walk(body).some(n=>n.textContent==='花束收藏')||!walk(body).some(n=>n.className==='bouquet-gift-collection-grid'))throw Error('gift collection missing');
+if(!walk(body).some(n=>n.textContent==='花束收藏')||!walk(body).some(n=>n.className.split(' ').includes('bouquet-gift-collection-grid')))throw Error('gift collection missing');
 if(!walk(body).some(n=>n.className==='bouquet-card-list')&&!walk(body).some(n=>n.className==='bouquet-empty'))throw Error('existing cards content missing');
 ctx.currentState.flower_shop={eligible:false,established:false,shelf_capacity:0,slots:[],eligibility_progress:{encyclopedia:8,harvests:20,direct_flower_sale_earned:1000}};ctx.bouquetWorkshopTab='shelf';ctx.renderBouquetPage();
 shelves=find('flower-shop-shelves');if(shelves.children.length!==9||shelves.children.some(n=>n.className!=='locked'))throw Error('unbuilt shop');

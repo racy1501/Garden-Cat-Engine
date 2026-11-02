@@ -55,7 +55,8 @@ def _care(state):
 
 
 def _goods(state):
-    seeds = [{"id": fid, **_pick(flower, "name", "seed_price", "grow_time", "sell_price")}
+    seeds = [{"id": fid, "name": flower["name"], "seed_price_per_pack": flower["seed_price"],
+              "grow_time": flower["grow_time"], "sell_price_per_flower": flower["sell_price"]}
              for fid, flower in ge.FLOWERS.items() if ge.is_flower_unlocked(state, fid)]
     items = [
         {"id": iid, "name": ge.ITEMS[iid]["name"],
@@ -263,6 +264,10 @@ def build_view(state, section, now, *, detail=None, item_id=None, page=None):
             }
         else:
             result["summary"] = _pick(shop, *fields[detail])
+            if detail == "shelves":
+                for slot in result["summary"].get("slots", []):
+                    if "current_price" in slot:
+                        slot["current_listed_price"] = slot.pop("current_price")
         if detail is None:
             views = [_entry(detail=key) for key in fields if key is not None]
 
@@ -339,7 +344,7 @@ def build_view(state, section, now, *, detail=None, item_id=None, page=None):
         else:
             result["summary"] = {key: len(rows) for key, rows in goods.items() if key != "seeds"}
             result["seeds"] = [
-                {"id": row["id"], **_pick(row, "seed_price", "grow_time", "sell_price")}
+                {"id": row["id"], **_pick(row, "seed_price_per_pack", "grow_time", "sell_price_per_flower")}
                 for row in goods["seeds"]
             ]
             views = [_entry(detail=key) for key in goods if key != "seeds"]
