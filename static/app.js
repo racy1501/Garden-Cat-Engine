@@ -37,6 +37,7 @@ let hasTriedAutoUpdateAnnouncement = false;
 let isBusy = false;
 let petCooldownTimer = null;
 const latestLocationNotices = { garden: "", flower_shop: "", cottage: "" };
+let seenEventBoundary = null;
 let stateSnapshotAtMs = 0;
 let liveRefreshQueued = false;
 let gardenNeedsResume = true; // 仅页面内使用，恢复时不把历史补算当作在线通知。
@@ -377,6 +378,7 @@ function waitForNextPaint() {
 function saveCredentials(value) {
   credentials = value;
   gardenNeedsResume = true;
+  seenEventBoundary = null;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
 }
 
@@ -520,7 +522,7 @@ async function refreshGarden({ quiet = false } = {}) {
     const data = await requestJson(`/web/status?session_id=${query}`, {
       headers: { ...authHeaders(), "X-Garden-Live": gardenNeedsResume ? "0" : "1" },
     });
-    updateFromResponse(data, quiet);
+    updateFromResponse(data, quiet, true);
   } catch (error) {
     if (!quiet) showToast(error.message);
     if (/钥匙/.test(error.message)) {
@@ -600,7 +602,7 @@ async function runCommand(command, sourceButton = null) {
   }
 }
 
-function updateFromResponse(data, quiet = false) {
+function updateFromResponse(data, quiet = false, isStatusRefresh = false) {
   if (gardenNeedsResume && quiet) {
     $("#messageBox").textContent = "已显示花园当前状态，历史记录见下方日志。";
   }
@@ -617,6 +619,29 @@ function updateFromResponse(data, quiet = false) {
   liveRefreshQueued = false;
   const notifications = currentState?.new_events || [];
   const areasWithEvents = new Set();
+  const records = currentState?.recent_event_records;
+  if (Array.isArray(records)) {
+    const previous = seenEventBoundary;
+    let sameTimeCount = 0;
+    for (const event of records) {
+      const time = Number(event.time);
+      if (!Number.isFinite(time)) continue;
+      if (previous && time === previous.time) sameTimeCount++;
+      if (isStatusRefresh && previous && (time > previous.time ||
+          (time === previous.time && sameTimeCount > previous.count)) &&
+          Object.hasOwn(latestLocationNotices, event.area) && event.text) {
+        latestLocationNotices[event.area] = event.text;
+      }
+    }
+    if (records.length) {
+      const time = Number(records[records.length - 1].time);
+      if (Number.isFinite(time)) {
+        seenEventBoundary = { time, count: records.filter((event) => Number(event.time) === time).length };
+      }
+    } else if (!previous) {
+      seenEventBoundary = { time: 0, count: 0 };
+    }
+  }
   for (const event of notifications) {
     if (Object.hasOwn(latestLocationNotices, event.area) && event.text) {
       latestLocationNotices[event.area] = event.text;

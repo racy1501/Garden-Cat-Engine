@@ -413,7 +413,7 @@ const nodes={};
 const context={
   $:selector=>nodes[selector]||(nodes[selector]={textContent:''}),
   document:{visibilityState:'visible'},
-  currentState:{}, latestLocationNotices:{garden:'',flower_shop:'',cottage:''}, gardenNeedsResume:true,
+  currentState:{}, seenEventBoundary:null, latestLocationNotices:{garden:'',flower_shop:'',cottage:''}, gardenNeedsResume:true,
   updateLiveCountdowns(){}, maybeAutoShowUpdateAnnouncement(){},
   renderBouquetMainButton(){}, renderNotesButton(){},
   fetch:async()=>({ok:true,json:async()=>context.responseData})

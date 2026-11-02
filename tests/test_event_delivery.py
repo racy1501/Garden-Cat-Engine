@@ -127,7 +127,7 @@ def test_frontend_quiet_notifications_and_timestamped_log():
 const fs=require('fs'),vm=require('vm');
 const source=fs.readFileSync('static/app.js','utf8');
 const nodes={};const get=(id)=>nodes[id]||(nodes[id]={textContent:'',innerHTML:'',children:[],append(v){this.children.push(v)}});
- const ctx={currentState:null,latestLocationNotices:{garden:'',flower_shop:'',cottage:''},gardenNeedsResume:true,stateSnapshotAtMs:0,liveRefreshQueued:false,
+ const ctx={currentState:null,seenEventBoundary:null,latestLocationNotices:{garden:'',flower_shop:'',cottage:''},gardenNeedsResume:true,stateSnapshotAtMs:0,liveRefreshQueued:false,
  Date,document:{visibilityState:'visible',createElement(){return {textContent:'',className:''}}},
  renderBouquetMainButton(){},renderNotesButton(){},renderAll(){},updateLiveCountdowns(){},maybeAutoShowUpdateAnnouncement(){}};
 ctx['$']=get;vm.createContext(ctx);
@@ -205,7 +205,7 @@ def test_location_notice_delivery_and_combined_diary():
 const fs=require('fs'),vm=require('vm');
 const source=fs.readFileSync('static/app.js','utf8'),css=fs.readFileSync('static/style.css','utf8');
 const nodes={};const get=id=>nodes[id]||(nodes[id]={textContent:'',hidden:false,children:[],set innerHTML(v){this.children=[]},append(v){this.children.push(v)}});
-const ctx={currentState:null,latestLocationNotices:{garden:'',flower_shop:'',cottage:''},gardenNeedsResume:false,stateSnapshotAtMs:0,liveRefreshQueued:false,
+const ctx={currentState:null,seenEventBoundary:null,latestLocationNotices:{garden:'',flower_shop:'',cottage:''},gardenNeedsResume:false,stateSnapshotAtMs:0,liveRefreshQueued:false,
  Date,document:{visibilityState:'visible',createElement(){return {textContent:'',className:''}}},
  renderBouquetMainButton(){},renderNotesButton(){},renderAll(){},updateLiveCountdowns(){},maybeAutoShowUpdateAnnouncement(){}};
 ctx.$=get;vm.createContext(ctx);
@@ -232,12 +232,45 @@ if(!/\.events-list\s*\{[^}]*height:\s*280px;[^}]*overflow-y:\s*auto/s.test(css))
     assert result.returncode == 0, result.stderr
 
 
+def test_status_refresh_delivers_only_unseen_location_events():
+    root = Path(__file__).resolve().parents[1]
+    script = r"""
+const fs=require('fs'),vm=require('vm'),src=fs.readFileSync('static/app.js','utf8');
+const nodes={},get=id=>nodes[id]||(nodes[id]={textContent:''}),listeners={};
+const ctx={credentials:{session_id:'test'},isBusy:false,currentState:null,seenEventBoundary:null,
+ latestLocationNotices:{garden:'',flower_shop:'',cottage:''},gardenNeedsResume:true,stateSnapshotAtMs:0,liveRefreshQueued:false,
+ document:{visibilityState:'visible',addEventListener(n,f){listeners[n]=f}},window:{addEventListener(n,f){listeners[n]=f}},
+ $:get,authHeaders(){return {}},setBusy(v){ctx.isBusy=v},showToast(){},
+ renderAll(){},updateLiveCountdowns(){},maybeAutoShowUpdateAnnouncement(){},
+ async requestJson(){return {state:{recent_event_records:ctx.records,new_events:[]}}}};
+vm.createContext(ctx);
+for(const [a,b] of [['async function refreshGarden(','async function runCommand('],['function updateFromResponse(','function renderNotesButton('],
+ ['window.addEventListener("focus"','setInterval(updateLiveCountdowns']])
+ vm.runInContext(src.slice(src.indexOf(a),src.indexOf(b)),ctx);
+const old={time:100,area:'garden',text:'旧花'},garden={time:100,area:'garden',text:'新花'},cottage={time:101,area:'cottage',text:'新家具'};
+(async()=>{
+ ctx.records=[old];await ctx.refreshGarden({quiet:true});
+ if(ctx.latestLocationNotices.garden)throw Error('initial history promoted');
+ ctx.records=[old,garden];listeners.focus();await new Promise(resolve=>setImmediate(resolve));
+ if(ctx.latestLocationNotices.garden!=='新花')throw Error('focus missed same-second garden event');
+ ctx.records=[old,garden,cottage];ctx.document.visibilityState='visible';listeners.visibilitychange();await new Promise(resolve=>setImmediate(resolve));
+ if(ctx.latestLocationNotices.cottage!=='新家具'||ctx.latestLocationNotices.garden!=='新花'||ctx.latestLocationNotices.flower_shop)throw Error('area routing');
+ ctx.updateFromResponse({notice_area:'garden',notice_message:'网页浇水',message:'网页浇水',state:{recent_event_records:ctx.records,new_events:[]}});
+ if(ctx.latestLocationNotices.garden!=='网页浇水')throw Error('command notice missing');
+ await ctx.refreshGarden({quiet:true});
+ if(ctx.latestLocationNotices.garden!=='网页浇水'||ctx.latestLocationNotices.cottage!=='新家具')throw Error('event repeated');
+})().catch(e=>{console.error(e);process.exit(1)});
+"""
+    result = subprocess.run(["node", "-e", script], cwd=root, encoding="utf-8", capture_output=True)
+    assert result.returncode == 0, result.stderr
+
+
 def test_frontend_requests_explicitly_distinguish_resume_and_live():
     root = Path(__file__).resolve().parents[1]
     script = r"""
 const fs=require('fs'),vm=require('vm');const src=fs.readFileSync('static/app.js','utf8');
 const requests=[],listeners={};
-const ctx={credentials:{session_id:'test'},isBusy:false,gardenNeedsResume:true,
+const ctx={credentials:{session_id:'test'},isBusy:false,gardenNeedsResume:true,seenEventBoundary:null,
  STORAGE_KEY:'test',localStorage:{setItem(){}},
  authHeaders(){return {}},setBusy(value){ctx.isBusy=value},showToast(){},
  document:{visibilityState:'visible',addEventListener(name,fn){listeners[name]=fn}},
