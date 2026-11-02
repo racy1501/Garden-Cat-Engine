@@ -227,6 +227,24 @@ def test_shop_level_two_surfaces_only_unlocked_seed_economics(cat_clock):
     assert build_view(state, 'shop', now, item_id=first_item)['item']['id'] == first_item
 
 
+def test_encyclopedia_detail_keeps_discovery_data_without_economics(cat_clock):
+    now = cat_clock[0]
+    state = ge.get_default_state()
+    state['encyclopedia'] = ['daisy']
+    state['flower_harvest_counts'] = {'daisy': 4}
+
+    detail = build_view(state, 'encyclopedia', now, item_id='daisy')['item']
+    assert detail == {'id': 'daisy', 'name': ge.FLOWERS['daisy']['name'],
+                      'rarity': ge.FLOWERS['daisy']['rarity'], 'harvests': 4}
+    assert not {'grow_time', 'sell_price', 'seed_price'} & detail.keys()
+
+    shop = build_view(state, 'shop', now)
+    daisy = next(row for row in shop['seeds'] if row['id'] == 'daisy')
+    assert daisy == {'id': 'daisy', 'seed_price': ge.FLOWERS['daisy']['seed_price'],
+                     'grow_time': ge.FLOWERS['daisy']['grow_time'],
+                     'sell_price': ge.FLOWERS['daisy']['sell_price']}
+
+
 def test_owned_and_discovered_details_and_guessed_ids(api, cat_clock):
     module, client = api
     sid, _ = create_human_garden(client)

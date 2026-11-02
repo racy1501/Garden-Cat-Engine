@@ -227,7 +227,7 @@ def build_view(state, section, now, *, detail=None, item_id=None, page=None):
                  for fid in state["encyclopedia"] if fid in ge.FLOWERS]
         if item_id is not None:
             result["item"] = {**_item(known, item_id),
-                              **_pick(ge.FLOWERS[item_id], "rarity", "grow_time", "sell_price", "seed_price"),
+                              **_pick(ge.FLOWERS[item_id], "rarity"),
                               "harvests": state.get("flower_harvest_counts", {}).get(item_id, 0)}
         else:
             result.update(summary={"recorded": len(known), "capacity": len(ge.FLOWERS)}, items=known)
