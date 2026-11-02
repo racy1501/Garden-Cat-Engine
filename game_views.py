@@ -199,7 +199,12 @@ def build_view(state, section, now, *, detail=None, item_id=None, page=None):
             result["items"] = categories[detail]
         else:
             result["summary"] = {key: {"types": len(rows), "quantity": sum(row.get("quantity", 1) for row in rows)}
-                                 for key, rows in categories.items()}
+                                 for key, rows in categories.items() if key != "flowers"}
+            result["flowers"] = [
+                {"flower_id": flower_id, "count": count}
+                for flower_id, count in state["inventory"].get("flowers", {}).items()
+                if count > 0
+            ]
             views = [_entry(detail=key) for key in categories]
 
     elif section == "collectibles":
@@ -273,6 +278,12 @@ def build_view(state, section, now, *, detail=None, item_id=None, page=None):
         options = ge.get_bouquet_options(state)
         recipes = [{"id": row["bouquet_id"], **_pick(row, "name", "can_make")}
                    for row in options]
+        for recipe, option in zip(recipes, options):
+            if not option["can_make"]:
+                recipe["missing"] = [
+                    {"flower_id": flower_id, "count": count}
+                    for flower_id, count in option["missing"].items()
+                ]
         if item_id is not None:
             row = _item(recipes, item_id)
             option = next(row for row in options if row["bouquet_id"] == item_id)

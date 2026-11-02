@@ -120,6 +120,44 @@ def test_garden_view_lists_flower_and_reliable_care_status_without_changing_stat
                              'withered_pots': [6]}
 
 
+def test_inventory_and_bouquet_level_two_include_decision_inputs(cat_clock):
+    now = cat_clock[0]
+    state = ge.get_default_state()
+    state['inventory']['flowers'] = {'daisy': 3, 'rose': 0}
+    inventory = build_view(state, 'inventory', now)
+    assert inventory['flowers'] == [{'flower_id': 'daisy', 'count': 3}]
+    assert 'flowers' not in inventory['summary']
+    assert {'section': 'inventory', 'detail': 'flowers'} in inventory['available_views']
+    assert build_view(state, 'inventory', now, detail='flowers')['items'] == [
+        {'id': 'daisy', 'quantity': 3},
+    ]
+
+    state['encyclopedia'] = list(ge.FLOWERS)
+    bouquet_ids = list(ge.BOUQUETS)
+    makeable_id = bouquet_ids[0]
+    state['inventory']['flowers'] = dict(ge.BOUQUETS[makeable_id]['components'])
+    bouquets = build_view(state, 'bouquets', now)
+    rows = {row['id']: row for row in bouquets['items']}
+    assert rows[makeable_id]['can_make'] is True
+    assert 'missing' not in rows[makeable_id]
+
+    blocked_id = next(bid for bid in bouquet_ids if bid != makeable_id)
+    expected_missing = ge.get_bouquet_options(state)
+    expected_missing = next(row['missing'] for row in expected_missing if row['bouquet_id'] == blocked_id)
+    assert expected_missing
+    assert len(expected_missing) >= 2
+    assert rows[blocked_id]['can_make'] is False
+    assert rows[blocked_id]['missing'] == [
+        {'flower_id': flower_id, 'count': count}
+        for flower_id, count in expected_missing.items()
+    ]
+    assert {'section': 'bouquets', 'item_id': blocked_id} in bouquets['available_views']
+    assert build_view(state, 'bouquets', now, item_id=blocked_id)['item']['components'] == \
+        ge.BOUQUETS[blocked_id]['components']
+    assert build_view(state, 'bouquets', now, detail='inventory')['items'] == \
+        ge.get_bouquet_inventory_public(state)
+
+
 def test_owned_and_discovered_details_and_guessed_ids(api, cat_clock):
     module, client = api
     sid, _ = create_human_garden(client)
