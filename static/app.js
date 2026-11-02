@@ -902,43 +902,16 @@ function extractGardenNotice(message) {
   return lines.slice(0, 4).join("\n");
 }
 
-function buildGardenNoticeSupplements() {
-  const supplements = [];
-  const offline = currentState?.offline_summary || {};
-  if (Number(offline.offline_seconds || 0) > 0) {
-    supplements.push("你离开了一会儿，花园仍在安静生长。");
-  }
-
-  const events = currentState?.garden_events || {};
-  if (events.has_pests) {
-    supplements.push("有花盆遭了虫害，最好去看看。");
-  }
-  if (events.rainbow_active) {
-    supplements.push("一道彩虹挂在花园上空。");
-  }
-  if (events.butterfly_active) {
-    supplements.push("几只蝴蝶绕着花丛飞舞。");
-  }
-  return supplements;
-}
-
 function renderGardenNotice() {
   const root = $("#gardenNoticeText");
   const latestNotice = extractGardenNotice(latestLocationNotices.garden);
   let notice = latestNotice;
   const offline = currentState?.offline_summary || {};
-  const supplements = buildGardenNoticeSupplements();
   if (!notice && Number(offline.offline_seconds || 0) > 0) {
     notice = "你离开了一会儿，花园仍在安静生长。";
   }
   if (!notice) {
     notice = "花园很安静，风从花叶间穿过去。";
-  }
-  if (!latestNotice && Number(offline.offline_seconds || 0) > 0) {
-    notice = supplements.shift() || notice;
-  }
-  if (supplements.length) {
-    notice = [notice, ...supplements].join("\n");
   }
   root.textContent = notice;
 }

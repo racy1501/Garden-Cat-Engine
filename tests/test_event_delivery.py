@@ -232,6 +232,38 @@ if(!/\.events-list\s*\{[^}]*height:\s*280px;[^}]*overflow-y:\s*auto/s.test(css))
     assert result.returncode == 0, result.stderr
 
 
+def test_location_notices_replace_fallbacks_with_latest_event():
+    root = Path(__file__).resolve().parents[1]
+    script = r"""
+const fs=require('fs'),vm=require('vm'),src=fs.readFileSync('static/app.js','utf8');
+const nodes={},get=id=>nodes[id]||(nodes[id]={textContent:'',children:[],set innerHTML(v){this.children=[]},append(v){this.children.push(v)}});
+const ctx={currentState:null,seenEventBoundary:null,latestLocationNotices:{garden:'',flower_shop:'',cottage:''},
+ gardenNeedsResume:true,stateSnapshotAtMs:0,liveRefreshQueued:false,Date,$:get,
+ document:{visibilityState:'visible',createElement(){return {textContent:'',className:''}}},
+ renderAll(){ctx.renderGardenNotice();ctx.renderLocationNotices()},updateLiveCountdowns(){},maybeAutoShowUpdateAnnouncement(){}};
+vm.createContext(ctx);
+for(const [a,b] of [['function updateFromResponse(','function renderNotesButton('],
+ ['function extractGardenNotice(','function ensureOfflineSummaryBar('],['function renderEvents(','function showLetterModal(']])
+ vm.runInContext(src.slice(src.indexOf(a),src.indexOf(b)),ctx);
+const old={time:1,area:'garden',text:'历史事件'},records=[old];
+function refresh(offline=0){ctx.updateFromResponse({state:{recent_event_records:[...records],new_events:[],offline_summary:{offline_seconds:offline},garden_events:{has_pests:true}}},true,true)}
+refresh();
+if(get('#gardenNoticeText').textContent!=='花园很安静，风从花叶间穿过去。'||!get('#flowerShopNoticeText').textContent.includes('花店很安静')||!get('#cottageNoticeText').textContent.includes('小屋很安静'))throw Error('initial fallbacks');
+refresh(3600);
+if(get('#gardenNoticeText').textContent!=='你离开了一会儿，花园仍在安静生长。')throw Error('offline fallback');
+records.push({time:2,area:'garden',text:'猫咪离开了花园。'});refresh(3600);
+if(get('#gardenNoticeText').textContent!=='猫咪离开了花园。')throw Error('garden fallback not replaced');
+records.push({time:3,area:'flower_shop',text:'花店成交'}, {time:4,area:'cottage',text:'小屋奖励'});refresh(3600);
+if(get('#flowerShopNoticeText').textContent!=='花店成交'||get('#cottageNoticeText').textContent!=='小屋奖励')throw Error('location fallback not replaced');
+records.push({time:5,area:'garden',text:'猫咪回来了。'});refresh(3600);
+if(get('#gardenNoticeText').textContent!=='猫咪回来了。')throw Error('newer event not displayed');
+ctx.renderEvents();const rows=get('#eventsList').children;
+if(rows.length!==records.length||!rows.some(row=>row.textContent.endsWith('历史事件')))throw Error('diary history changed');
+"""
+    result = subprocess.run(["node", "-e", script], cwd=root, encoding="utf-8", capture_output=True)
+    assert result.returncode == 0, result.stderr
+
+
 def test_status_refresh_delivers_only_unseen_location_events():
     root = Path(__file__).resolve().parents[1]
     script = r"""
