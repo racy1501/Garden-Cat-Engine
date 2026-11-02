@@ -208,6 +208,7 @@ def test_return_care_collectible_and_letter_events_keep_node_time(cat_clock, mon
     care = [event for event in state["events"] if "吃了" in event["text"] or "喝了" in event["text"]]
     assert len(care) == 2
     assert all(event["time"] == start + 6600 for event in care)
+    assert all(event["area"] == "cottage" and event["source"] == "system" for event in care)
     ge.award_cat_collectible(state, ge.CAT_COLLECTIBLES[0], now=start + 6600)
     assert state["events"][-1]["time"] == start + 6600
     state["cat_stats"]["affection"] = 100

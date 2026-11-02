@@ -3,7 +3,7 @@ from urllib.parse import quote
 
 import game_engine as ge
 from copy import deepcopy
-from test_api_response_shape import api, cat_clock, create_human_garden
+from test_api_response_shape import api, adopted_cat_state, cat_clock, create_human_garden
 
 
 def test_shared_activity_tracks_web_actions_across_locations(api, cat_clock):
@@ -30,6 +30,27 @@ def test_shared_activity_tracks_web_actions_across_locations(api, cat_clock):
         assert event['area'] == area
         assert (event['source'], event['source_name'], event['source_label']) == ('human', '阿屿', '人类')
         assert summary['recent_events'] == [] and summary['latest_event'] == ''
+
+
+def test_shared_activity_preserves_automatic_cat_care_area(api, cat_clock, monkeypatch):
+    module, client = api
+    state = adopted_cat_state()
+    state['events'] = []
+    state['cat_stats'].update(hunger=0, thirst=0)
+    state['cat_state']['stats'] = dict(state['cat_stats'])
+    state['cat_care']['food_bowl']['remaining_portions'] = 1
+    state['cat_care']['water_bowl']['remaining_portions'] = 1
+    monkeypatch.setattr(ge.random, 'random', lambda: 0.0)
+    used_food, used_water, _ = ge._trigger_cat_bowls_for_auto_node(state, now=cat_clock[0])
+    assert (used_food, used_water) == (1, 1)
+    module.db_save_state('auto-care-area', state)
+
+    summary = client.get('/api/status', headers={'X-API-Key': 'test-key'},
+                         query_string={'session_id': 'auto-care-area'}).get_json()['state']
+    care = [event for event in summary['shared_activity'] if '吃了' in event['text'] or '喝了' in event['text']]
+    assert len(care) == 2
+    assert all(event['area'] == 'cottage' and event['source'] == 'system' for event in care)
+    assert all('source_name' not in event for event in care)
 
 
 def test_shared_activity_includes_real_sources_and_is_limited_in_compact_and_batch(api, cat_clock):

@@ -25,7 +25,8 @@ def test_overview_slots_can_be_used_directly_for_actions(api, cat_clock):
     payload = status(client, sid)
     summary = payload['state']
     assert summary['garden'] == {'total_pots': 6, 'empty_pots': [1], 'needs_water_pots': [2], 'growing_count': 1,
-                                 'pest_pots': [4], 'ready_pots': [5], 'withered_pots': [6]}
+                                 'pest_pots': [4], 'ready_pots': [5], 'withered_pots': [6],
+                                 'pest_treatment_cost_per_pot': ge.PEST_TREATMENT_COST}
     assert not {'pots', 'pots_summary', 'inventory_counts', 'bouquet_options', 'bouquet_inventory',
                 'offline_summary', 'game_hour', 'local_date', 'timezone'} & summary.keys()
     assert {v['section'] for v in summary['available_views']} == set(VIEW_DETAILS)
@@ -36,6 +37,35 @@ def test_overview_slots_can_be_used_directly_for_actions(api, cat_clock):
     for command in ('harvest 5', 'water 2', 'treat 4', 'plant daisy 1'):
         assert client.post('/api/cmd', headers={'X-API-Key': 'test-key'},
                            json={'session_id': sid, 'command': command}).get_json()['ok'] is True
+
+
+def test_status_shows_per_pot_treatment_cost_only_when_needed(api, cat_clock, monkeypatch):
+    module, client = api
+    sid, _ = create_human_garden(client)
+    state = module.db_load_state(sid)
+    state['money'] = 6
+    state['pots'][0] = {'flower_id': 'daisy', 'growth_progress': 0, 'watered': True,
+                        'last_growth_update': cat_clock[0], 'pest_active': True}
+    module.db_save_state(sid, state)
+    monkeypatch.setattr(ge, 'PEST_TREATMENT_COST', 7)
+
+    garden = status(client, sid)['state']['garden']
+    assert garden['pest_pots'] == [1]
+    assert garden['pest_treatment_cost_per_pot'] == 7
+    headers = {'X-API-Key': 'test-key'}
+    failed = client.post('/api/cmd', headers=headers,
+                         json={'session_id': sid, 'command': 'treat 1'}).get_json()
+    assert failed['ok'] is False and failed['state']['money'] == 6
+
+    state = module.db_load_state(sid)
+    state['money'] = 9
+    module.db_save_state(sid, state)
+    treated = client.post('/api/cmd', headers=headers,
+                          json={'session_id': sid, 'command': 'treat 1'}).get_json()
+    assert treated['ok'] is True and treated['state']['money'] == 2
+    garden = status(client, sid)['state']['garden']
+    assert garden['pest_pots'] == []
+    assert 'pest_treatment_cost_per_pot' not in garden
 
 
 @pytest.mark.parametrize('location,present', [(ge.CAT_LOCATION_HOME, True), (ge.CAT_LOCATION_AWAY, False)])

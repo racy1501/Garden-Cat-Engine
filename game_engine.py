@@ -2383,7 +2383,7 @@ def _trigger_food_bowl_roll(state, now=None, source=None, letter_context=None):
         food_type = str(food_bowl.get("food_type", DEFAULT_CAT_FOOD_TYPE))
         food_name = ITEMS.get(food_type, ITEMS[DEFAULT_CAT_FOOD_TYPE]).get("name", ITEMS[DEFAULT_CAT_FOOD_TYPE]["name"])
         cat_name = get_current_cat_name(state)
-        _record_cat_care_event(state, f"{cat_name}吃了{servings_eaten}份{food_name}。", source=source, now=now)
+        _record_cat_care_event(state, f"{cat_name}吃了{servings_eaten}份{food_name}。", source=source, now=now, area="cottage")
     return servings_eaten, letter_messages
 
 
@@ -2412,7 +2412,7 @@ def _trigger_water_bowl_roll(state, now=None, source=None, letter_context=None):
         )
     if servings_drank > 0:
         cat_name = get_current_cat_name(state)
-        _record_cat_care_event(state, f"{cat_name}喝了{servings_drank}份水。", source=source, now=now)
+        _record_cat_care_event(state, f"{cat_name}喝了{servings_drank}份水。", source=source, now=now, area="cottage")
     return servings_drank, letter_messages
 
 

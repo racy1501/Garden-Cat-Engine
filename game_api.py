@@ -23,6 +23,7 @@ from typing import Any, Iterator
 from urllib.parse import unquote
 
 from flask import Flask, g, has_request_context, jsonify, render_template, request
+import game_engine as ge
 from game_views import build_garden_pots, build_overview, build_view, validate_view
 
 from game_engine import (
@@ -1981,6 +1982,8 @@ def status():
         state["ai_v5_update_notice_seen"] = True
     db_save_state(session_id, state, settled_at=now)
     summary = build_overview(state, now, cat_summary=_build_cat_summary_for_ai(state))
+    if summary["garden"]["pest_pots"]:
+        summary["garden"]["pest_treatment_cost_per_pot"] = ge.PEST_TREATMENT_COST
     new_events = [_event_record_for_client(event) for event in _new_request_events(state, events_before)]
     summary.update(shared_activity=[_event_record_for_client(event) for event in state.get("events", [])[-5:]],
                    recent_events=new_events, latest_event=new_events[-1]["text"] if new_events else "")
