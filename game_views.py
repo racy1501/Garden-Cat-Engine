@@ -326,8 +326,12 @@ def build_view(state, section, now, *, detail=None, item_id=None, page=None):
         elif detail:
             result["items"] = goods[detail]
         else:
-            result["summary"] = {key: len(rows) for key, rows in goods.items()}
-            views = [_entry(detail=key) for key in goods]
+            result["summary"] = {key: len(rows) for key, rows in goods.items() if key != "seeds"}
+            result["seeds"] = [
+                {"id": row["id"], **_pick(row, "seed_price", "grow_time", "sell_price")}
+                for row in goods["seeds"]
+            ]
+            views = [_entry(detail=key) for key in goods if key != "seeds"]
 
     _navigation(result, [{"section": section, **view} for view in views])
     return result

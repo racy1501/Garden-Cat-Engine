@@ -195,6 +195,38 @@ def test_redundant_shop_cottage_and_collectibles_navigation_is_not_exposed(cat_c
     assert 'rule' in build_view(state, 'collectibles', now, detail='rules')['summary']
 
 
+def test_shop_level_two_surfaces_only_unlocked_seed_economics(cat_clock):
+    now = cat_clock[0]
+    state = ge.get_default_state()
+    state['encyclopedia'] = ['daisy']
+
+    shop = build_view(state, 'shop', now)
+    expected = [
+        {'id': flower_id, 'seed_price': flower['seed_price'],
+         'grow_time': flower['grow_time'], 'sell_price': flower['sell_price']}
+        for flower_id, flower in ge.FLOWERS.items() if ge.is_flower_unlocked(state, flower_id)
+    ]
+    assert shop['seeds'] == expected
+    assert all(set(seed) == {'id', 'seed_price', 'grow_time', 'sell_price'} for seed in shop['seeds'])
+    assert 'red_spider_lily' not in {seed['id'] for seed in shop['seeds']}
+    assert 'seeds' not in shop['summary']
+    assert not any(link.get('detail') == 'seeds' for link in shop['available_views'])
+
+    # Category details keep their existing full records and direct item lookup remains callable.
+    seed_detail = build_view(state, 'shop', now, detail='seeds')
+    assert seed_detail['items'] == [
+        {'id': flower_id, 'name': flower['name'], 'seed_price': flower['seed_price'],
+         'grow_time': flower['grow_time'], 'sell_price': flower['sell_price']}
+        for flower_id, flower in ge.FLOWERS.items() if ge.is_flower_unlocked(state, flower_id)
+    ]
+    assert seed_detail['items'][0]['name']
+    assert build_view(state, 'shop', now, detail='items')['items']
+    furniture_detail = build_view(state, 'shop', now, detail='furniture')
+    assert furniture_detail['items']
+    first_item = furniture_detail['items'][0]['id']
+    assert build_view(state, 'shop', now, item_id=first_item)['item']['id'] == first_item
+
+
 def test_owned_and_discovered_details_and_guessed_ids(api, cat_clock):
     module, client = api
     sid, _ = create_human_garden(client)
