@@ -193,10 +193,27 @@ def build_view(state, section, now, *, detail=None, item_id=None, page=None):
                 interactions.extend(f"feed {kind}" for kind, iid in ge.CAT_CARE_FOOD_TYPES.items() if stock.get(iid, 0) > 0)
         if cat.get("phase") == ge.CAT_PHASE_WAITING_NAME:
             interactions.append("adopt")
-        result.update(summary={"name": ge.get_current_cat_name(state), "stage": cat.get("phase"),
-                               "location": cat.get("location"), "is_present": present,
-                               "stats": _pick(cat.get("stats", {}), "hunger", "thirst", "mood", "affection"),
-                               "pet_cooldown_seconds": cooldown},
+        summary = {"name": ge.get_current_cat_name(state), "stage": cat.get("phase"),
+                   "location": cat.get("location"), "is_present": present,
+                   "stats": _pick(cat.get("stats", {}), "hunger", "thirst", "mood", "affection"),
+                   "pet_cooldown_seconds": cooldown}
+        if not interactions:
+            if not present:
+                summary["no_interaction_reason"] = "猫咪当前不在家"
+            else:
+                reasons = []
+                if cooldown:
+                    reasons.append("刚刚抚摸过，还在冷却中")
+                if not any(stock.get(iid, 0) > 0 for iid in ("ball", "feather_wand", ge.CAT_TREAT_ITEM_ID)):
+                    reasons.append("当前没有可用玩具或零食")
+                food_bowl = care["food_bowl"]
+                water_bowl = care["water_bowl"]
+                if (state.get("cat") is not None
+                        and food_bowl.get("remaining_portions", 0) >= food_bowl.get("capacity", 0)
+                        and water_bowl.get("remaining_portions", 0) >= water_bowl.get("capacity", 0)):
+                    reasons.append("粮碗和水碗目前无需补充")
+                summary["no_interaction_reason"] = "；".join(reasons[:3]) or "当前没有可进行的互动"
+        result.update(summary=summary,
                       care=care, available_interactions=interactions)
 
     elif section == "inventory":

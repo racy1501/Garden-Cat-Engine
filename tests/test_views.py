@@ -513,6 +513,39 @@ def test_cat_interactions_and_garden_action_status(cat_clock):
     assert build_view(state, 'garden', cat_clock[0])['items'][0]['status'] == 'pest_blocked'
 
 
+def test_empty_cat_interactions_explain_existing_blockers_without_changing_actions(cat_clock):
+    state = adopted_cat_state()
+    state['cat_state']['location'] = ge.CAT_LOCATION_AWAY
+    state['inventory']['items'].clear()
+    for bowl in state['cat_care'].values():
+        if isinstance(bowl, dict) and 'capacity' in bowl:
+            bowl['remaining_portions'] = bowl['capacity']
+    cat = build_view(state, 'cat', cat_clock[0])
+    assert cat['available_interactions'] == []
+    assert cat['summary']['no_interaction_reason'] == '猫咪当前不在家'
+
+    state['cat_state']['location'] = ge.CAT_LOCATION_HOME
+    state['cat_last_pet_real_time'] = cat_clock[0]
+    cat = build_view(state, 'cat', cat_clock[0])
+    assert cat['available_interactions'] == []
+    reason = cat['summary']['no_interaction_reason']
+    assert '刚刚抚摸过，还在冷却中' in reason
+    assert '当前没有可用玩具或零食' in reason
+    assert '粮碗和水碗目前无需补充' in reason
+    assert len(reason.split('；')) <= 3
+
+    state['inventory']['items']['ball'] = 1
+    cat = build_view(state, 'cat', cat_clock[0])
+    assert 'play ball' in cat['available_interactions']
+    assert 'no_interaction_reason' not in cat['summary']
+
+    state['inventory']['items'].clear()
+    state['cat_state'].update(phase=ge.CAT_PHASE_WAITING_NAME, location=ge.CAT_LOCATION_GARDEN)
+    cat = build_view(state, 'cat', cat_clock[0])
+    assert 'adopt' in cat['available_interactions']
+    assert 'no_interaction_reason' not in cat['summary']
+
+
 @pytest.mark.parametrize('command,section,detail', [
     ('shop', 'shop', None), ('vase', 'garden', 'vase'), ('collectibles', 'collectibles', None),
     ('encyclopedia', 'encyclopedia', None), ('letters', 'letters', None), ('make_bouquet', 'bouquets', None),
