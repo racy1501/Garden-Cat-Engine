@@ -1640,7 +1640,7 @@ def test_flower_shop_listing_summary_exposes_price_but_hides_random_facts(api, m
         {"instance_id": "api-listing", "bouquet_id": "first_meeting", "components": {"tulip": 2, "baby_breath": 1}}
     ]
     module.db_save_state(session_id, state)
-    monkeypatch.setattr(ge, "_roll_flower_shop_sale_plan", lambda: (True, 7200))
+    monkeypatch.setattr(ge, "_roll_flower_shop_sale_plan", lambda *_: (True, 7200))
 
     response = client.post(
         cmd_url,

@@ -777,6 +777,69 @@ def test_real_adopted_drop_is_saved_as_buff_source():
     assert state["flower_shop"]["shop_buff_until"] == return_at + 4 * 3600
 
 
+@pytest.mark.parametrize("roll, expected", [(0.0, "fortune"), (0.059, "fortune"), (0.06, "popular"), (0.119, "popular"), (0.12, None), (0.20, None)])
+def test_cat_buff_single_roll_selects_type_after_twelve_percent_trigger(roll, expected):
+    state = fresh_state()
+    state["flower_shop"]["established_at"] = 1
+    windows = []
+    with patch("game_engine.random.random", return_value=roll) as random_roll:
+        result = ge._maybe_trigger_flower_shop_cat_buff(state, 100, "pebble", windows)
+    random_roll.assert_called_once_with()
+    assert bool(result) == bool(expected)
+    if expected:
+        assert state["flower_shop"]["shop_buff_type"] == expected
+        assert windows == [{"start_at": 100, "until_at": 14500, "buff_type": expected}]
+        assert {key: state["events"][-1][key] for key in ("event_type", "buff_type", "collectible_id")} == {
+            "event_type": "flower_shop_cat_buff", "buff_type": expected, "collectible_id": "pebble"}
+    else:
+        assert windows == []
+
+
+def test_popular_only_changes_new_sale_plan():
+    listed_at = int(datetime(2026, 10, 9, 9, 0, tzinfo=DISPLAY_TIMEZONE).timestamp())
+    state = _listed_shop_state(listed_at, will_sell=False, remaining=0)
+    old_slot = copy.deepcopy(state["flower_shop"]["slots"][0])
+    state["flower_shop"].update(shop_buff_type="popular", shop_buff_until=listed_at + 100)
+    state["bouquet_inventory"] = [{"instance_id": "new", "bouquet_id": "first_meeting", "components": {"tulip": 2, "baby_breath": 1}}]
+    with patch("game_engine.random.random", return_value=0.90), patch("game_engine.random.triangular", return_value=7200):
+        result = ge.execute_command(state, "list_bouquet instance_id=new slot=2", settled_at=listed_at)
+    assert result.ok
+    assert state["flower_shop"]["slots"][0] == old_slot
+    assert state["flower_shop"]["slots"][1]["will_sell"] is True
+    with patch("game_engine.random.random", return_value=0.90):
+        assert ge._roll_flower_shop_sale_plan()[0] is False
+    with patch("game_engine.random.random", return_value=0.92):
+        assert ge._roll_flower_shop_sale_plan(ge.FLOWER_SHOP_POPULAR_SALE_CHANCE)[0] is False
+
+
+def test_typed_offline_windows_only_fortune_increases_sale_price():
+    listed_at = int(datetime(2026, 10, 9, 7, 0, tzinfo=DISPLAY_TIMEZONE).timestamp())
+    sold_at = listed_at + 3 * 3600
+    for windows, expected in [
+        ([{"start_at": sold_at - 100, "until_at": sold_at + 100, "buff_type": "fortune"}], 61),
+        ([{"start_at": sold_at - 100, "until_at": sold_at + 100, "buff_type": "popular"}], 55),
+        ([{"start_at": sold_at - 200, "until_at": sold_at + 200, "buff_type": "fortune"},
+          {"start_at": sold_at - 100, "until_at": sold_at + 100, "buff_type": "popular"}], 55),
+    ]:
+        state = _listed_shop_state(listed_at, will_sell=True, remaining=2 * 3600)
+        result = settle_flower_shop(state, sold_at, previous_shop_buff_until=0, shop_buff_windows=windows)
+        assert result[0]["price"] == expected
+    state = _listed_shop_state(listed_at, will_sell=True, remaining=2 * 3600)
+    result = settle_flower_shop(state, sold_at, previous_shop_buff_until=sold_at + 200,
+                               previous_shop_buff_type="fortune", shop_buff_windows=[
+                                   {"start_at": sold_at - 100, "until_at": sold_at + 100, "buff_type": "popular"}])
+    assert result[0]["price"] == 55
+
+
+def test_legacy_active_buff_normalizes_to_fortune():
+    state = fresh_state()
+    state["flower_shop"].update(established_at=1, shop_buff_until=500)
+    state["flower_shop"].pop("shop_buff_type")
+    normalize_state(state, now=100)
+    assert state["flower_shop"]["shop_buff_type"] == "fortune"
+    assert get_flower_shop_public_summary(state, 100)["shop_buff_effect"] == "成交金额 +10%"
+
+
 @pytest.mark.parametrize("source_id, expected", [("pebble", "pebble"), ("invalid", None), (None, None), (["pebble"], None)])
 def test_shop_buff_source_normalization_and_expiry(source_id, expected):
     now = int(time.time())
@@ -817,7 +880,7 @@ def test_cat_shop_buff_only_rolls_after_adopted_return_collectible():
     buff_roll.assert_called_once_with()
     assert state["flower_shop"]["shop_buff_until"] == return_at + 60 + 4 * 3600
     assert state["flower_shop"]["shop_buff_collectible_id"] == "pebble"
-    assert windows == [{"start_at": return_at + 60, "until_at": return_at + 60 + 4 * 3600}]
+    assert windows == [{"start_at": return_at + 60, "until_at": return_at + 60 + 4 * 3600, "buff_type": "fortune"}]
     with patch("game_engine.random.random") as summary_roll:
         normalize_state(state, now=return_at + 60)
         get_flower_shop_public_summary(state, return_at + 60)
@@ -883,8 +946,8 @@ def test_cat_shop_buff_refreshes_from_second_return_without_stacking():
     assert state["flower_shop"]["shop_buff_until"] == second_return + 4 * 3600
     assert state["flower_shop"]["shop_buff_collectible_id"] == "shell"
     assert windows == [
-        {"start_at": first_return, "until_at": first_return + 4 * 3600},
-        {"start_at": second_return, "until_at": second_return + 4 * 3600},
+        {"start_at": first_return, "until_at": first_return + 4 * 3600, "buff_type": "fortune"},
+        {"start_at": second_return, "until_at": second_return + 4 * 3600, "buff_type": "fortune"},
     ]
 
 
@@ -1017,6 +1080,27 @@ def test_online_and_offline_entry_points_apply_same_cat_shop_buff_result():
         assert state["total_earned"] == 61
         assert state["flower_shop"]["slots"][0] is None
         assert state["flower_shop"]["shop_buff_until"] == return_at + 4 * 3600
+
+
+def test_offline_popular_trigger_does_not_boost_existing_sale():
+    listed_dt = datetime(2026, 10, 9, 7, 0, tzinfo=DISPLAY_TIMEZONE)
+    listed_at = int(listed_dt.timestamp())
+    return_at = int(listed_dt.replace(hour=9).timestamp())
+    target_at = int(listed_dt.replace(hour=12).timestamp())
+    state = _listed_shop_state(listed_at, will_sell=True, remaining=2 * 3600)
+    _prepare_adopted_cat_return(state, return_at)
+    state.update(last_active_at=listed_at, last_update=listed_at,
+                 weather_change_time=target_at + 3600, next_butterfly_at=target_at + 3600)
+    with patch("game_engine.time.time", return_value=target_at), patch(
+        "game_engine.maybe_drop_cat_collectible", return_value=("pebble", "🎁 带回藏品")
+    ), patch("game_engine.random.random", return_value=0.08), patch(
+        "game_engine._schedule_next_adopted_outing"
+    ) as schedule:
+        schedule.side_effect = lambda cat_state, base_time: cat_state.__setitem__("next_outing_at", target_at + 3600)
+        ge.apply_offline_progress(state, target_at)
+    assert state["flower_shop"]["shop_buff_type"] == "popular"
+    assert state["total_earned"] == 55
+    assert state["flower_shop"]["slots"][0] is None
 
 
 def test_flower_shop_business_seconds_are_exact_across_closed_time_and_midnight():

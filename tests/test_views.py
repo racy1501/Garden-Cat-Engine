@@ -596,6 +596,20 @@ def test_reference_help_excludes_sample_settlement_and_summary(api, monkeypatch)
     assert '每颗可种一盆' in result['message']
 
 
+def test_buff_event_metadata_reaches_web_records_and_journal(api, cat_clock):
+    module, _ = api
+    state = ge.get_default_state()
+    ge.add_event(state, '好运', now=cat_clock[0], area='flower_shop',
+                 event_type='flower_shop_cat_buff', buff_type='popular', collectible_id='pebble')
+    record = module._event_record_for_client(state['events'][-1])
+    assert (record['event_type'], record['buff_type'], record['collectible_id']) == ('flower_shop_cat_buff', 'popular', 'pebble')
+    web_record = module._summary(state)['recent_event_records'][-1]
+    assert (web_record['event_type'], web_record['buff_type'], web_record['collectible_id']) == ('flower_shop_cat_buff', 'popular', 'pebble')
+    journal = build_view(state, 'journal', cat_clock[0])
+    assert journal['items'][0]['buff_type'] == 'popular'
+    assert journal['items'][0]['collectible_id'] == 'pebble'
+
+
 @pytest.mark.parametrize('command', ['shop extra', 'vase 1', 'collectibles hidden', 'encyclopedia daisy',
                                      'letters 1', 'make_bouquet message=hello', 'make_bouquet bouquet_id='])
 def test_invalid_legacy_query_arguments_do_not_return_world_state(api, command):

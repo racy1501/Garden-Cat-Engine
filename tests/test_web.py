@@ -500,7 +500,7 @@ catalog:{flowers:{daisy:{name:'雏菊'}},bouquets:Object.fromEntries(formalIds.m
  bouquet_inventory:[{id:'one',bouquet_id:'first_meeting',name:'初见',components:{daisy:1}}],flower_shop:{eligible:true,established:true,launched:true,is_open:true,empty_slots:2,shelf_capacity:3,freshener_cost:1800,pricing_profiles,bouquet_lifetime_seconds:86400,eligibility_progress:{encyclopedia:17,harvests:340,direct_flower_sale_earned:3000},
  slots:[{slot:1,empty:false,bouquet_id:'higan_poem',name:'彼岸诗',base_price:100,current_price:123,price_stage:'新鲜',expires_in_seconds:100,is_open:true},{slot:2,empty:true},{slot:3,empty:true}]}}};
 vm.createContext(ctx);
-const start=source.indexOf('function getBouquetImageUrl('),end=source.indexOf('async function markBouquetGiftsRead(',start);
+const start=source.indexOf('function formatBouquetTimestamp('),end=source.indexOf('async function markBouquetGiftsRead(',start);
 vm.runInContext(source.slice(start,end),ctx);
 const body=ctx.$('#bouquetPageContent');
 const walk=(node)=>[node,...node.children.flatMap(walk)];
@@ -525,7 +525,29 @@ if(!walk(shelves.children[1]).some(n=>n.textContent==='暂无上架')||walk(shel
 const first=walk(shelves.children[0]);
 if(!first.some(n=>n.src==='/static/assets/v5/bouquets/other_shore_poem.png')||!first.some(n=>n.textContent==='彼岸诗 ×1')||!first.some(n=>n.textContent.includes('基础价 100 → 当前标价 123')))throw Error('listed slot price relationship');
 if(!walk(body).some(n=>n.textContent==='保鲜设备：未安装')||!walk(body).some(n=>n.textContent.includes('相对基础售价：0–4小时 ×1.15'))||!walk(body).some(n=>n.textContent.includes('上架满24小时后报废')))throw Error('ordinary shelf pricing explanation');
-ctx.currentState.collectible_catalog=[{id:'pebble',name:'小石子',display_name:'小石子'},{id:'gray_feather',name:'羽毛'},{id:'maple_leaf',name:'枫叶'}];
+ctx.catalog.collectibles=[{id:'pebble',name:'圆润的小石子'},{id:'gray_feather',name:'灰白羽毛'},{id:'maple_leaf',name:'干枯的小树叶'}];
+ctx.currentState.collectible_catalog=[{id:'pebble',name:'小石子',display_name:'未知的小东西'},{id:'gray_feather',name:'羽毛',display_name:'未知的小东西'},{id:'maple_leaf',name:'枫叶',display_name:'未知的小东西'}];
+ctx.currentState.recent_event_records=[
+ {time:100,event_type:'flower_shop_cat_buff',buff_type:'fortune',collectible_id:'pebble'},
+ {time:101,text:'猫咪好运',area:'flower_shop'},
+ {time:102,event_type:'flower_shop_cat_buff',buff_type:'popular',collectible_id:'gray_feather'},
+ {time:103,event_type:'flower_shop_cat_buff',buff_type:'fortune',collectible_id:'maple_leaf'},
+ {time:104,event_type:'flower_shop_cat_buff',buff_type:'popular',collectible_id:'pebble'}];
+ctx.renderBouquetPage();
+const luck=find('flower-shop-recent-luck');
+if(!luck||luck.children.length!==4||!luck.children[1].children[0].textContent.includes('圆润的小石子')||!luck.children[1].children[1].textContent.includes('旺客好运')||!luck.children[2].children[0].textContent.includes('干枯的小树叶')||!luck.children[2].children[1].textContent.includes('招财好运')||!luck.children[3].children[0].textContent.includes('灰白羽毛'))throw Error('recent luck structured names/order/limit');
+ctx.currentState.recent_event_records=[{time:105,event_type:'flower_shop_cat_buff',buff_type:'popular',collectible_id:'legacy-missing-id'}];ctx.renderBouquetPage();
+const fallbackLuck=find('flower-shop-recent-luck');
+if(!fallbackLuck.children[1].children[0].textContent.includes('小猫带回的小东西'))throw Error('invalid collectible fallback');
+ctx.currentState.recent_event_records=[];ctx.renderBouquetPage();
+if(find('flower-shop-recent-luck').children.length!==2||!walk(find('flower-shop-recent-luck')).some(n=>n.textContent==='还没有好运记录。'))throw Error('empty recent luck state');
+ctx.currentState.recent_event_records=[
+ {time:100,event_type:'flower_shop_cat_buff',buff_type:'fortune',collectible_id:'pebble'},
+ {time:101,text:'猫咪好运',area:'flower_shop'},
+ {time:102,event_type:'flower_shop_cat_buff',buff_type:'popular',collectible_id:'gray_feather'},
+ {time:103,event_type:'flower_shop_cat_buff',buff_type:'fortune',collectible_id:'maple_leaf'},
+ {time:104,event_type:'flower_shop_cat_buff',buff_type:'popular',collectible_id:'pebble'}];ctx.renderBouquetPage();
+ctx.currentState.collectible_catalog[0].display_name='小石子';
 Object.assign(ctx.currentState.flower_shop,{shop_buff_active:true,shop_buff_collectible_id:'pebble',shop_buff_effect:'成交金额 +10%',shop_buff_remaining_seconds:7200});
 ctx.renderBouquetPage();
 let buff=find('flower-shop-buff');

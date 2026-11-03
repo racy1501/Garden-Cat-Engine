@@ -253,7 +253,7 @@ def build_view(state, section, now, *, detail=None, item_id=None, page=None):
             "hours": ("business_start_minute", "business_duration_minutes", "pending_business_start_minute",
                       "pending_business_effective_at", "is_open", "next_business_cycle_at"),
             "shelves": ("shelf_capacity", "slots", "can_upgrade_shelf", "next_shelf_capacity", "next_shelf_upgrade_cost"),
-            "equipment": ("has_freshener", "freshener_cost", "shop_buff_active", "shop_buff_remaining_seconds", "shop_buff_effect"),
+            "equipment": ("has_freshener", "freshener_cost", "shop_buff_active", "shop_buff_type", "shop_buff_remaining_seconds", "shop_buff_effect"),
             "rules": ("pricing_profiles", "bouquet_lifetime_seconds"),
         }
         if detail == "eligibility":
@@ -330,6 +330,8 @@ def build_view(state, section, now, *, detail=None, item_id=None, page=None):
         result["items"] = []
         for event in list(reversed(records))[(page - 1) * JOURNAL_PAGE_SIZE:page * JOURNAL_PAGE_SIZE]:
             row = _pick(event, "source", "source_name", "area", "text", "time")
+            if event.get("event_type") == "flower_shop_cat_buff":
+                row.update(_pick(event, "event_type", "buff_type", "collectible_id"))
             if event.get("source"):
                 row["source_label"] = ge.get_event_source_label(event["source"])
             result["items"].append(row)

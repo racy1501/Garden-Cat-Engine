@@ -1001,6 +1001,9 @@ def _event_record_for_client(event: dict[str, Any]) -> dict[str, Any]:
     }
     if event.get("area") in EVENT_AREAS:
         record["area"] = event["area"]
+    if event.get("event_type") == "flower_shop_cat_buff":
+        record.update(event_type=event["event_type"], buff_type=event.get("buff_type"),
+                      collectible_id=event.get("collectible_id"))
     if event.get("source"):
         record["source"] = event["source"]
         record["source_label"] = get_event_source_label(event["source"])

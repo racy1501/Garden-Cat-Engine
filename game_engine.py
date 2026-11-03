@@ -396,6 +396,7 @@ FLOWER_SHOP_FRESHENER_COST = 1800
 FLOWER_SHOP_CAT_BUFF_CHANCE = 0.12
 FLOWER_SHOP_CAT_BUFF_DURATION_SECONDS = 4 * 60 * 60
 FLOWER_SHOP_CAT_BUFF_MULTIPLIER = 1.10
+FLOWER_SHOP_POPULAR_SALE_CHANCE = 0.92
 FLOWER_SHOP_BUSINESS_DURATION_MINUTES = 10 * 60
 FLOWER_SHOP_SALE_CHANCE = 0.82
 FLOWER_SHOP_SALE_WAIT_MAX_SECONDS = 10 * 60 * 60
@@ -1102,16 +1103,21 @@ def _maybe_trigger_flower_shop_cat_buff(state, now, collectible_id, buff_windows
     shop = state.get("flower_shop")
     if not isinstance(shop, dict) or not shop.get("established_at"):
         return None
-    if random.random() >= FLOWER_SHOP_CAT_BUFF_CHANCE:
+    roll = random.random()
+    if roll >= FLOWER_SHOP_CAT_BUFF_CHANCE:
         return None
+    buff_type = "fortune" if roll < FLOWER_SHOP_CAT_BUFF_CHANCE / 2 else "popular"
     start_at = int(now)
     until_at = start_at + FLOWER_SHOP_CAT_BUFF_DURATION_SECONDS
     shop["shop_buff_until"] = until_at
     shop["shop_buff_collectible_id"] = collectible_id
+    shop["shop_buff_type"] = buff_type
     if isinstance(buff_windows, list):
-        buff_windows.append({"start_at": start_at, "until_at": until_at})
-    message = "🐾 猫咪带回的小发现给花店添了好运，接下来4小时成交金额会提高。"
-    add_event(state, message, now=start_at, area="flower_shop")
+        buff_windows.append({"start_at": start_at, "until_at": until_at, "buff_type": buff_type})
+    effect = "招财好运：成交金额提高10%" if buff_type == "fortune" else "旺客好运：新上架花束更容易成交"
+    message = f"🐾 猫咪给花店带来了{effect}，持续4小时。"
+    add_event(state, message, now=start_at, area="flower_shop", event_type="flower_shop_cat_buff",
+              buff_type=buff_type, collectible_id=collectible_id)
     return message
 
 
@@ -1565,6 +1571,7 @@ def _default_flower_shop_state():
         "has_freshener": False,
         "shop_buff_until": 0,
         "shop_buff_collectible_id": None,
+        "shop_buff_type": None,
         "business_start_minute": None,
         "pending_business_start_minute": None,
         "pending_business_effective_at": None,
@@ -2782,6 +2789,8 @@ def _normalize_flower_shop(raw_shop, now=None):
         "shelf_capacity": capacity,
         "has_freshener": bool(raw_shop.get("has_freshener", False)),
         "shop_buff_until": _safe_nonnegative_int(raw_shop.get("shop_buff_until", 0), 0),
+        "shop_buff_type": (raw_shop.get("shop_buff_type") if raw_shop.get("shop_buff_type") in ("fortune", "popular")
+                           else "fortune" if _safe_nonnegative_int(raw_shop.get("shop_buff_until", 0), 0) else None),
         "shop_buff_collectible_id": (
             raw_shop.get("shop_buff_collectible_id")
             if get_collectible_by_id(raw_shop.get("shop_buff_collectible_id")) is not None
@@ -3561,8 +3570,8 @@ def get_flower_shop_base_price(components):
     return _round_flower_shop_price(direct_sale_value * FLOWER_SHOP_BASE_PRICE_MULTIPLIER)
 
 
-def _roll_flower_shop_sale_plan():
-    will_sell = random.random() < FLOWER_SHOP_SALE_CHANCE
+def _roll_flower_shop_sale_plan(sale_chance=FLOWER_SHOP_SALE_CHANCE):
+    will_sell = random.random() < sale_chance
     if not will_sell:
         return False, 0
     return True, int(
@@ -3595,20 +3604,22 @@ def _flower_shop_sale_has_cat_buff(
     settlement_start,
     previous_shop_buff_until,
     shop_buff_windows,
+    previous_shop_buff_type="fortune",
 ):
     sold_at = int(sold_at)
     settlement_start = int(settlement_start)
     previous_shop_buff_until = _safe_nonnegative_int(previous_shop_buff_until, 0)
-    if settlement_start <= sold_at < previous_shop_buff_until:
-        return True
+    active_type = previous_shop_buff_type if settlement_start <= sold_at < previous_shop_buff_until else None
+    latest_start = -1
     for window in shop_buff_windows or ():
         if not isinstance(window, dict):
             continue
         start_at = _safe_nonnegative_int(window.get("start_at", 0), 0)
         until_at = _safe_nonnegative_int(window.get("until_at", 0), 0)
-        if start_at <= sold_at < until_at:
-            return True
-    return False
+        if start_at <= sold_at and start_at >= latest_start:
+            latest_start = start_at
+            active_type = window.get("buff_type", "fortune") if sold_at < until_at else None
+    return active_type == "fortune"
 
 
 def settle_flower_shop(
@@ -3616,6 +3627,7 @@ def settle_flower_shop(
     now=None,
     *,
     previous_shop_buff_until=None,
+    previous_shop_buff_type=None,
     shop_buff_windows=None,
 ):
     if now is None:
@@ -3626,6 +3638,8 @@ def settle_flower_shop(
         return []
     if previous_shop_buff_until is None:
         previous_shop_buff_until = shop.get("shop_buff_until", 0)
+    if previous_shop_buff_type is None:
+        previous_shop_buff_type = shop.get("shop_buff_type") or "fortune"
     start_minute = shop.get("business_start_minute")
     if not isinstance(start_minute, int):
         return []
@@ -3668,6 +3682,7 @@ def settle_flower_shop(
                 from_timestamp,
                 previous_shop_buff_until,
                 shop_buff_windows,
+                previous_shop_buff_type,
             ):
                 sale_price = _round_flower_shop_price(
                     sale_price * FLOWER_SHOP_CAT_BUFF_MULTIPLIER
@@ -3716,6 +3731,7 @@ def _settle_cat_then_flower_shop(
         else 0
     )
     shop_buff_windows = []
+    previous_shop_buff_type = (shop.get("shop_buff_type") or "fortune") if isinstance(shop, dict) else "fortune"
     lifecycle_messages = settle_cat_lifecycle(
         state,
         cat_target_time,
@@ -3727,6 +3743,7 @@ def _settle_cat_then_flower_shop(
         state,
         flower_shop_target_time,
         previous_shop_buff_until=previous_shop_buff_until,
+        previous_shop_buff_type=previous_shop_buff_type,
         shop_buff_windows=shop_buff_windows,
     )
     return lifecycle_messages, flower_shop_results
@@ -3847,8 +3864,9 @@ def get_flower_shop_public_summary(state, now=None):
         "shop_buff_active": shop_buff_active,
         "shop_buff_until": shop_buff_until if shop_buff_active else None,
         "shop_buff_collectible_id": shop.get("shop_buff_collectible_id") if shop_buff_active else None,
+        "shop_buff_type": (shop.get("shop_buff_type") or "fortune") if shop_buff_active else None,
         "shop_buff_remaining_seconds": max(0, shop_buff_until - now) if shop_buff_active else 0,
-        "shop_buff_effect": "成交金额 +10%" if shop_buff_active else None,
+        "shop_buff_effect": ("新上架花束成交概率提高" if shop.get("shop_buff_type") == "popular" else "成交金额 +10%") if shop_buff_active else None,
         "business_start_minute": start_minute,
         "business_duration_minutes": FLOWER_SHOP_BUSINESS_DURATION_MINUTES,
         "pending_business_start_minute": shop.get("pending_business_start_minute"),
@@ -4073,7 +4091,8 @@ def _retain_latest_events(events):
         event.get("time", 0), 0) if isinstance(event, dict) else 0)[-EVENT_HISTORY_LIMIT:]
 
 
-def add_event(state, event_text, *, now=None, source="system", source_name=None, area=None):
+def add_event(state, event_text, *, now=None, source="system", source_name=None, area=None,
+              event_type=None, buff_type=None, collectible_id=None):
     event = {
         "time": int(time.time() if now is None else now),
         "text": event_text,
@@ -4081,6 +4100,8 @@ def add_event(state, event_text, *, now=None, source="system", source_name=None,
     }
     if area in EVENT_AREAS:
         event["area"] = area
+    if event_type == "flower_shop_cat_buff":
+        event.update(event_type=event_type, buff_type=buff_type, collectible_id=collectible_id)
     if event["source"] in ("human", "ai") and isinstance(source_name, str) and source_name.strip():
         event["source_name"] = source_name.strip()
     state["events"].append(event)
@@ -5098,7 +5119,10 @@ def execute_command(state, command, *, event_source="system", source_name=None, 
                 ok, result = False, f"❌ 货架{slot_index + 1}已经有在售花束。"
             else:
                 bouquet_instance = bouquet_inventory[inventory_index]
-                will_sell, sale_wait = _roll_flower_shop_sale_plan()
+                popular_active = shop.get("shop_buff_type") == "popular" and now < shop.get("shop_buff_until", 0)
+                will_sell, sale_wait = _roll_flower_shop_sale_plan(
+                    FLOWER_SHOP_POPULAR_SALE_CHANCE if popular_active else FLOWER_SHOP_SALE_CHANCE
+                )
                 slots[slot_index] = {
                     "instance_id": bouquet_instance["instance_id"],
                     "bouquet_id": bouquet_instance["bouquet_id"],

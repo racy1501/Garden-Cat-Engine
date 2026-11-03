@@ -2192,6 +2192,10 @@ html, body { min-width: 0; }
 .flower-shop-buff-item-name { color: var(--green-dark); font-size: clamp(16px, 1.45vw, 20px); line-height: 1.25; }
 .flower-shop-buff-active > small:not(.flower-shop-buff-status) { color: var(--muted); font-size: 12px; line-height: 1.45; }
 .flower-shop-buff-status { display: inline-flex; width: fit-content; max-width: 100%; padding: 3px 7px; border-radius: 999px; color: #6e765e; background: rgba(224,229,207,.66); font-size: 11px; line-height: 1.35; overflow-wrap: anywhere; }
+.flower-shop-recent-luck { display: grid; gap: 5px; min-width: 0; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.flower-shop-recent-luck strong { color: #76836b; font-size: 12px; }
+.flower-shop-recent-luck-entry { display: grid; gap: 1px; min-width: 0; font-size: 13px; line-height: 1.35; overflow-wrap: anywhere; }
+.flower-shop-recent-luck-entry small { color: var(--green-dark); font-size: 12px; line-height: 1.35; overflow-wrap: anywhere; }
 .flower-shop-buff-active[hidden], .flower-shop-buff-image[hidden] { display: none; }
 .flower-shop-row input { min-width: 0; padding: 6px; border: 1px solid rgba(92,111,84,.22); border-radius: 8px; }
 .flower-shop-shelves { grid-column: 2; grid-row: 1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 10px; border: 1px solid #d7c9b2; border-radius: 14px; background: #e7ddcb; }

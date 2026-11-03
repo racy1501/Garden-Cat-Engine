@@ -1369,7 +1369,33 @@ function renderBouquetWorkshop(body) {
     buffText.textContent = `${shop.shop_buff_effect || "猫咪好运生效中"}｜剩余 ${formatDuration(buffRemaining)}`;
     buff.append(buffText);
   }
-  details.append(heading, emptyHint, buff);
+  const recentLuck = document.createElement("div");
+  recentLuck.className = "flower-shop-recent-luck";
+  const recentTitle = document.createElement("strong");
+  recentTitle.textContent = "最近好运";
+  recentLuck.append(recentTitle);
+  const luckEvents = (currentState?.recent_event_records || [])
+    .filter((event) => event.event_type === "flower_shop_cat_buff" && ["fortune", "popular"].includes(event.buff_type))
+    .slice(-3).reverse();
+  if (!luckEvents.length) {
+    const empty = document.createElement("small");
+    empty.textContent = "还没有好运记录。";
+    recentLuck.append(empty);
+  }
+  for (const event of luckEvents) {
+    const collectible = (catalog?.collectibles || [])
+      .find((item) => item.id === event.collectible_id);
+    const row = document.createElement("div");
+    row.className = "flower-shop-recent-luck-entry";
+    const source = document.createElement("span");
+    source.textContent = `${formatBouquetTimestamp(event.time)} · ${collectible?.name || "小猫带回的小东西"}`;
+    const result = document.createElement("small");
+    const effect = event.buff_type === "fortune" ? "招财好运 · 成交金额 +10%" : "旺客好运 · 新上架更容易成交";
+    result.textContent = effect;
+    row.append(source, result);
+    recentLuck.append(row);
+  }
+  details.append(heading, emptyHint, buff, recentLuck);
   buffCorner.append(details, tray);
   shelfDisplay.append(renderFlowerShopShelves(shop), buffCorner);
   shopSection.append(shelfDisplay);
