@@ -2207,6 +2207,9 @@ html, body { min-width: 0; }
 @media (max-width: 700px) {
   .flower-shop-display { grid-template-columns: minmax(0, 1fr); gap: 8px; }
   .flower-shop-shelves { grid-column: 1; grid-row: 1; }
+  .flower-shop-shelves article { height: auto; min-height: 200px; gap: 2px; padding: 6px 3px; overflow: visible; }
+  .flower-shop-shelf-artwork .bouquet-artwork { height: 60px; }
+  .flower-shop-shelves small { font-size: 11px; line-height: 1.25; }
   .flower-shop-buff { display: grid; grid-column: 1; grid-row: 2; grid-template-columns: minmax(0, 1fr) minmax(150px, 40%); align-self: start; align-items: center; gap: 10px; width: min(100%, 440px); min-height: 160px; padding: 10px 14px; }
   .flower-shop-buff-tray { width: 90%; max-width: 210px; margin: 0 auto; }
   .flower-shop-buff-item-name { font-size: 18px; }
