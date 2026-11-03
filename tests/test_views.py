@@ -249,12 +249,12 @@ def test_shop_level_two_surfaces_only_unlocked_seed_economics(cat_clock):
 
     shop = build_view(state, 'shop', now)
     expected = [
-        {'id': flower_id, 'seed_price_per_pack': flower['seed_price'],
+        {'id': flower_id, 'seed_price_per_seed': flower['seed_price'],
          'grow_time': flower['grow_time'], 'sell_price_per_flower': flower['sell_price']}
         for flower_id, flower in ge.FLOWERS.items() if ge.is_flower_unlocked(state, flower_id)
     ]
     assert shop['seeds'] == expected
-    assert all(set(seed) == {'id', 'seed_price_per_pack', 'grow_time', 'sell_price_per_flower'} for seed in shop['seeds'])
+    assert all(set(seed) == {'id', 'seed_price_per_seed', 'grow_time', 'sell_price_per_flower'} for seed in shop['seeds'])
     assert 'red_spider_lily' not in {seed['id'] for seed in shop['seeds']}
     assert 'seeds' not in shop['summary']
     assert not any(link.get('detail') == 'seeds' for link in shop['available_views'])
@@ -262,7 +262,7 @@ def test_shop_level_two_surfaces_only_unlocked_seed_economics(cat_clock):
     # Category details keep their existing full records and direct item lookup remains callable.
     seed_detail = build_view(state, 'shop', now, detail='seeds')
     assert seed_detail['items'] == [
-        {'id': flower_id, 'name': flower['name'], 'seed_price_per_pack': flower['seed_price'],
+        {'id': flower_id, 'name': flower['name'], 'seed_price_per_seed': flower['seed_price'],
          'grow_time': flower['grow_time'], 'sell_price_per_flower': flower['sell_price']}
         for flower_id, flower in ge.FLOWERS.items() if ge.is_flower_unlocked(state, flower_id)
     ]
@@ -298,7 +298,7 @@ def test_encyclopedia_detail_keeps_discovery_data_without_economics(cat_clock):
 
     shop = build_view(state, 'shop', now)
     daisy = next(row for row in shop['seeds'] if row['id'] == 'daisy')
-    assert daisy == {'id': 'daisy', 'seed_price_per_pack': ge.FLOWERS['daisy']['seed_price'],
+    assert daisy == {'id': 'daisy', 'seed_price_per_seed': ge.FLOWERS['daisy']['seed_price'],
                      'grow_time': ge.FLOWERS['daisy']['grow_time'],
                      'sell_price_per_flower': ge.FLOWERS['daisy']['sell_price']}
 
@@ -582,6 +582,18 @@ def test_ai_help_guides_layered_access(api, cat_clock):
         assert '将其参数用于下一次 garden_view' in text
         assert 'collectibles - 查看' not in text and 'vase - 查看' not in text
         assert 'make_bouquet bouquet_id=' in text
+
+
+def test_reference_help_excludes_sample_settlement_and_summary(api, monkeypatch):
+    _, client = api
+    monkeypatch.setattr(ge, 'prepare_command_state',
+                        lambda state, now, *, letter_context: (ge.WEATHER['sunny'], ['猫咪来了，正在花园里停留。']))
+    result = client.get('/api/help', headers={'X-API-Key': 'test-key'}).get_json()
+    assert result['ok'] is True
+    assert '命令帮助' in result['message'] and 'garden_view' in result['message']
+    assert '猫咪来了，正在花园里停留。' not in result['message']
+    assert '📊' not in result['message']
+    assert '每颗可种一盆' in result['message']
 
 
 @pytest.mark.parametrize('command', ['shop extra', 'vase 1', 'collectibles hidden', 'encyclopedia daisy',

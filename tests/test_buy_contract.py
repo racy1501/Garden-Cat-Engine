@@ -32,6 +32,20 @@ def test_buy_rejects_invalid_item_quantities_without_throwing():
         assert_invalid_quantity_is_a_business_error(f"buy basic_food {quantity}")
 
 
+def test_each_purchased_seed_plants_one_pot(monkeypatch):
+    monkeypatch.setattr(ge.random, "random", lambda: 1.0)
+    state = ge.get_default_state()
+    state["inventory"]["seeds"] = {}
+    state["money"] = 50
+    bought = ge.execute_command(state, "buy daisy 2")
+    assert bought.ok and "买了2颗雏菊种子" in bought.message
+    assert state["inventory"]["seeds"]["daisy"] == 2
+    assert state["money"] == 50 - 2 * ge.FLOWERS["daisy"]["seed_price"]
+    assert ge.execute_command(state, "plant daisy 1").ok
+    assert ge.execute_command(state, "plant daisy 2").ok
+    assert state["inventory"]["seeds"].get("daisy", 0) == 0
+
+
 def test_buy_accepts_internal_item_id_and_rejects_display_name():
     state = ge.get_default_state()
     state["money"] = 50

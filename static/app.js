@@ -2640,7 +2640,7 @@ function renderSeedShop() {
   for (const [id, flower] of Object.entries(catalog.flowers)) {
     const isUnlocked = unlocked.has(id);
     const metaLines = isUnlocked
-      ? [`${flower.seed_price}块`, `约${Math.round(flower.grow_time / 60)}分钟成熟`]
+      ? [`${flower.seed_price}块/颗`, `约${Math.round(flower.grow_time / 60)}分钟成熟`]
       : [`图鉴${flower.unlock_requirement}种后解锁`];
 
     if (!isUnlocked) {
@@ -2836,7 +2836,7 @@ function renderInventory() {
   addGroup("鲜花", currentState.inventory.flowers, "flowers");
   addGroup("物品", currentState.inventory.items, "items");
 
-  if (!hasAny) root.innerHTML = `<div class="empty-note">背包还是空的。去商店买一包种子吧。</div>`;
+  if (!hasAny) root.innerHTML = `<div class="empty-note">背包还是空的。去商店买一颗种子吧。</div>`;
 }
 
 function renderCollection() {

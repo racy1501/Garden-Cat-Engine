@@ -96,9 +96,21 @@ class ForwardingTests(unittest.TestCase):
     def test_command_preserves_business_failure_and_original_command(self):
         self.payload = {"ok": False, "message": "材料不足", "state": {"money": 5}}
         command = "  craft_bouquet bouquet_id=first_meeting  "
-        self.assertEqual(shell.garden_command(command), self.payload)
+        result = shell.garden_command(command)
+        self.assertEqual(result.structuredContent, self.payload)
+        self.assertIn("材料不足", result.content[0].text)
+        self.assertNotIn('"money"', result.content[0].text)
         self.assert_request("POST", "/api/cmd", query={"compact": ["1"]},
                             body={"session_id": "mock-session", "command": command})
+
+    def test_command_keeps_decision_state_in_structured_content(self):
+        self.payload = {"ok": True, "message": "制作成功", "created_bouquets": [{"instance_id": "one"}],
+                        "state": {"money": 5, "next_tool": "garden_view", "recent_events": [{"text": "制作"}]}}
+        result = shell.garden_command("craft_bouquet bouquet_id=first_meeting")
+        self.assertEqual(result.structuredContent, self.payload)
+        self.assertEqual(len(result.content), 1)
+        self.assertIn("制作成功", result.content[0].text)
+        self.assertNotIn("recent_events", result.content[0].text)
 
     def test_notes_read_write(self):
         shell.garden_notes("read", page=2)
@@ -168,6 +180,38 @@ class ForwardingTests(unittest.TestCase):
 
 
 class ProtocolTests(unittest.IsolatedAsyncioTestCase):
+    async def test_command_fastmcp_conversion_preserves_structured_content(self):
+        payload = {"ok": True, "message": "已浇水", "state": {"next_tool": "garden_view", "recent_events": []}}
+        with patch.object(shell, "_request", return_value=payload), patch.object(shell, "_session_id", return_value="mock-session"):
+            result = await shell.mcp._tool_manager.call_tool("garden_command", {"command": "water 1"}, convert_result=True)
+        self.assertEqual(result.structuredContent, payload)
+        self.assertIn("已浇水", result.content[0].text)
+        self.assertNotIn("recent_events", result.content[0].text)
+
+    async def test_stdio_command_returns_brief_text_and_complete_structured_result(self):
+        fake_server = (
+            "import local_mcp_test as s; "
+            "s._request = lambda *a, **k: {'ok': True, 'message': '已浇水', "
+            "'state': {'money': 42, 'next_tool': 'garden_view', 'recent_events': [{'text': '浇水'}]}}; "
+            "s.mcp.run(transport='stdio')"
+        )
+        params = StdioServerParameters(command=sys.executable, args=["-B", "-c", fake_server], env={
+            "GARDEN_SESSION_ID": "mock-session", "PYTHONIOENCODING": "utf-8",
+        })
+        async with asyncio.timeout(20):
+            async with stdio_client(params) as (read, write):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    command_tool = next(tool for tool in (await session.list_tools()).tools if tool.name == "garden_command")
+                    self.assertIsNotNone(command_tool.outputSchema)
+                    result = await session.call_tool("garden_command", {"command": "water 1"})
+        self.assertFalse(result.isError)
+        self.assertEqual(result.structuredContent["state"]["money"], 42)
+        self.assertEqual(result.structuredContent["state"]["next_tool"], "garden_view")
+        self.assertEqual(result.structuredContent["state"]["recent_events"][0]["text"], "浇水")
+        self.assertIn("已浇水", result.content[0].text)
+        self.assertNotIn("recent_events", result.content[0].text)
+
     async def test_stdio_lists_tools_and_returns_mcp_error(self):
         script = Path(__file__).resolve().parents[1] / "local_mcp_test.py"
         params = StdioServerParameters(command=sys.executable, args=["-B", str(script)], env={

@@ -4710,7 +4710,7 @@ def execute_command(state, command, *, event_source="system", source_name=None, 
             emoji = "⚪" if rarity == "common" else "🟢" if rarity == "uncommon" else "🔵" if rarity == "rare" else "🟣"
             if is_flower_unlocked(state, flower_id):
                 result += (
-                    f"  {emoji} {flower_data['name']}（{flower_id}） - {flower_data['seed_price']}块 "
+                    f"  {emoji} {flower_data['name']}（{flower_id}） - {flower_data['seed_price']}块/颗 "
                     f"({format_time(flower_data['grow_time'])}基础成熟时间, 卖{flower_data['sell_price']}块)\n"
                 )
             else:
@@ -4740,8 +4740,8 @@ def execute_command(state, command, *, event_source="system", source_name=None, 
                     else:
                         state["money"] -= price
                         state["inventory"]["seeds"][item_id] = state["inventory"]["seeds"].get(item_id, 0) + quantity
-                        add_event(state, f"买了{quantity}包{FLOWERS[item_id]['name']}种子", now=now, source=event_source, source_name=source_name, area="garden")
-                        ok, result = True, f"✅ 买了{quantity}包{FLOWERS[item_id]['name']}种子！(-{price}块)"
+                        add_event(state, f"买了{quantity}颗{FLOWERS[item_id]['name']}种子", now=now, source=event_source, source_name=source_name, area="garden")
+                        ok, result = True, f"✅ 买了{quantity}颗{FLOWERS[item_id]['name']}种子！(-{price}块)"
             elif item_id in ITEMS:
                 item_data = ITEMS[item_id]
                 if item_data["type"] == "permanent":
@@ -5012,7 +5012,7 @@ def execute_command(state, command, *, event_source="system", source_name=None, 
                 state.setdefault("bouquet_inventory", []).append(bouquet_instance)
                 bouquet_name = BOUQUETS[bouquet_id]["name"]
                 add_event(state, f"制作了一束「{bouquet_name}」", now=now, source=event_source, source_name=source_name, area="flower_shop")
-                ok, result = True, f"💐 已制作{bouquet_name}，可从花束背包赠送给人类。"
+                ok, result = True, f"💐 已制作「{bouquet_name}」，放入花束背包，可用于花店上架；赠礼由 Agent 发起。"
 
     elif action == "gift_bouquet":
         instance_id = ""
@@ -5554,7 +5554,7 @@ def execute_command(state, command, *, event_source="system", source_name=None, 
             elif not cat_present:
                 ok, result = False, f"🍬 {cat_name}现在不在这里，零食没有消耗"
             else:
-                ok, result = False, f"🍬 {cat_name}闻了闻零食，暂时没有吃，零食没有消耗"
+                ok, result = False, f"🍬 {cat_name}现在不太想吃，零食没有消耗，可以稍后再试。"
 
     elif action == "pet":
         if len(parts) != 1:
@@ -5730,7 +5730,7 @@ def execute_command(state, command, *, event_source="system", source_name=None, 
         )
         ok, result = True, f"""💡 命令帮助：
 shop - 查看商店
-buy <商品ID> [数量] - 买东西；商品ID必须使用catalog中flowers/items的key（如daisy、basic_food），数量必须是正整数
+buy <商品ID> [数量] - 买东西；商品ID必须使用catalog中flowers/items的key（如daisy、basic_food），数量必须是正整数；种子按颗购买，每颗可种一盆
 buy_cottage_furniture <furniture_id> - 用共同余额为小屋添置一件主家具
 plant <花> <盆号> - 种花（雨天自动浇水，否则需手动浇水才能生长）
 water <盆号|all> - 给花浇水（浇一次永久有效，直到收获）

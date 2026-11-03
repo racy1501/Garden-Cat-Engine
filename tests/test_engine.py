@@ -104,7 +104,7 @@ def test_cli_cmd_keeps_plain_text_result(monkeypatch):
     monkeypatch.setattr(ge, "save_game", lambda current: saved.append(current))
     result = ge.cmd("buy daisy")
     assert isinstance(result, str)
-    assert "买了1包雏菊种子" in result
+    assert "买了1颗雏菊种子" in result
     assert state["inventory"]["seeds"]["daisy"] == 1
     assert saved == [state]
 
@@ -392,7 +392,10 @@ def test_craft_bouquet_creates_instance_and_gift_consumes_only_that_instance():
     state["encyclopedia"] = ["tulip", "baby_breath"]
     state["inventory"]["flowers"] = {"tulip": 4, "baby_breath": 2}
 
-    assert "已制作初见" in process_command(state, "craft_bouquet bouquet_id=first_meeting")
+    message = process_command(state, "craft_bouquet bouquet_id=first_meeting")
+    assert "已制作「初见」" in message
+    assert "放入花束背包" in message and "花店上架" in message
+    assert "赠礼由 Agent 发起" in message
     assert len(state["bouquet_inventory"]) == 1
     instance = state["bouquet_inventory"][0]
     assert instance["components"] == {"tulip": 2, "baby_breath": 1}

@@ -123,6 +123,21 @@ def test_cat_care_records_one_successful_action(cat_clock, monkeypatch, command,
     assert len(matches) == 1 and matches[0]["source"] == "ai"
 
 
+def test_treat_random_refusal_explains_it_was_not_consumed(cat_clock, monkeypatch):
+    state = adopted_cat_state()
+    state["inventory"]["items"]["cat_treat"] = 2
+    monkeypatch.setattr(ge, "_roll_interaction_acceptance", lambda *args: False)
+
+    result = ge.execute_command(state, "give_treat", event_source="ai")
+
+    assert not result.ok
+    assert "现在不太想吃" in result.message
+    assert "零食没有消耗" in result.message
+    assert "稍后再试" in result.message
+    assert "70%" not in result.message and "60%" not in result.message
+    assert state["inventory"]["items"]["cat_treat"] == 2
+
+
 def test_treat_and_batch_water_record_once_and_failures_do_not(cat_clock):
     state = ge.get_default_state()
     state["cat_state"]["next_visit_at"] = cat_clock[0] + 3600

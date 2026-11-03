@@ -55,7 +55,7 @@ def _care(state):
 
 
 def _goods(state):
-    seeds = [{"id": fid, "name": flower["name"], "seed_price_per_pack": flower["seed_price"],
+    seeds = [{"id": fid, "name": flower["name"], "seed_price_per_seed": flower["seed_price"],
               "grow_time": flower["grow_time"], "sell_price_per_flower": flower["sell_price"]}
              for fid, flower in ge.FLOWERS.items() if ge.is_flower_unlocked(state, fid)]
     items = [
@@ -344,7 +344,7 @@ def build_view(state, section, now, *, detail=None, item_id=None, page=None):
         else:
             result["summary"] = {key: len(rows) for key, rows in goods.items() if key != "seeds"}
             result["seeds"] = [
-                {"id": row["id"], **_pick(row, "seed_price_per_pack", "grow_time", "sell_price_per_flower")}
+                {"id": row["id"], **_pick(row, "seed_price_per_seed", "grow_time", "sell_price_per_flower")}
                 for row in goods["seeds"]
             ]
             views = [_entry(detail=key) for key in goods if key != "seeds"]

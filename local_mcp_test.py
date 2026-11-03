@@ -16,6 +16,7 @@ from urllib.request import Request, urlopen
 
 from mcp.server.fastmcp import FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
+from mcp.types import CallToolResult, TextContent
 
 
 mcp = FastMCP("Garden local API test")
@@ -116,11 +117,18 @@ def garden_view(
 
 @mcp.tool()
 def garden_command(command: str) -> dict[str, Any]:
-    """原样执行游戏命令，保留 API 的 ok、message 和公开结果。"""
+    """执行游戏命令；完整结果与状态在 structuredContent 中。"""
     if not command.strip():
         raise ToolError("command 不能为空。")
-    return _request("POST", "/api/cmd", params={"compact": "1"},
-                    body={"session_id": _session_id(), "command": command})
+    payload = _request("POST", "/api/cmd", params={"compact": "1"},
+                       body={"session_id": _session_id(), "command": command})
+    status = "成功" if payload.get("ok") else "失败"
+    message = str(payload.get("message", ""))
+    # FastMCP preserves the dict output schema while forwarding CallToolResult unchanged.
+    return CallToolResult(  # type: ignore[return-value]
+        content=[TextContent(type="text", text=f"{status}：{message}\n完整结果与状态见 structuredContent。")],
+        structuredContent=payload,
+    )
 
 
 @mcp.tool()

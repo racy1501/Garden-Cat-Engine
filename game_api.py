@@ -1341,7 +1341,7 @@ def info():
                 "help                 - 查看所有命令",
                 "shop                 - 查看商店与解锁条件",
                 "buy 参数使用 /api/catalog 返回的 flowers/items 商品 ID（对象 key），不要使用中文商品名",
-                "buy daisy 2          - 买2包雏菊种子",
+                "buy daisy 2          - 买2颗雏菊种子",
                 "buy basic_food 1     - 买1包普通猫粮",
                 "plant daisy 1        - 在1号盆种雏菊",
                 "water 1              - 给1号盆浇水",
@@ -2010,7 +2010,7 @@ def status():
 @require_api_key
 def help_route():
     state = _new_state()
-    result = _agent_help_text(process_command(state, "help") + NOTE_HELP_TEXT)
+    result = _agent_help_text(execute_command(state, "help", include_summary=False).action_message + NOTE_HELP_TEXT)
     return jsonify({"ok": True, "message": result})
 
 
