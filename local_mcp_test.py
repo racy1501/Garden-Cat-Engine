@@ -117,7 +117,7 @@ def garden_view(
 
 @mcp.tool()
 def garden_command(command: str) -> dict[str, Any]:
-    """执行游戏命令；完整结果与状态在 structuredContent 中。"""
+    """执行游戏命令；完整结果与状态在 structuredContent 中。一次买多种商品用 buy_multi 商品ID=数量 ...（如 buy_multi daisy=2 basic_food=3）。"""
     if not command.strip():
         raise ToolError("command 不能为空。")
     payload = _request("POST", "/api/cmd", params={"compact": "1"},

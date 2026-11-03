@@ -1346,6 +1346,7 @@ def info():
                 "buy 参数使用 /api/catalog 返回的 flowers/items 商品 ID（对象 key），不要使用中文商品名",
                 "buy daisy 2          - 买2颗雏菊种子",
                 "buy basic_food 1     - 买1包普通猫粮",
+                "buy_multi daisy=2 basic_food=3 - 一次买多种商品；全部合法且余额足够才成交，只扣一次总金额",
                 "plant daisy 1        - 在1号盆种雏菊",
                 "water 1              - 给1号盆浇水",
                 "harvest 1            - 收获指定花盆",
@@ -1510,7 +1511,7 @@ def web_status():
 
 
 WEB_COMMAND_AREAS = {
-    **dict.fromkeys(("buy", "buy_pot", "plant", "water", "harvest", "treat", "clear", "arrange", "remove_vase", "sell"), "garden"),
+    **dict.fromkeys(("buy", "buy_multi", "buy_pot", "plant", "water", "harvest", "treat", "clear", "arrange", "remove_vase", "sell"), "garden"),
     **dict.fromkeys(("make_bouquet", "craft_bouquet", "gift_bouquet", "list_bouquet", "establish_flower_shop", "upgrade_flower_shop_shelf", "buy_flower_shop_freshener", "set_flower_shop_hours", "launch_flower_shop"), "flower_shop"),
     "buy_cottage_furniture": "cottage",
 }

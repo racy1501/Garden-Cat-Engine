@@ -4647,6 +4647,188 @@ def _parse_flower_shop_start_minute(value):
     return minute if 0 <= minute < 24 * 60 else None
 
 
+# ── 商店购买：报价与库存写入分离 ──
+# 单买 buy 与多买 buy_multi 共用同一套报价规则和同一套库存写入规则，
+# 不另建价格事实源，也不让任何一条命令顺手写购买事件。
+
+SHOP_ITEM_SEED = "seed"
+SHOP_ITEM_CONSUMABLE = "consumable"
+SHOP_ITEM_PERMANENT = "permanent"
+
+
+def _quote_shop_item(state, item_id, quantity):
+    """校验并报价一个商品；只读 state，绝不写入。
+
+    返回 (quote, error)。error 为 None 时 quote 有效；
+    error 为 (kind, params) 时表示该商品不可购买，params 用于拼装提示文案。
+    """
+    if item_id in FLOWERS:
+        if not is_flower_unlocked(state, item_id):
+            return None, ("unlocked", {
+                "name": FLOWERS[item_id]["name"],
+                "unlock": get_unlock_message(item_id),
+            })
+        flower = FLOWERS[item_id]
+        return {
+            "item_id": item_id,
+            "kind": SHOP_ITEM_SEED,
+            "quantity": quantity,
+            "price": flower["seed_price"] * quantity,
+            "display": f"{flower['name']}种子",
+            "portions": None,
+            "packaged": False,
+        }, None
+    if item_id in ITEMS:
+        item_data = ITEMS[item_id]
+        if item_data["type"] == "permanent":
+            if quantity != 1:
+                return None, ("permanent_quantity", {})
+            if _owns_facility(state, item_id):
+                return None, ("already_owned", {"name": item_data["name"]})
+            return {
+                "item_id": item_id,
+                "kind": SHOP_ITEM_PERMANENT,
+                "quantity": 1,
+                "price": item_data["price"],
+                "display": item_data["name"],
+                "portions": None,
+                "packaged": False,
+            }, None
+        package_size = CAT_ITEM_PACKAGE_SIZES.get(item_id, 1)
+        packaged = item_id in CAT_ITEM_PACKAGE_SIZES
+        return {
+            "item_id": item_id,
+            "kind": SHOP_ITEM_CONSUMABLE,
+            "quantity": quantity,
+            "price": item_data["price"] * quantity,
+            "display": item_data["name"],
+            "portions": quantity * package_size,
+            "packaged": packaged,
+        }, None
+    return None, ("unknown_item", {})
+
+
+def _apply_shop_quote(state, quote):
+    """把已成交的商品写入正式库存或设施；不扣钱、不写事件。"""
+    item_id = quote["item_id"]
+    if quote["kind"] == SHOP_ITEM_SEED:
+        seeds = state["inventory"]["seeds"]
+        seeds[item_id] = seeds.get(item_id, 0) + quote["quantity"]
+    elif quote["kind"] == SHOP_ITEM_PERMANENT:
+        _apply_facility_purchase(state, item_id)
+    else:
+        _add_inventory_item(state, item_id, quote["portions"])
+
+
+def _shop_buy_event_text(quote):
+    """单件购买写入花园手记的文案，与既有 buy 完全一致。"""
+    if quote["kind"] == SHOP_ITEM_SEED:
+        return f"买了{quote['quantity']}颗{quote['display']}"
+    if quote["kind"] == SHOP_ITEM_PERMANENT:
+        return f"添置了{quote['display']}"
+    if quote["packaged"]:
+        return f"买了{quote['quantity']}包{quote['display']}，共{quote['portions']}份"
+    return f"买了{quote['quantity']}个{quote['display']}"
+
+
+def _shop_buy_success_text(quote):
+    """单件购买的成功提示，与既有 buy 完全一致。"""
+    if quote["kind"] == SHOP_ITEM_SEED:
+        return f"✅ 买了{quote['quantity']}颗{quote['display']}！(-{quote['price']}块)"
+    if quote["kind"] == SHOP_ITEM_PERMANENT:
+        return f"✅ 买了{quote['display']}！永久生效 (-{quote['price']}块)"
+    if quote["packaged"]:
+        return f"✅ 买了{quote['quantity']}包{quote['display']}，共{quote['portions']}份，花费{quote['price']}块。"
+    return f"✅ 买了{quote['quantity']}个{quote['display']}！(-{quote['price']}块)"
+
+
+def _shop_buy_area(quote):
+    """单件购买的事件归属地点：花种记花园，猫咪用品与设施记小屋。"""
+    return "garden" if quote["kind"] == SHOP_ITEM_SEED else "cottage"
+
+
+def _shop_buy_error_text(error):
+    """单件购买的失败提示，与既有 buy 完全一致。"""
+    kind, params = error
+    if kind == "unlocked":
+        return f"🔒 {params['name']}尚未解锁，{params['unlock']}"
+    if kind == "permanent_quantity":
+        return "❌ 永久物品每次只能购买1个"
+    if kind == "already_owned":
+        return f"❌ 已经有{params['name']}了"
+    return "❌ 商店没有这个东西"
+
+
+def _shop_multi_error_text(item_id, error):
+    """多件购买的失败提示：指出是哪一件出了问题。"""
+    kind, params = error
+    if kind == "unlocked":
+        return f"❌ 购买失败（{item_id}）：{params['name']}尚未解锁，{params['unlock']}"
+    if kind == "permanent_quantity":
+        return f"❌ 购买失败（{item_id}）：永久物品每次只能购买1个"
+    if kind == "already_owned":
+        return f"❌ 购买失败（{item_id}）：已经有{params['name']}了"
+    return f"❌ 购买失败（{item_id}）：商店没有这个东西"
+
+
+def _shop_item_label(quote):
+    """购买记录里的商品写法；名称与单位都沿用既有正式显示语义。"""
+    if quote["kind"] == SHOP_ITEM_SEED:
+        return f"{quote['display']}×{quote['quantity']}颗"
+    if quote["kind"] == SHOP_ITEM_PERMANENT:
+        return f"{quote['display']}×{quote['quantity']}"
+    if quote["packaged"]:
+        return f"{quote['display']}×{quote['quantity']}包（共{quote['portions']}份）"
+    return f"{quote['display']}×{quote['quantity']}个"
+
+
+def _parse_buy_multi_tokens(tokens):
+    """解析 buy_multi 的 商品ID=数量 参数；返回 (entries, error_message)。"""
+    entries = []
+    seen = set()
+    for token in tokens:
+        pieces = token.split("=")
+        if len(pieces) != 2 or not pieces[0].strip():
+            return None, f"❌ 每个商品都要写成 商品ID=数量（如 daisy=2）：{token}"
+        item_id = pieces[0].strip().lower()
+        quantity = parse_positive_int(pieces[1].strip())
+        if quantity is None:
+            return None, f"❌ 数量必须是正整数：{item_id}"
+        if item_id in seen:
+            return None, f"❌ 购买失败（{item_id}）：同一次购买不能重复同一商品"
+        seen.add(item_id)
+        entries.append((item_id, quantity))
+    return entries, None
+
+
+def _run_buy_multi(state, tokens, *, now, event_source, source_name):
+    """一次购买多种商品：全部校验通过才成交，一次扣款、逐项入库、只写一条购买记录。"""
+    if not tokens:
+        return False, "❌ 用法：buy_multi <商品ID>=<数量> ...（如：buy_multi daisy=2 basic_food=3）"
+    entries, error = _parse_buy_multi_tokens(tokens)
+    if error is not None:
+        return False, error
+    quotes = []
+    for item_id, quantity in entries:
+        quote, item_error = _quote_shop_item(state, item_id, quantity)
+        if item_error is not None:
+            return False, _shop_multi_error_text(item_id, item_error)
+        quotes.append(quote)
+    total = sum(quote["price"] for quote in quotes)
+    if state["money"] < total:
+        return False, f"❌ 购买失败：钱不够！共需{total}块，现有{state['money']}块"
+    state["money"] -= total
+    for quote in quotes:
+        _apply_shop_quote(state, quote)
+    labels = "、".join(_shop_item_label(quote) for quote in quotes)
+    area = "garden" if any(quote["kind"] == SHOP_ITEM_SEED for quote in quotes) else "cottage"
+    add_event(state, f"购买了{labels}，共花费{total}块", now=now,
+              source=event_source, source_name=source_name, area=area)
+    details = "\n   ".join(
+        f"{_shop_item_label(quote)}：{quote['price']}块" for quote in quotes
+    )
+    return True, f"✅ 购买完成，共花费{total}块\n   {details}"
+
 
 @dataclass(frozen=True)
 class CommandResult:
@@ -4751,49 +4933,22 @@ def execute_command(state, command, *, event_source="system", source_name=None, 
                 ok, result = False, "❌ 数量必须是正整数"
             elif len(parts) > 3:
                 ok, result = False, "❌ 用法：buy <物品> [数量]"
-            elif item_id in FLOWERS:
-                if not is_flower_unlocked(state, item_id):
-                    ok, result = False, f"🔒 {FLOWERS[item_id]['name']}尚未解锁，{get_unlock_message(item_id)}"
-                else:
-                    price = FLOWERS[item_id]["seed_price"] * quantity
-                    if state["money"] < price:
-                        ok, result = False, f"❌ 钱不够！需要{price}块"
-                    else:
-                        state["money"] -= price
-                        state["inventory"]["seeds"][item_id] = state["inventory"]["seeds"].get(item_id, 0) + quantity
-                        add_event(state, f"买了{quantity}颗{FLOWERS[item_id]['name']}种子", now=now, source=event_source, source_name=source_name, area="garden")
-                        ok, result = True, f"✅ 买了{quantity}颗{FLOWERS[item_id]['name']}种子！(-{price}块)"
-            elif item_id in ITEMS:
-                item_data = ITEMS[item_id]
-                if item_data["type"] == "permanent":
-                    if quantity != 1:
-                        ok, result = False, "❌ 永久物品每次只能购买1个"
-                    elif _owns_facility(state, item_id):
-                        ok, result = False, f"❌ 已经有{item_data['name']}了"
-                    elif state["money"] < item_data["price"]:
-                        ok, result = False, f"❌ 钱不够！需要{item_data['price']}块"
-                    else:
-                        state["money"] -= item_data["price"]
-                        _apply_facility_purchase(state, item_id)
-                        add_event(state, f"添置了{item_data['name']}", now=now, source=event_source, source_name=source_name, area="cottage")
-                        ok, result = True, f"✅ 买了{item_data['name']}！永久生效 (-{item_data['price']}块)"
-                else:
-                    price = item_data["price"] * quantity
-                    if state["money"] < price:
-                        ok, result = False, f"❌ 钱不够！需要{price}块"
-                    else:
-                        package_size = CAT_ITEM_PACKAGE_SIZES.get(item_id, 1)
-                        total_portions = quantity * package_size
-                        state["money"] -= price
-                        _add_inventory_item(state, item_id, total_portions)
-                        if item_id in CAT_ITEM_PACKAGE_SIZES:
-                            add_event(state, f"买了{quantity}包{item_data['name']}，共{total_portions}份", now=now, source=event_source, source_name=source_name, area="cottage")
-                            ok, result = True, f"✅ 买了{quantity}包{item_data['name']}，共{total_portions}份，花费{price}块。"
-                        else:
-                            add_event(state, f"买了{quantity}个{item_data['name']}", now=now, source=event_source, source_name=source_name, area="cottage")
-                            ok, result = True, f"✅ 买了{quantity}个{item_data['name']}！(-{price}块)"
             else:
-                ok, result = False, "❌ 商店没有这个东西"
+                quote, error = _quote_shop_item(state, item_id, quantity)
+                if error is not None:
+                    ok, result = False, _shop_buy_error_text(error)
+                elif state["money"] < quote["price"]:
+                    ok, result = False, f"❌ 钱不够！需要{quote['price']}块"
+                else:
+                    state["money"] -= quote["price"]
+                    _apply_shop_quote(state, quote)
+                    add_event(state, _shop_buy_event_text(quote), now=now,
+                              source=event_source, source_name=source_name, area=_shop_buy_area(quote))
+                    ok, result = True, _shop_buy_success_text(quote)
+
+    elif action == "buy_multi":
+        ok, result = _run_buy_multi(state, parts[1:], now=now,
+                                     event_source=event_source, source_name=source_name)
 
     elif action == "buy_cottage_furniture":
         if len(parts) != 2:
@@ -5755,6 +5910,7 @@ def execute_command(state, command, *, event_source="system", source_name=None, 
         ok, result = True, f"""💡 命令帮助：
 shop - 查看商店
 buy <商品ID> [数量] - 买东西；商品ID必须使用catalog中flowers/items的key（如daisy、basic_food），数量必须是正整数；种子按颗购买，每颗可种一盆
+buy_multi <商品ID>=<数量> ... - 一次买多种商品（如 buy_multi daisy=2 basic_food=3）；只支持花种和猫咪用品，全部合法且余额足够才成交，一次扣总金额，只记一条购买记录；同一商品不能重复出现
 buy_cottage_furniture <furniture_id> - 用共同余额为小屋添置一件主家具
 plant <花> <盆号> - 种花（雨天自动浇水，否则需手动浇水才能生长）
 water <盆号|all> - 给花浇水（浇一次永久有效，直到收获）
