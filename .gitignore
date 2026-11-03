@@ -1,3 +1,4 @@
 garden_cat.db
 __pycache__/
 *.py[cod]
+/.workbuddy/
