@@ -5929,7 +5929,8 @@ upgrade_flower_shop_shelf - 将花店货架扩建至下一档容量
 buy_flower_shop_freshener - 安装保鲜设备，之后新上架花束更晚折价
 set_flower_shop_hours <HH:MM> - 设置每天固定10小时营业的开始时间
 launch_flower_shop - 在已建店并设置营业时间后正式开业
-sell <花> [数量] - 卖花，或 sell all
+sell <flower_id> [数量] - 出售指定花种和数量；先用 garden_view(section="inventory") 查看当前各花种库存
+sell all - 卖掉全部鲜花，无需先查询逐种库存
 treat <盆号> - 治疗害虫({PEST_TREATMENT_COST}块，本轮不再长虫)
 clear <盆号> - 清理枯萎花（50%概率获得少量金币）
 buy_pot - 解锁下一个花盆(第4盆20块 / 第5盆35块 / 第6盆50块)

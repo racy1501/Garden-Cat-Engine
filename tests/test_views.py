@@ -622,6 +622,15 @@ def test_ai_help_guides_layered_access(api, cat_clock):
         assert '将其参数用于下一次 garden_view' in text
         assert 'collectibles - 查看' not in text and 'vase - 查看' not in text
         assert 'make_bouquet bouquet_id=' in text
+        assert 'sell <flower_id> [数量]' in text
+        assert 'garden_view(section="inventory")' in text
+        assert 'sell all' in text and '无需先查询逐种库存' in text
+
+    info = client.get('/api/info').get_json()
+    quick_start = '\n'.join(info['quick_start_commands'])
+    assert 'sell <flower_id> [数量]' in quick_start
+    assert 'garden_view(section="inventory")' in quick_start
+    assert 'sell all' in quick_start and '无需先查询逐种库存' in quick_start
 
 
 def test_reference_help_excludes_sample_settlement_and_summary(api, monkeypatch):
