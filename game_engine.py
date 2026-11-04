@@ -5571,7 +5571,7 @@ def execute_command(state, command, *, event_source="system", source_name=None, 
         if state["cat"] is None:
             ok, result = False, "❌ 还没有猫"
         elif len(parts) != 2 or parts[1].lower() not in ("basic", "premium"):
-            ok, result = False, "❌ 用法：feed <basic|premium>"
+            ok, result = False, "❌ 用法：refill_food <basic|premium>（feed 为兼容别名）"
         else:
             food_type = CAT_CARE_FOOD_TYPES[parts[1].lower()]
             refill_result = _refill_food_bowl(
@@ -5590,15 +5590,15 @@ def execute_command(state, command, *, event_source="system", source_name=None, 
             elif refill_result["added"] <= 0:
                 ok, result = False, f"❌ 背包里的{food_name}不够"
             elif refill_result["eaten"] > 0:
-                ok, result = True, f"🍽️ 已给粮碗补充{refill_result['added']}份{food_name}，{cat_name}吃了{refill_result['eaten']}份。"
+                ok, result = True, f"🍽️ 已向粮碗补充{refill_result['added']}份{food_name}，补充后{cat_name}自行吃了{refill_result['eaten']}份。"
             elif not _is_cat_near_bowls(state):
-                ok, result = True, f"🍽️ 已给粮碗补充{refill_result['added']}份{food_name}。{cat_name}现在不在碗边。"
+                ok, result = True, f"🍽️ 已向粮碗补充{refill_result['added']}份{food_name}。{cat_name}现在不在碗边。"
             else:
-                ok, result = True, f"🍽️ 已给粮碗补充{refill_result['added']}份{food_name}。"
+                ok, result = True, f"🍽️ 已向粮碗补充{refill_result['added']}份{food_name}；不保证立即进食。"
 
     elif action == "give_water":
         if len(parts) != 1:
-            ok, result = False, "❌ 用法：give_water"
+            ok, result = False, "❌ 用法：refill_water（give_water 为兼容别名）"
         elif state["cat"] is None:
             ok, result = False, "❌ 还没有猫"
         else:
@@ -5614,17 +5614,17 @@ def execute_command(state, command, *, event_source="system", source_name=None, 
             if refill_result["space"] <= 0:
                 ok, result = False, "❌ 水碗已经满了"
             elif refill_result["drank"] > 0:
-                ok, result = True, f"💧 已给水碗补满清水，{cat_name}喝了{refill_result['drank']}份。"
+                ok, result = True, f"💧 已向水碗补充清水，补充后{cat_name}自行喝了{refill_result['drank']}份。"
             elif not _is_cat_near_bowls(state):
-                ok, result = True, f"💧 已给水碗补满清水。{cat_name}现在不在碗边。"
+                ok, result = True, f"💧 已向水碗补充清水。{cat_name}现在不在碗边。"
             else:
-                ok, result = True, "💧 已给水碗补满清水。"
+                ok, result = True, "💧 已向水碗补充清水；不保证立即饮水。"
 
     elif action == "refill_food":
         if len(parts) not in (2, 3) or parts[1].lower() not in CAT_CARE_FOOD_TYPES:
-            ok, result = False, "❌ 用法：refill_food <basic|premium> [份数]"
+            ok, result = False, "❌ 用法：refill_food <basic|premium>"
         elif state["cat"] is None:
-            ok, result = False, "鉂?杩樻病鏈夌尗"
+            ok, result = False, "❌ 还没有猫"
         else:
             refill_result = _refill_food_bowl(
                 state,
@@ -5644,17 +5644,17 @@ def execute_command(state, command, *, event_source="system", source_name=None, 
             elif refill_result["eaten"] > 0:
                 cat_name = get_current_cat_name(state)
                 ok, result = True, (
-                    f"✅ 已补充{refill_result['added']}份{ITEMS[food_type]['name']}，"
-                    f"{cat_name}吃了{refill_result['eaten']}份，当前剩余 {bowl['remaining_portions']}/{bowl['capacity']}"
+                    f"✅ 已向粮碗补充{refill_result['added']}份{ITEMS[food_type]['name']}，"
+                    f"补充后{cat_name}自行吃了{refill_result['eaten']}份，当前剩余 {bowl['remaining_portions']}/{bowl['capacity']}"
                 )
             else:
-                ok, result = True, f"✅ 已向粮碗补充{refill_result['added']}份{ITEMS[food_type]['name']}"
+                ok, result = True, f"✅ 已向粮碗补充{refill_result['added']}份{ITEMS[food_type]['name']}；不保证立即进食"
 
     elif action == "refill_water":
         if len(parts) not in (1, 2):
-            ok, result = False, "❌ 用法：refill_water [份数]"
+            ok, result = False, "❌ 用法：refill_water"
         elif state["cat"] is None:
-            ok, result = False, "鉂?杩樻病鏈夌尗"
+            ok, result = False, "❌ 还没有猫"
         else:
             refill_result = _refill_water_bowl(
                 state,
@@ -5670,11 +5670,11 @@ def execute_command(state, command, *, event_source="system", source_name=None, 
             elif refill_result["drank"] > 0:
                 cat_name = get_current_cat_name(state)
                 ok, result = True, (
-                    f"✅ 已补满清水，"
-                    f"{cat_name}喝了{refill_result['drank']}份，当前剩余 {bowl['remaining_portions']}/{bowl['capacity']}"
+                    f"✅ 已向水碗补充清水，"
+                    f"补充后{cat_name}自行喝了{refill_result['drank']}份，当前剩余 {bowl['remaining_portions']}/{bowl['capacity']}"
                 )
             else:
-                ok, result = True, f"✅ 已向水碗补充{refill_result['space']}份清水"
+                ok, result = True, f"✅ 已向水碗补充{refill_result['space']}份清水；不保证立即饮水"
 
     elif action == "switch_food":
         if len(parts) != 2 or parts[1].lower() not in CAT_CARE_FOOD_TYPES:
@@ -5933,9 +5933,10 @@ vase - 查看花瓶与鲜花枯萎度
 remove_vase <位置> - 移除花瓶中任意状态的花（不返还花朵或金币）
 adopt [名字] - 正式收养猫咪并可选取名
 rename_cat <名字> - 给已收养的猫咪改名
-feed <basic|premium> - 给粮碗补充猫粮
+refill_food <basic|premium> - 向粮碗补充猫粮；feed 为兼容别名
 switch_food <basic|premium> - 切换粮碗猫粮
-give_water - 给水碗补水
+refill_water - 向水碗补充清水；give_water 为兼容别名
+猫咪饿了或渴了会自行从碗里进食、饮水；补充粮碗和水碗不保证猫立即吃喝。
 give_treat - 给猫咪喂零食
 pet - 抚摸猫(冷却{PET_COOLDOWN_REAL_MINUTES}分钟)
 play <ball|feather> - 和猫玩（消耗玩具）

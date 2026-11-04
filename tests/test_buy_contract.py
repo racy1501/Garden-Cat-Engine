@@ -90,12 +90,40 @@ def test_cat_food_refill_reports_added_portions_when_cat_eats(monkeypatch):
         assert state["inventory"]["items"].get("basic_food", 0) == 0
 
 
+def test_cat_bowl_refill_commands_do_not_promise_immediate_eating_or_drinking(monkeypatch):
+    from test_api_response_shape import adopted_cat_state
+
+    monkeypatch.setattr(ge.random, "random", lambda: 0.99)
+    for command in ("refill_food basic", "feed basic"):
+        state = adopted_cat_state()
+        state["cat_stats"]["hunger"] = 80
+        state["cat_care"]["food_bowl"]["remaining_portions"] = 0
+        state["inventory"]["items"]["basic_food"] = 3
+        result = ge.execute_command(state, command, settled_at=state["last_update"])
+        assert result.ok and "向粮碗补充3份普通猫粮" in result.message
+        assert "不保证" in result.message
+        assert state["cat_care"]["food_bowl"]["remaining_portions"] == 3
+
+    for command in ("refill_water", "give_water"):
+        state = adopted_cat_state()
+        state["cat_stats"]["thirst"] = 80
+        state["cat_care"]["water_bowl"]["remaining_portions"] = 0
+        result = ge.execute_command(state, command, settled_at=state["last_update"])
+        assert result.ok and "已向水碗补充" in result.message
+        assert "不保证" in result.message
+        assert state["cat_care"]["water_bowl"]["remaining_portions"] == state["cat_care"]["water_bowl"]["capacity"]
+
+
 def test_help_and_shop_expose_executable_item_id():
     help_text = ge.process_command(ge.get_default_state(), "help")
     shop_text = ge.process_command(ge.get_default_state(), "shop")
 
     assert "buy <商品ID>" in help_text
     assert "basic_food" in help_text
+    assert "refill_food <basic|premium>" in help_text
+    assert "refill_water" in help_text
+    assert "feed 为兼容别名" in help_text and "give_water 为兼容别名" in help_text
+    assert "不保证猫立即吃喝" in help_text
     assert "普通猫粮（basic_food）" in shop_text
 
 

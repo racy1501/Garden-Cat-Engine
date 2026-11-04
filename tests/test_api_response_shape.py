@@ -759,7 +759,9 @@ def test_ai_help_and_inventory_items_on_all_routes(api, cat_clock):
             response = client.post(route, headers=headers, json={"session_id": sid, "command": "help"})
             message = response.get_json()["message"]
             assert "give_treat" in message and "switch_food <basic|premium>" in message
-            assert "refill_food" not in message and "refill_water" not in message
+            assert "refill_food <basic|premium>" in message and "refill_water" in message
+            assert "feed 为兼容别名" in message and "give_water 为兼容别名" in message
+            assert "不保证猫立即吃喝" in message
         result = response.get_json()["state"]
         assert result["inventory"]["items"] == items
 

@@ -188,9 +188,9 @@ def build_view(state, section, now, *, detail=None, item_id=None, page=None):
                     interactions.append(command)
         if state.get("cat") is not None:
             if care["water_bowl"].get("remaining_portions", 0) < care["water_bowl"].get("capacity", 0):
-                interactions.append("give_water")
+                interactions.append("refill_water")
             if care["food_bowl"].get("remaining_portions", 0) < care["food_bowl"].get("capacity", 0):
-                interactions.extend(f"feed {kind}" for kind, iid in ge.CAT_CARE_FOOD_TYPES.items() if stock.get(iid, 0) > 0)
+                interactions.extend(f"refill_food {kind}" for kind, iid in ge.CAT_CARE_FOOD_TYPES.items() if stock.get(iid, 0) > 0)
         if cat.get("phase") == ge.CAT_PHASE_WAITING_NAME:
             interactions.append("adopt")
         summary = {"name": ge.get_current_cat_name(state), "stage": cat.get("phase"),

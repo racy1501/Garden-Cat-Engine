@@ -535,8 +535,15 @@ def test_empty_cat_interactions_explain_existing_blockers_without_changing_actio
     assert len(reason.split('；')) <= 3
 
     state['inventory']['items']['ball'] = 1
+    state['cat_care']['food_bowl']['remaining_portions'] = 0
+    state['cat_care']['water_bowl']['remaining_portions'] = 0
+    state['inventory']['items']['basic_food'] = 1
     cat = build_view(state, 'cat', cat_clock[0])
     assert 'play ball' in cat['available_interactions']
+    assert 'refill_food basic' in cat['available_interactions']
+    assert 'refill_water' in cat['available_interactions']
+    assert 'feed basic' not in cat['available_interactions']
+    assert 'give_water' not in cat['available_interactions']
     assert 'no_interaction_reason' not in cat['summary']
 
     state['inventory']['items'].clear()
