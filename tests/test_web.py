@@ -476,8 +476,9 @@ const notice='🎁 发现新藏品：圆润的小石子';
 
 def test_backpack_flower_prices_show_per_flower():
     js = (Path(__file__).resolve().parents[1] / 'static' / 'app.js').read_text(encoding='utf-8')
-    assert js.count('`${catalog.flowers[id]?.sell_price || 0}块/朵`') == 2
-    assert js.count('${kind === "flowers" ? "" : "数量 "}×${qty}') == 2
+    active_modal = js.rsplit('function showBackpackModal() {', 1)[1].split('function startPetCooldownTimer()', 1)[0]
+    assert '`${catalog.flowers[id]?.sell_price || 0}块/朵`' in active_modal
+    assert '${kind === "flowers" ? "" : "数量 "}×${qty}' in active_modal
 
 
 def test_flower_shop_tabs_and_nine_shelves_follow_public_state():
