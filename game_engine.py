@@ -5554,6 +5554,11 @@ def execute_command(state, command, *, event_source="system", source_name=None, 
     elif action == "rename_cat":
         if state["cat"] is None:
             ok, result = False, "❌ 还没有猫"
+        elif (state.get("cat_state") or {}).get("phase") != CAT_PHASE_ADOPTED:
+            if (state.get("cat_state") or {}).get("phase") == CAT_PHASE_WAITING_NAME:
+                ok, result = False, "❌ 猫咪还没有正式被收养，请使用 adopt <名字> 完成首次取名和正式收养。"
+            else:
+                ok, result = False, "❌ 猫咪还没有正式被收养，暂时不能改名。"
         elif len(parts) < 2:
             ok, result = False, "❌ 用法：rename_cat <名字>"
         else:

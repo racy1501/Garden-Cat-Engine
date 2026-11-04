@@ -1704,6 +1704,41 @@ def test_cat_can_be_named_when_adopted_and_renamed():
     assert state["cat"]["name"] == "橘子"
 
 
+@pytest.mark.parametrize(
+    "phase,expected_message",
+    [
+        (ge.CAT_PHASE_VISITOR, "还没有正式被收养，暂时不能改名"),
+        (ge.CAT_PHASE_WAITING_NAME, "使用 adopt <名字> 完成首次取名和正式收养"),
+    ],
+)
+def test_cat_cannot_be_renamed_before_adoption(phase, expected_message):
+    state = fresh_state()
+    state["cat"] = {"name": "小猫"}
+    state["cat_state"].update(phase=phase, location=ge.CAT_LOCATION_GARDEN)
+    state["events"] = []
+    before_events = copy.deepcopy(state["events"])
+
+    result = ge.execute_command(state, "rename_cat 团子", settled_at=state["last_update"])
+
+    assert result.ok is False
+    assert expected_message in result.message
+    assert state["cat"]["name"] == "小猫"
+    assert state["events"] == before_events
+
+
+def test_adopt_command_still_sets_first_name_and_adoption_phase():
+    state = fresh_state()
+    state["cat"] = {"name": "小猫"}
+    state["cat_stats"] = ge._default_v5_cat_stats()
+    state["cat_state"].update(phase=ge.CAT_PHASE_WAITING_NAME, location=ge.CAT_LOCATION_GARDEN)
+
+    result = process_command(state, "adopt 栗子")
+
+    assert "栗子" in result
+    assert state["cat"]["name"] == "栗子"
+    assert state["cat_state"]["phase"] == ge.CAT_PHASE_ADOPTED
+
+
 def test_cat_name_defaults_and_length_limit():
     state = fresh_state()
     state["money"] = 200
