@@ -84,15 +84,6 @@ def test_ai_operation_keeps_catchup_hint_separate_from_request_events(api, cat_c
     assert payload["state"]["latest_event"] == "把玫瑰插进花瓶"
     assert "栗子回家" in payload["message"]
     assert [event["text"] for event in payload["state"]["recent_events"]] == ["把玫瑰插进花瓶"]
-    assert module._ai_summary(module.db_load_state("operation"))["latest_event"] == ""
-
-
-def test_standalone_ai_summary_does_not_announce_offline_events(api, cat_clock):
-    module, _ = api
-    state = adopted_cat_state()
-    cat_clock[0] += 6 * 3600
-    assert module._ai_summary(state)["latest_event"] == ""
-    assert state["events"][-1]["text"] == "栗子回家了。"
 
 
 def test_web_operation_still_delivers_its_own_event_on_restore(api, cat_clock):
@@ -112,18 +103,6 @@ def test_web_operation_still_delivers_its_own_event_on_restore(api, cat_clock):
         "source_label": "人类",
         "area": "garden",
     }]
-
-
-def test_ai_summary_cross_second_catchup_does_not_replace_operation(api, cat_clock):
-    module, _ = api
-    state = adopted_cat_state()
-    state["cat_state"]["next_outing_at"] = cat_clock[0] + 1
-    state["inventory"]["flowers"]["rose"] = 1
-    before = list(state["events"])
-    ge.process_command(state, "arrange rose")
-    cat_clock[0] += 2
-    assert module._ai_summary(state, events_before=before)["latest_event"] == "把玫瑰插进花瓶"
-    assert state["events"][-1]["text"] == "栗子出门溜达了一会儿。"
 
 
 def test_frontend_quiet_notifications_and_timestamped_log():

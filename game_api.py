@@ -24,7 +24,7 @@ from urllib.parse import unquote
 
 from flask import Flask, g, has_request_context, jsonify, render_template, request
 import game_engine as ge
-from game_views import build_garden_pots, build_overview, build_view, validate_view
+from game_views import build_overview, build_view, validate_view
 
 from game_engine import (
     CommandResult,
@@ -63,7 +63,6 @@ from game_engine import (
     get_game_time_info,
     get_flower_shop_public_summary,
     get_cottage_public_summary,
-    get_pot_harvest_blocker,
     get_pot_ai_status,
     get_cottage_reward_requirement_text,
     get_next_pot_cost,
@@ -887,70 +886,6 @@ def _build_garden_event_summary(state: dict[str, Any], now: int) -> dict[str, An
     return garden_events
 
 
-def _build_pot_summary_for_ai(state: dict[str, Any]) -> dict[str, int]:
-    total_slots = int(state.get("max_pots", len(state.get("pots", []))) or 0)
-    empty_slots = 0
-    growing_pots = 0
-    ready_pots = 0
-    pest_pots = 0
-    withered_pots = 0
-
-    for pot_idx, pot in enumerate(state.get("pots", [])):
-        if pot is None:
-            empty_slots += 1
-            continue
-        if not isinstance(pot, dict):
-            continue
-        if is_pot_withered(pot):
-            withered_pots += 1
-            continue
-        if get_pot_harvest_blocker(state, pot_idx, pot) == "pest":
-            pest_pots += 1
-        flower_id = pot.get("flower_id")
-        flower = FLOWERS.get(flower_id)
-        if flower is None:
-            continue
-        progress = min(float(pot.get("growth_progress", 0.0)), float(flower["grow_time"]))
-        if progress >= float(flower["grow_time"]):
-            if get_pot_harvest_blocker(state, pot_idx, pot) is None:
-                ready_pots += 1
-        else:
-            growing_pots += 1
-
-    return {
-        "total_slots": total_slots,
-        "empty_slots": empty_slots,
-        "growing_pots": growing_pots,
-        "ready_pots": ready_pots,
-        "pest_pots": pest_pots,
-        "withered_pots": withered_pots,
-    }
-
-
-def _build_pots_for_ai(state: dict[str, Any]) -> list[dict[str, Any]]:
-    return build_garden_pots(state)
-
-
-def _build_inventory_counts_for_ai(state: dict[str, Any]) -> dict[str, Any]:
-    inventory = state.get("inventory", {})
-    seeds = inventory.get("seeds", {}) if isinstance(inventory, dict) else {}
-    flowers = inventory.get("flowers", {}) if isinstance(inventory, dict) else {}
-    items = inventory.get("items", {}) if isinstance(inventory, dict) else {}
-    return {
-        "seeds": {flower_id: int(qty) for flower_id, qty in seeds.items() if int(qty or 0) > 0},
-        "flowers": {flower_id: int(qty) for flower_id, qty in flowers.items() if int(qty or 0) > 0},
-        "items": dict(items),
-        "seed_types": sum(1 for qty in seeds.values() if int(qty or 0) > 0),
-        "seed_total": sum(int(qty or 0) for qty in seeds.values()),
-        "flower_types": sum(1 for qty in flowers.values() if int(qty or 0) > 0),
-        "flower_total": sum(int(qty or 0) for qty in flowers.values()),
-        "basic_food_servings": int(items.get("basic_food", 0) or 0),
-        "premium_food_servings": int(items.get("premium_food", 0) or 0),
-        "cat_food_servings": int(items.get("basic_food", 0) or 0),
-        "water_servings": int(items.get("water", 0) or 0),
-    }
-
-
 def _build_cat_summary_for_ai(state: dict[str, Any]) -> dict[str, Any] | None:
     cat_state = state.get("cat_state", {}) if isinstance(state.get("cat_state"), dict) else {}
     if not cat_state:
@@ -967,24 +902,6 @@ def _build_cat_summary_for_ai(state: dict[str, Any]) -> dict[str, Any] | None:
         "mood": round(float(stats.get("mood", 0.0) or 0.0), 1),
         "affection": round(float(stats.get("affection", 0.0) or 0.0), 1),
         "max_affection": round(get_cat_max_affection(state), 1),
-    }
-
-
-def _build_offline_summary_for_ai(state: dict[str, Any]) -> dict[str, Any]:
-    offline_summary = state.get("offline_summary", {})
-    if not isinstance(offline_summary, dict):
-        offline_summary = {}
-    offline_seconds = int(offline_summary.get("offline_seconds", 0) or 0)
-    settled_seconds = int(offline_summary.get("settled_seconds", 0) or 0)
-    skipped_seconds = int(offline_summary.get("skipped_seconds", 0) or 0)
-    is_frozen = bool(offline_summary.get("is_frozen")) or bool(state.get("is_frozen"))
-    return {
-        "settled": offline_seconds > 0,
-        "offline_seconds": offline_seconds,
-        "settled_seconds": settled_seconds,
-        "skipped_seconds": skipped_seconds,
-        "hit_freeze_cap": is_frozen or skipped_seconds > 0,
-        "message": str(offline_summary.get("message", "") or ""),
     }
 
 
@@ -1017,55 +934,6 @@ def _request_event_source_name(source: str) -> str | None:
     header = {"human": "X-Garden-Human-Name", "ai": "X-Garden-Owner-Name"}.get(source)
     name = unquote(request.headers.get(header, "")).strip() if header else ""
     return name or None
-
-
-def _ai_summary(state: dict[str, Any], *, events_before: list | None = None, settled_at: int | None = None) -> dict[str, Any]:
-    now = int(time.time()) if settled_at is None else settled_at
-    summary_events_before = list(state.get("events", []))
-    normalize_state(state, now)
-    if settled_at is None:
-        apply_offline_progress(state, now, letter_context=_request_letter_context())
-    if events_before is None:
-        events_before = list(state.get("events", []))
-    else:
-        # 摘要阶段若跨秒再次补算，也不能将其历史事件作为操作消息。
-        events_before = events_before + _new_request_events(state, summary_events_before)
-    weather_id = state.get("weather", "sunny")
-    weather = WEATHER.get(weather_id, WEATHER["sunny"])
-    garden_events = refresh_garden_events(state, now)
-    time_summary = _build_time_summary(state, now)
-
-    new_events = _new_request_events(state, events_before)
-    latest_event = str(new_events[-1].get("text", "") or "") if new_events else ""
-
-    return {
-        "garden_name": state.get("garden_name", ""),
-        "money": int(state.get("money", 0) or 0),
-        "weather": weather_id,
-        "weather_emoji": weather.get("emoji", ""),
-        "weather_name": weather.get("name", ""),
-        **time_summary,
-        "pots_summary": _build_pot_summary_for_ai(state),
-        "pots": _build_pots_for_ai(state),
-        "cat_summary": _build_cat_summary_for_ai(state),
-        "garden_events": {
-            "has_pests": bool(garden_events.get("has_pests")),
-            "pest_pots": list(garden_events.get("pest_pots", [])),
-            "rainbow_active": bool(garden_events.get("rainbow_active")),
-            "butterfly_active": bool(garden_events.get("butterfly_active")),
-            "rainbow_reward": str(garden_events.get("rainbow_reward", "") or ""),
-            "butterfly_reward": str(garden_events.get("butterfly_reward", "") or ""),
-        },
-        "offline_summary": _build_offline_summary_for_ai(state),
-        "inventory_counts": _build_inventory_counts_for_ai(state),
-        "bouquet_options": get_bouquet_options(state),
-        "bouquet_inventory": get_bouquet_inventory_public(state),
-        "flower_shop": get_flower_shop_public_summary(state, now),
-        "cottage": get_cottage_public_summary(state),
-        "shared_activity": [_event_record_for_client(event) for event in summary_events_before[-5:]],
-        "latest_event": latest_event,
-        "recent_events": [_event_record_for_client(event) for event in new_events],
-    }
 
 
 def _summary(state: dict[str, Any], *, events_before: list | None = None) -> dict[str, Any]:
@@ -1663,44 +1531,12 @@ def web_move_with_cat():
 @require_api_key
 def register():
     return _api_forbidden("该操作仅限人类网页端确认后执行，AI/API 端不可使用。")
-    data = request.get_json(silent=True) or {}
-    name = str(data.get("name", "")).strip()[:30]
-    session_id = "sess_" + uuid.uuid4().hex[:12]
-    state = _new_state(name)
-    db_save_state(session_id, state)
-    return jsonify(
-        {
-            "ok": True,
-            "session_id": session_id,
-            "message": (
-                f"你的专属花园 ID：{session_id}\n"
-                "请保存好这个 ID，之后每次回来都需要带上它。\n\n"
-                "初始状态：50块钱 · 3个花盆 · 5份普通猫粮\n"
-                "发送 help 查看玩法，发送 shop 购买第一批种子。\n\n"
-                "🌱 花盆已经摆好，泥土还是新的。"
-            ),
-            "state": _ai_summary(state),
-        }
-    )
 
 
 @app.route("/api/new_game", methods=["POST"])
 @require_api_key
 def new_game():
     return _api_forbidden("该操作仅限人类网页端确认后执行，AI/API 端不可使用。")
-    data = request.get_json(silent=True) or {}
-    session_id = _safe_session_id(data.get("session_id", DEFAULT_SESSION))
-    name = str(data.get("name", "")).strip()[:30]
-    state = _new_state(name)
-    db_save_state(session_id, state)
-    return jsonify(
-        {
-            "ok": True,
-            "session_id": session_id,
-            "message": f"🌱 [{session_id}] 新游戏开始！你有50块钱、3个花盆和5份普通猫粮。",
-            "state": _ai_summary(state),
-        }
-    )
 
 
 def _action_state(state, events_before, now):

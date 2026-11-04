@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 import game_engine as ge
+from game_views import build_garden_pots
 
 
 @pytest.fixture()
@@ -61,14 +62,14 @@ def test_cat_offline_events_use_transition_times(cat_clock, monkeypatch):
     (ge.CAT_PHASE_ADOPTED, ge.CAT_LOCATION_HOME),
     (ge.CAT_PHASE_ADOPTED, ge.CAT_LOCATION_AWAY),
 ])
-def test_ai_cat_summary_uses_phase_location(api, cat_clock, phase, location):
-    module, _ = api
+def test_ai_cat_summary_uses_phase_location(cat_clock, phase, location):
+    import game_api as module
     state = ge.get_default_state()
     state["cat_state"].update(phase=phase, location=location)
     if phase != ge.CAT_PHASE_VISITOR:
         state["cat"] = {"name": "栗子"}
         state["cat_stats"] = ge._default_v5_cat_stats()
-    summary = module._ai_summary(state)["cat_summary"]
+    summary = module._build_cat_summary_for_ai(state)
     assert summary["stage"] == phase
     assert summary["location"] == location
     assert summary["is_present"] == (location in ("garden", "home"))
@@ -128,7 +129,6 @@ def test_new_event_with_same_time_and_text_is_not_suppressed(api, cat_clock):
     assert response.status_code == 200
     assert response.get_json()["state"]["latest_event"] == "把玫瑰插进花瓶"
     assert [event["text"] for event in response.get_json()["state"]["recent_events"]] == ["把玫瑰插进花瓶"]
-    assert module._ai_summary(module.db_load_state("same-event"))["latest_event"] == ""
 
 
 @pytest.mark.parametrize("storage", ["json", "sqlite"])
@@ -155,7 +155,6 @@ def test_cat_boundaries_and_save_reload(api, cat_clock, tmp_path, monkeypatch, s
             module.db_save_state("cat-reload", state)
             state = module.db_load_state("cat-reload")
         assert state["cat_state"] == before
-        assert module._ai_summary(state)["latest_event"] == ""
 
 
 def test_regular_events_keep_current_time_and_history_limit(cat_clock):
@@ -766,8 +765,7 @@ def test_ai_help_and_inventory_items_on_all_routes(api, cat_clock):
         assert result["inventory"]["items"] == items
 
 
-def test_ai_pot_decision_fields_follow_formal_status_and_weather(api):
-    module, _ = api
+def test_ai_pot_decision_fields_follow_formal_status_and_weather():
     state = ge.get_default_state()
     state["weather"] = "sunny"
     state["max_pots"] = 6
@@ -776,7 +774,7 @@ def test_ai_pot_decision_fields_follow_formal_status_and_weather(api):
     state["pots"] = [dict(pot), {**pot, "growth_progress": grow_time},
                      {**pot, "watered": False}, {**pot, "pest_active": True}, None,
                      {**pot, "withered": True}]
-    growing, ready, dry, pest, empty, withered = module._build_pots_for_ai(state)
+    growing, ready, dry, pest, empty, withered = build_garden_pots(state)
     assert growing["status"] == "growing" and growing["progress"] == 0.5
     assert growing["remaining_seconds"] == int((grow_time / 2) / ge.get_actual_grow_speed(pot, ge.WEATHER["sunny"]))
     assert growing["watered"] and not growing["paused"] and not growing["has_pests"]
@@ -785,7 +783,7 @@ def test_ai_pot_decision_fields_follow_formal_status_and_weather(api):
     assert pest["status"] == "pest_blocked" and pest["has_pests"] and pest["paused"] and pest["remaining_seconds"] is None
     assert empty["remaining_seconds"] is None and withered["remaining_seconds"] is None
     state["weather"] = next(key for key, weather in ge.WEATHER.items() if weather["grow_speed"] != ge.WEATHER["sunny"]["grow_speed"])
-    assert module._build_pots_for_ai(state)[0]["remaining_seconds"] == int((grow_time / 2) / ge.WEATHER[state["weather"]]["grow_speed"])
+    assert build_garden_pots(state)[0]["remaining_seconds"] == int((grow_time / 2) / ge.WEATHER[state["weather"]]["grow_speed"])
 
 
 def test_failed_command_includes_event_from_same_request(api, cat_clock, monkeypatch):
@@ -810,24 +808,6 @@ def test_failed_command_includes_event_from_same_request(api, cat_clock, monkeyp
     assert payload["state"]["latest_event"] == events[-1]["text"]
 
 
-@pytest.mark.parametrize(("seeds", "flowers", "expected_seeds", "expected_flowers"), [
-    ({}, {}, {}, {}),
-    ({"daisy": 3}, {"rose": 2}, {"daisy": 3}, {"rose": 2}),
-    ({"daisy": 3, "rose": 1, "lily": 0}, {"daisy": 5, "rose": 2, "lily": 0},
-     {"daisy": 3, "rose": 1}, {"daisy": 5, "rose": 2}),
-])
-def test_ai_inventory_gardening_details_are_positive_and_read_only(api, seeds, flowers, expected_seeds, expected_flowers):
-    module, _ = api
-    state = ge.get_default_state()
-    state["inventory"]["seeds"] = seeds.copy()
-    state["inventory"]["flowers"] = flowers.copy()
-    original = json.loads(json.dumps(state))
-    counts = module._build_inventory_counts_for_ai(state)
-    assert counts["seeds"] == expected_seeds
-    assert counts["flowers"] == expected_flowers
-    assert state == original
-
-
 def test_ai_gardening_details_match_across_routes_without_changing_save(api, cat_clock):
     module, client = api
     session_id, _ = create_human_garden(client)
@@ -846,14 +826,8 @@ def test_ai_gardening_details_match_across_routes_without_changing_save(api, cat
     state["inventory"]["seeds"] = {"daisy": 3, "rose": 1}
     state["inventory"]["flowers"] = {"daisy": 5, "rose": 2}
     ge.normalize_state(state, now)
-    expected_pots = module._build_pots_for_ai(state)
+    expected_pots = build_garden_pots(state)
     assert [pot["status"] for pot in expected_pots] == ["empty", "needs_water", "growing", "pest_blocked", "ready", "withered"]
-    original = json.loads(json.dumps(state))
-    assert module._build_inventory_counts_for_ai(state)["seeds"] == {"daisy": 3, "rose": 1}
-    assert state == original
-    module._ai_summary(state)
-    assert state["pots"] == original["pots"]
-    assert state["inventory"] == original["inventory"]
     headers = {"X-API-Key": "test-key"}
     for route in ("/api/status", "/api/cmd", "/api/cmd?compact=1"):
         module.db_save_state(session_id, state)
@@ -874,12 +848,11 @@ def test_ai_gardening_details_match_across_routes_without_changing_save(api, cat
         assert after["inventory"] == before["inventory"]
 
 
-def test_ai_pot_status_respects_harvest_priority_and_legacy_pest(api):
-    module, _ = api
+def test_ai_pot_status_respects_harvest_priority_and_legacy_pest():
     state = ge.get_default_state()
     mature = {"flower_id": "daisy", "growth_progress": ge.FLOWERS["daisy"]["grow_time"], "watered": False}
     state["pots"] = [dict(mature), {**mature, "pest_time": 1}, {**mature, "pest_time": 1, "pest_resolved": True}]
-    assert [pot["status"] for pot in module._build_pots_for_ai(state)] == ["ready", "pest_blocked", "ready"]
+    assert [pot["status"] for pot in build_garden_pots(state)] == ["ready", "pest_blocked", "ready"]
 
 
 @pytest.mark.parametrize(("pest_fields", "blocked"), [
@@ -901,7 +874,7 @@ def test_ai_pest_summaries_follow_harvest_blocker_before_normalization(pest_fiel
     events = ge.refresh_garden_events(state, now=2_000_000_000)
     assert events["has_pests"] is blocked
     assert events["pest_pots"] == ([1] if blocked else [])
-    assert module._build_pot_summary_for_ai(state)["pest_pots"] == int(blocked)
+    assert module.build_overview(state, 2_000_000_000, cat_summary=None)["garden"]["pest_pots"] == ([1] if blocked else [])
 
 
 def test_ai_pest_summary_matches_pot_status_after_normalization():
@@ -919,12 +892,13 @@ def test_ai_pest_summary_matches_pot_status_after_normalization():
         {**pot, "pest_active": True, "pest_resolved": True},
         {**pot, "pest_active": True, "withered": True},
     ]
-    summary = module._ai_summary(state)
-    blocked_slots = [pot["slot"] for pot in summary["pots"] if pot["status"] == "pest_blocked"]
+    ge.normalize_state(state, now)
+    blocked_slots = [pot["slot"] for pot in build_garden_pots(state) if pot["status"] == "pest_blocked"]
+    events = ge.refresh_garden_events(state, now)
     assert blocked_slots == [1, 2]
-    assert summary["garden_events"]["pest_pots"] == blocked_slots
-    assert summary["garden_events"]["has_pests"] is True
-    assert summary["pots_summary"]["pest_pots"] == len(blocked_slots)
+    assert events["pest_pots"] == blocked_slots
+    assert events["has_pests"] is True
+    assert module.build_overview(state, now, cat_summary=None)["garden"]["pest_pots"] == blocked_slots
     assert state["pots"][3]["pest_active"] is False
     assert ge.get_pot_harvest_blocker(state, 3, state["pots"][3]) != "pest"
 
@@ -1377,7 +1351,7 @@ def test_api_info_directs_ai_to_existing_human_created_garden(api):
 
 
 @pytest.mark.parametrize(("basic_food", "premium_food"), [(13, 0), (0, 9), (5, 4), (0, 0)])
-def test_ai_inventory_counts_expose_food_types_and_preserve_legacy_alias(api, basic_food, premium_food):
+def test_ai_inventory_exposes_food_types_on_current_routes(api, basic_food, premium_food):
     module, client = api
     state = ge.get_default_state()
     state["cat_state"]["next_visit_at"] = int(ge.time.time()) + 3600
@@ -1386,16 +1360,6 @@ def test_ai_inventory_counts_expose_food_types_and_preserve_legacy_alias(api, ba
         "flowers": {"rose": 4},
         "items": {"basic_food": basic_food, "premium_food": premium_food, "water": 7},
     }
-    original_inventory = json.loads(json.dumps(state["inventory"]))
-    original_state = json.loads(json.dumps(state))
-    counts = module._build_inventory_counts_for_ai(state)
-    assert counts["basic_food_servings"] == basic_food
-    assert counts["premium_food_servings"] == premium_food
-    assert counts["cat_food_servings"] == basic_food
-    assert counts["cat_food_servings"] == counts["basic_food_servings"]
-    assert state["inventory"] == original_inventory
-    assert state == original_state
-
     for route in ("/api/status", "/api/cmd", "/api/cmd?compact=1"):
         module.db_save_state("food-counts", state)
         if route == "/api/status":

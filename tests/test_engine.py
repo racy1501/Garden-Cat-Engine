@@ -277,8 +277,6 @@ def test_treat_refreshes_garden_events_immediately_and_restores_mature_harvest(m
     assert state["garden_events"]["has_pests"] is False
     assert state["garden_events"]["pest_pots"] == []
     assert ge.get_pot_ai_status(state, 0, state["pots"][0]) == "ready"
-    from game_api import _build_pot_summary_for_ai
-    assert _build_pot_summary_for_ai(state)["ready_pots"] == 1
     assert ge.execute_command(state, "harvest 1").ok is True
 
 

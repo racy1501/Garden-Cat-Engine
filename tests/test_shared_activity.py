@@ -2,7 +2,6 @@
 from urllib.parse import quote
 
 import game_engine as ge
-from copy import deepcopy
 from test_api_response_shape import api, adopted_cat_state, cat_clock, create_human_garden
 
 
@@ -111,20 +110,3 @@ def test_shared_activity_includes_real_sources_and_is_limited_in_compact_and_bat
                         json={'session_id': sid, 'commands': ['plant daisy 2']}).get_json()
     assert batch['ok'] is True and 'shared_activity' not in batch['state']
     assert any(e['text'] == '在盆2种下了雏菊' for e in batch['state']['recent_events'])
-
-
-def test_shared_activity_uses_saved_snapshot_before_summary_catchup(api, cat_clock, monkeypatch):
-    module, _ = api
-    state = ge.get_default_state()
-    state['events'] = []
-    ge.add_event(state, '已保存事件', now=cat_clock[0] - 1, source='human', area='garden')
-
-    def late_catchup(state, now, **kwargs):
-        ge.add_event(state, '摘要补算事件', now=now, source='system', area='garden')
-        return True
-
-    monkeypatch.setattr(module, 'apply_offline_progress', late_catchup)
-    with module.app.test_request_context():
-        summary = module._ai_summary(deepcopy(state))
-    assert [event['text'] for event in summary['shared_activity']] == ['已保存事件']
-    assert summary['recent_events'] == [] and summary['latest_event'] == ''

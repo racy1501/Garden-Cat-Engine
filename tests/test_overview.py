@@ -1,6 +1,5 @@
 """Level-one status is actionable, bounded, and distinct from action responses."""
 from copy import deepcopy
-import json
 from unittest.mock import Mock
 
 import pytest
@@ -136,24 +135,6 @@ def test_overview_projection_is_read_only(api, cat_clock, monkeypatch):
     monkeypatch.setattr(ge.random, 'randint', forbidden)
     build_overview(state, cat_clock[0], cat_summary=cat)
     assert state == before
-
-
-def test_status_size_reduction_on_the_same_test_save(api, cat_clock):
-    module, client = api
-    sid, _ = create_human_garden(client)
-    state = module.db_load_state(sid)
-    state['encyclopedia'] = list(ge.FLOWERS)
-    state['inventory']['flowers'] = {fid: 3 for fid in ge.FLOWERS}
-    module.db_save_state(sid, state)
-    old_state = deepcopy(state)
-    with module.app.test_request_context():
-        old = {'ok': True, 'session_id': sid, 'message': ge.process_command(old_state, 'status'),
-               'state': module._ai_summary(old_state)}
-    new = status(client, sid)
-    old_json = json.dumps(old, ensure_ascii=False, separators=(',', ':'))
-    new_json = json.dumps(new, ensure_ascii=False, separators=(',', ':'))
-    print(f'OVERVIEW_SIZE chars {len(old_json)} -> {len(new_json)}; UTF8 bytes {len(old_json.encode())} -> {len(new_json.encode())}')
-    assert len(new_json) < len(old_json) * 0.6
 
 
 def test_status_settles_once_and_projects_the_saved_snapshot(api, cat_clock, monkeypatch):

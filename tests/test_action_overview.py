@@ -1,6 +1,5 @@
 """Actions report their outcome and one bounded, already-settled decision state."""
 from copy import deepcopy
-import json
 
 import pytest
 import game_engine as ge
@@ -157,34 +156,3 @@ def test_action_projection_reads_saved_state_without_extra_settlement(api, cat_c
 
     monkeypatch.setattr(module, 'build_overview', inspect)
     assert command(client, sid, 'plant daisy 1')['ok'] is True
-
-
-@pytest.mark.parametrize('batch', [False, True])
-def test_response_size_on_same_save(api, cat_clock, batch):
-    module, client = api
-    sid, _ = create_human_garden(client)
-    state = module.db_load_state(sid)
-    state['encyclopedia'] = list(ge.FLOWERS)
-    state['inventory']['flowers'] = {fid: 3 for fid in ge.FLOWERS}
-    module.db_save_state(sid, state)
-    old_state = deepcopy(state)
-    commands = ['plant daisy 1', 'harvest 1', 'water 1'] if batch else ['plant daisy 1']
-    with module.app.test_request_context():
-        before = list(old_state['events'])
-        if batch:
-            _, messages = ge.prepare_command_state(old_state, cat_clock[0], letter_context={'messages': [], 'remaining_deliveries': 1})
-            results = []
-            for text in commands:
-                outcome = ge.execute_command(old_state, text, event_source='ai', settled_at=cat_clock[0])
-                results.append({'command': text, 'ok': outcome.ok, 'message': outcome.message})
-            old = {'ok': True, 'session_id': sid, 'results': results, 'message': '\n'.join(messages),
-                   'state': module._ai_summary(old_state, events_before=before, settled_at=cat_clock[0])}
-        else:
-            outcome = ge.execute_command(old_state, commands[0], event_source='ai')
-            old = {'ok': outcome.ok, 'session_id': sid, 'message': outcome.message,
-                   'state': module._ai_summary(old_state, events_before=before)}
-    new = post_batch(client, sid, commands).get_json() if batch else command(client, sid, commands[0])
-    old_json = json.dumps(old, ensure_ascii=False, separators=(',', ':'))
-    new_json = json.dumps(new, ensure_ascii=False, separators=(',', ':'))
-    print(f"{'BATCH' if batch else 'ACTION'}_SIZE chars {len(old_json)} -> {len(new_json)}; UTF8 bytes {len(old_json.encode())} -> {len(new_json.encode())}")
-    assert len(new_json) < len(old_json) * 0.6
