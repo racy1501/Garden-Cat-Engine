@@ -147,11 +147,13 @@ def ensure_schema() -> None:
                     id BIGSERIAL PRIMARY KEY,
                     session_id TEXT NOT NULL,
                     author_type TEXT NOT NULL CHECK (author_type IN ('human', 'ai')),
+                    author_name TEXT,
                     content TEXT NOT NULL,
                     created_at BIGINT NOT NULL
                 )
                 """
             )
+            cur.execute("ALTER TABLE garden_notes ADD COLUMN IF NOT EXISTS author_name TEXT")
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS garden_note_reads (
@@ -176,11 +178,15 @@ def ensure_schema() -> None:
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     session_id TEXT NOT NULL,
                     author_type TEXT NOT NULL CHECK (author_type IN ('human', 'ai')),
+                    author_name TEXT,
                     content TEXT NOT NULL,
                     created_at INTEGER NOT NULL
                 )
                 """
             )
+            cur.execute("PRAGMA table_info(garden_notes)")
+            if "author_name" not in {row[1] for row in cur.fetchall()}:
+                cur.execute("ALTER TABLE garden_notes ADD COLUMN author_name TEXT")
             cur.execute(
                 """
                 CREATE TABLE IF NOT EXISTS garden_note_reads (
@@ -368,6 +374,7 @@ def _note_row_to_dict(row: Any) -> dict[str, Any]:
     return {
         "id": int(row["id"]),
         "author_type": str(row["author_type"]),
+        "author_name": row["author_name"],
         "content": str(row["content"]),
         "created_at": timestamp,
         "created_at_iso": _note_iso_time(timestamp),
@@ -496,7 +503,7 @@ def db_list_notes(
                 total = int(cur.fetchone()["total"])
                 cur.execute(
                     """
-                    SELECT id, author_type, content, created_at
+                    SELECT id, author_type, author_name, content, created_at
                     FROM garden_notes
                     WHERE session_id = %s
                     ORDER BY created_at DESC, id DESC
@@ -525,7 +532,7 @@ def db_list_notes(
             total = int(cur.fetchone()[0])
             cur.execute(
                 """
-                SELECT id, author_type, content, created_at
+                SELECT id, author_type, author_name, content, created_at
                 FROM garden_notes
                 WHERE session_id = ?
                 ORDER BY created_at DESC, id DESC
@@ -568,6 +575,7 @@ def db_add_note(
     author_type: str,
     content: Any,
     now: int | None = None,
+    author_name: str | None = None,
 ) -> tuple[dict[str, Any] | None, int, str | None]:
     """Append a note. Returns (note, cooldown_remaining, validation_error)."""
     ensure_schema()
@@ -617,20 +625,20 @@ def db_add_note(
         if USE_POSTGRES:
             cur.execute(
                 """
-                INSERT INTO garden_notes (session_id, author_type, content, created_at)
-                VALUES (%s, %s, %s, %s)
+                INSERT INTO garden_notes (session_id, author_type, author_name, content, created_at)
+                VALUES (%s, %s, %s, %s, %s)
                 RETURNING id
                 """,
-                (session_id, author_type, normalized, now),
+                (session_id, author_type, author_name, normalized, now),
             )
             note_id = int(cur.fetchone()[0])
         else:
             cur.execute(
                 """
-                INSERT INTO garden_notes (session_id, author_type, content, created_at)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO garden_notes (session_id, author_type, author_name, content, created_at)
+                VALUES (?, ?, ?, ?, ?)
                 """,
-                (session_id, author_type, normalized, now),
+                (session_id, author_type, author_name, normalized, now),
             )
             note_id = int(cur.lastrowid)
         conn.commit()
@@ -638,6 +646,7 @@ def db_add_note(
     note = {
         "id": note_id,
         "author_type": author_type,
+        "author_name": author_name,
         "content": normalized,
         "created_at": now,
         "created_at_iso": _note_iso_time(now),
@@ -724,7 +733,7 @@ def _handle_note_command(
     if content is None:
         return None
 
-    note, remaining, error = db_add_note(session_id, author_type, content)
+    note, remaining, error = db_add_note(session_id, author_type, content, author_name=_request_event_source_name(author_type))
     if error:
         return CommandResult(False, f"❌ {error}")
     if note is None:
@@ -1432,7 +1441,7 @@ def web_notes():
         return _web_auth_error()
 
     if request.method == "POST":
-        note, remaining, error = db_add_note(session_id, "human", data.get("content", ""))
+        note, remaining, error = db_add_note(session_id, "human", data.get("content", ""), author_name=_request_event_source_name("human"))
         if error:
             return jsonify({"ok": False, "message": error}), 400
         if note is None:
@@ -1761,7 +1770,7 @@ def api_notes():
     _get_or_create_state(session_id)
 
     if request.method == "POST":
-        note, remaining, error = db_add_note(session_id, "ai", data.get("content", ""))
+        note, remaining, error = db_add_note(session_id, "ai", data.get("content", ""), author_name=_request_event_source_name("ai"))
         if error:
             return jsonify({"ok": False, "message": f"❌ {error}"}), 400
         if note is None:

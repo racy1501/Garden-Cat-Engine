@@ -104,7 +104,8 @@ def test_readme_describes_current_release_and_formal_bouquet_catalog(api):
 def test_human_and_ai_share_timeline_with_separate_cooldowns(api):
     module, client = api
     session_id, human_headers = create_human_garden(client)
-    ai_headers = {"X-API-Key": "test-key"}
+    human_headers["X-Garden-Human-Name"] = "Ayu"
+    ai_headers = {"X-API-Key": "test-key", "X-Garden-Owner-Name": "Yanchuan"}
 
     human = client.post(
         "/web/notes",
@@ -113,6 +114,7 @@ def test_human_and_ai_share_timeline_with_separate_cooldowns(api):
     )
     assert human.status_code == 200
     assert human.get_json()["note"]["author_type"] == "human"
+    assert human.get_json()["note"]["author_name"] == "Ayu"
 
     # 人类刚写完不会占用 AI 的冷却。
     ai = client.post(
@@ -122,6 +124,7 @@ def test_human_and_ai_share_timeline_with_separate_cooldowns(api):
     )
     assert ai.status_code == 200
     assert ai.get_json()["note"]["author_type"] == "ai"
+    assert ai.get_json()["note"]["author_name"] == "Yanchuan"
 
     timeline = client.get(
         f"/api/notes?session_id={session_id}&page=1",
@@ -129,6 +132,9 @@ def test_human_and_ai_share_timeline_with_separate_cooldowns(api):
     ).get_json()
     assert timeline["total"] == 2
     assert [note["author_type"] for note in timeline["notes"]] == ["ai", "human"]
+    assert [note["author_name"] for note in timeline["notes"]] == ["Yanchuan", "Ayu"]
+    web_timeline = client.get(f"/web/notes?session_id={session_id}", headers=human_headers).get_json()
+    assert [note["author_name"] for note in web_timeline["notes"]] == ["Yanchuan", "Ayu"]
 
     second_human = client.post(
         "/web/notes",
@@ -145,6 +151,22 @@ def test_human_and_ai_share_timeline_with_separate_cooldowns(api):
     assert second_human.get_json()["cooldown_remaining_seconds"] > 0
     assert second_ai.get_json()["cooldown_remaining_seconds"] > 0
     assert module.NOTE_COOLDOWN_SECONDS == 2 * 60 * 60
+
+
+def test_legacy_notes_schema_is_upgraded_without_data_loss(api, tmp_path, monkeypatch):
+    import sqlite3
+
+    module, _ = api
+    legacy_path = tmp_path / "legacy.db"
+    with sqlite3.connect(legacy_path) as conn:
+        conn.execute("CREATE TABLE garden_notes (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, author_type TEXT NOT NULL, content TEXT NOT NULL, created_at INTEGER NOT NULL)")
+        conn.execute("INSERT INTO garden_notes (session_id, author_type, content, created_at) VALUES (?, ?, ?, ?)", ("old", "ai", "旧便签", 1700000000))
+    monkeypatch.setattr(module, "SQLITE_PATH", str(legacy_path))
+    module.ensure_schema()
+    module.ensure_schema()
+    notes = module.db_list_notes("old", "human")["notes"]
+    assert len(notes) == 1
+    assert (notes[0]["id"], notes[0]["author_type"], notes[0]["author_name"], notes[0]["content"], notes[0]["created_at"]) == (1, "ai", None, "旧便签", 1700000000)
 
 
 def test_note_length_pagination_and_append_only_routes(api):

@@ -415,7 +415,7 @@ async function requestJson(url, options = {}) {
   if (url.startsWith("/web/notes") || url.startsWith("/web/bouquets/read")) {
     const notice = String(data.message || "").split("\n").find((line) => line.startsWith("🎁 发现新藏品："));
     if (notice) {
-      $("#messageBox").textContent = notice;
+      showDiaryResult(notice, data.state?.new_events?.at(-1)?.time || data.state?.server_now);
     }
   }
   if (!response.ok) {
@@ -607,10 +607,15 @@ function formatEventSource(event) {
   return (typeof event.source_name === "string" && event.source_name.trim()) || event.source_label || labels[event.source] || "";
 }
 
+function showDiaryResult(message, timestamp) {
+  $("#messageBox").textContent = message;
+  const date = new Date((Number(timestamp) || Date.now() / 1000) * 1000);
+  $("#messageTime").textContent = date.toLocaleString("zh-CN", {
+    year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false,
+  });
+}
+
 function updateFromResponse(data, quiet = false, isStatusRefresh = false) {
-  if (gardenNeedsResume && quiet) {
-    $("#messageBox").textContent = "已显示花园当前状态，历史记录见下方日志。";
-  }
   const previousGardenEvents = currentState?.garden_events;
   currentState = data.state;
   if (typeof currentState?.has_unread_bouquet_gifts === "boolean") {
@@ -624,6 +629,7 @@ function updateFromResponse(data, quiet = false, isStatusRefresh = false) {
   stateSnapshotAtMs = Date.now();
   liveRefreshQueued = false;
   const notifications = currentState?.new_events || [];
+  let latestDiscoveredEvent = null;
   const areasWithEvents = new Set();
   const records = currentState?.recent_event_records;
   if (Array.isArray(records)) {
@@ -633,6 +639,10 @@ function updateFromResponse(data, quiet = false, isStatusRefresh = false) {
       const time = Number(event.time);
       if (!Number.isFinite(time)) continue;
       if (previous && time === previous.time) sameTimeCount++;
+      if (isStatusRefresh && previous && (time > previous.time ||
+          (time === previous.time && sameTimeCount > previous.count)) && event.text) {
+        latestDiscoveredEvent = event;
+      }
       if (isStatusRefresh && previous && (time > previous.time ||
           (time === previous.time && sameTimeCount > previous.count)) &&
           Object.hasOwn(latestLocationNotices, event.area) && event.text) {
@@ -676,9 +686,11 @@ function updateFromResponse(data, quiet = false, isStatusRefresh = false) {
   renderAll();
   updateLiveCountdowns();
   maybeAutoShowUpdateAnnouncement();
-  if (notifications.length || (!quiet && data.message)) {
-    $("#messageBox").textContent = notifications.length && quiet
-      ? notifications.map((event) => event.text).join("\n") : data.message;
+  const freshEvents = notifications.length ? notifications : latestDiscoveredEvent ? [latestDiscoveredEvent] : [];
+  if (!isStatusRefresh && !quiet && data.message) {
+    showDiaryResult(data.message, notifications.at(-1)?.time || currentState?.server_now);
+  } else if (freshEvents.length) {
+    showDiaryResult(freshEvents.map((event) => event.text).join("\n"), freshEvents.at(-1)?.time || currentState?.server_now);
   }
 }
 
@@ -2815,7 +2827,7 @@ function renderNotesModal(payload) {
       const top = document.createElement("div");
       top.className = "note-card-head";
       const author = document.createElement("strong");
-      author.textContent = note.author_type === "ai" ? "AI" : "人类";
+      author.textContent = note.author_name?.trim() || (note.author_type === "ai" ? "[AI]" : "[人类]");
       const timestamp = document.createElement("time");
       timestamp.textContent = formatNoteTimestamp(note);
       top.append(author, timestamp);
@@ -3272,6 +3284,8 @@ for (const button of document.querySelectorAll(".store-tab-btn")) {
     $(paneId).classList.add("active");
   });
 }
+
+$("#messageBox").insertAdjacentHTML("afterend", '<div class="message-time" id="messageTime"></div>');
 
 window.addEventListener("focus", () => {
   gardenNeedsResume = true;

@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS garden_notes (
     id BIGSERIAL PRIMARY KEY,
     session_id TEXT NOT NULL,
     author_type TEXT NOT NULL CHECK (author_type IN ('human', 'ai')),
+    author_name TEXT,
     content TEXT NOT NULL,
     created_at BIGINT NOT NULL
 );

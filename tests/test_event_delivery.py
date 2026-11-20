@@ -140,6 +140,41 @@ console.log(JSON.stringify({notice:get('#gardenNoticeText').textContent,rows:row
     assert len(json.loads(result.stdout)["rows"]) == 3
 
 
+def test_diary_keeps_meaningful_result_across_silent_refreshes():
+    root = Path(__file__).resolve().parents[1]
+    script = r"""
+const fs=require('fs'),vm=require('vm'),src=fs.readFileSync('static/app.js','utf8');
+const nodes={},get=id=>nodes[id]||(nodes[id]={textContent:''}),listeners={};
+const ctx={credentials:{session_id:'x'},isBusy:false,currentState:null,seenEventBoundary:null,
+ latestLocationNotices:{garden:'',flower_shop:'',cottage:''},gardenNeedsResume:true,
+ document:{visibilityState:'visible',addEventListener(n,f){listeners[n]=f}},window:{addEventListener(n,f){listeners[n]=f}},
+ $:get,authHeaders(){return {}},setBusy(v){ctx.isBusy=v},showToast(){},renderAll(){},updateLiveCountdowns(){},maybeAutoShowUpdateAnnouncement(){},
+ async requestJson(){return {message:'状态更新',state:{recent_event_records:ctx.records,new_events:[],server_now:300}}}};
+vm.createContext(ctx);
+for(const [a,b] of [['async function refreshGarden(','async function runCommand('],['function formatEventSource(','function renderNotesButton('],['window.addEventListener("focus"','setInterval(updateLiveCountdowns']])
+ vm.runInContext(src.slice(src.indexOf(a),src.indexOf(b)),ctx);
+const stamp=t=>new Date(t*1000).toLocaleString('zh-CN',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false});
+(async()=>{
+ ctx.records=[];await ctx.refreshGarden({quiet:true});
+ const result='🌸 收获玫瑰\n🌼 收获雏菊';
+ ctx.updateFromResponse({message:result,state:{new_events:[],recent_event_records:[],server_now:100}});
+ if(get('#messageBox').textContent!==result||get('#messageTime').textContent!==stamp(100))throw Error('operation result/time');
+ await ctx.refreshGarden({quiet:true});listeners.focus();await new Promise(resolve=>setImmediate(resolve));
+ listeners.visibilitychange();await new Promise(resolve=>setImmediate(resolve));
+ if(get('#messageBox').textContent!==result||get('#messageTime').textContent!==stamp(100))throw Error('silent refresh replaced result');
+ ctx.updateFromResponse({message:'浇水完成',state:{new_events:[],recent_event_records:[],server_now:200}});
+ if(get('#messageBox').textContent!=='浇水完成'||get('#messageTime').textContent!==stamp(200))throw Error('new operation');
+ const ai={time:400,text:'AI 种花',source:'ai'};ctx.records=[ai];await ctx.refreshGarden({quiet:true});
+ if(get('#messageBox').textContent!==ai.text||get('#messageTime').textContent!==stamp(400))throw Error('AI event');
+ const system={time:500,text:'猫回家',source:'system'};
+ ctx.updateFromResponse({state:{new_events:[system],recent_event_records:[ai,system],server_now:600}},true,true);
+ if(get('#messageBox').textContent!==system.text||get('#messageTime').textContent!==stamp(500))throw Error('system event');
+})().catch(e=>{console.error(e);process.exit(1)});
+"""
+    result = subprocess.run(["node", "-e", script], cwd=root, encoding="utf-8", capture_output=True)
+    assert result.returncode == 0, result.stderr
+
+
 def test_frontend_diary_prefers_name_and_keeps_legacy_labels():
     root = Path(__file__).resolve().parents[1]
     script = r"""

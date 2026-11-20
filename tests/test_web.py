@@ -474,6 +474,26 @@ const notice='🎁 发现新藏品：圆润的小石子';
     assert result.stdout.strip() == "ok"
 
 
+def test_note_cards_prefer_author_name_and_keep_legacy_labels():
+    root = Path(__file__).resolve().parents[1]
+    script = r"""
+const fs=require('fs'),vm=require('vm'),src=fs.readFileSync('static/app.js','utf8');
+function element(){return {children:[],append(...items){this.children.push(...items)},setAttribute(){},addEventListener(){}}}
+const body=element(),ctx={document:{createElement:element},$:()=>body,catalog:{},startNotesCooldownTimer(){},formatNoteTimestamp(){return ''}};
+vm.createContext(ctx);
+vm.runInContext(src.slice(src.indexOf('function renderNotesModal('),src.indexOf('async function showNotesModal(')),ctx);
+ctx.renderNotesModal({page:1,total_pages:1,total:3,notes:[
+ {author_type:'ai',author_name:'砚川',content:'a'},
+ {author_type:'ai',author_name:null,content:'b'},
+ {author_type:'human',author_name:null,content:'c'}]});
+const cards=body.children.find(node=>node.className==='notes-list').children;
+const labels=cards.map(card=>card.children[0].children[0].textContent);
+if(JSON.stringify(labels)!==JSON.stringify(['砚川','[AI]','[人类]']))throw Error(JSON.stringify(labels));
+"""
+    result = subprocess.run(["node", "-e", script], cwd=root, encoding="utf-8", capture_output=True)
+    assert result.returncode == 0, result.stderr
+
+
 def test_backpack_flower_prices_show_per_flower():
     js = (Path(__file__).resolve().parents[1] / 'static' / 'app.js').read_text(encoding='utf-8')
     active_modal = js.rsplit('function showBackpackModal() {', 1)[1].split('function startPetCooldownTimer()', 1)[0]
